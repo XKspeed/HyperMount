@@ -71,6 +71,7 @@ fun VolumeCheckPage(
     onFinished: () -> Unit,
 ) {
     val scope = rememberCoroutineScope()
+    val context = androidx.compose.ui.platform.LocalContext.current
     val scrollBehavior = MiuixScrollBehavior()
     val listState = rememberLazyListState()
 
@@ -109,6 +110,8 @@ fun VolumeCheckPage(
                     upLine.orEmpty().removePrefix("OK").trim(),
                     downLine.orEmpty().removePrefix("OK").trim(),
                 )
+                // 设置页里补校验也算数 记下这次的系统版本
+                UiConfigState.markVolumeChecked(context)
                 saved = true
                 hint = "校验通过 已写入配置"
                 onFinished()

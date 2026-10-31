@@ -1,6 +1,7 @@
 package com.xkspeed.systemuimount.ui
 
 import android.content.Context
+import android.os.Build
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
@@ -26,6 +27,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -50,7 +52,9 @@ import top.yukonga.miuix.kmp.basic.HorizontalDivider
 import top.yukonga.miuix.kmp.basic.MiuixScrollBehavior
 import top.yukonga.miuix.kmp.basic.SmallTitle
 import top.yukonga.miuix.kmp.preference.SwitchPreference
-import top.yukonga.miuix.kmp.preference.OverlayDropdownPreference
+import com.xkspeed.systemuimount.ui.components.LiquidSelectHost
+import com.xkspeed.systemuimount.ui.components.LiquidSelectPreference
+import com.xkspeed.systemuimount.ui.components.rememberLiquidSelectState
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import kotlin.math.roundToInt
 
@@ -70,6 +74,16 @@ object UiConfigState {
     var onboarded by mutableStateOf(false)
 
     /**
+     * 上次校验音量键时的系统版本
+     *
+     * 系统升级后 /dev/input/eventN 与按键能力位都可能变 旧的校验结果不能再用，
+     * 启动时发现版本对不上就作废模块里的 VOLUME_CHECK_ASSESS 并重新拉起校验面板。
+     * -1 = 没记录过（老用户升级上来）不打扰。
+     */
+    var volCheckedSdk by mutableIntStateOf(-1)
+    var volCheckedRelease by mutableStateOf("")
+
+    /**
      * 安全模式：连续崩溃过（多半是液态玻璃这块的绘制炸了）
      * 此时关掉所有玻璃效果 让 App 至少能打开 能进设置
      */
@@ -83,6 +97,8 @@ object UiConfigState {
         // 老用户升级上来时 ui_config 里已经有键 不再弹一次引导
         // 全新安装时 prefs 是空的 才会走引导
         onboarded = p.getBoolean("onboarded", p.contains("auto_check_update"))
+        volCheckedSdk = p.getInt("vol_checked_sdk", -1)
+        volCheckedRelease = p.getString("vol_checked_release", "").orEmpty()
         safeMode = CrashLog.safeMode()
         GlassEffectState.load(context)
     }
@@ -93,7 +109,23 @@ object UiConfigState {
             putBoolean("predictive_back", predictiveBack)
             putBoolean("auto_check_update", autoCheckUpdate)
             putBoolean("onboarded", onboarded)
+            putInt("vol_checked_sdk", volCheckedSdk)
+            putString("vol_checked_release", volCheckedRelease)
         }.apply()
+    }
+
+    /** 系统版本与上次校验时不一致：按键设备号可能全变了 需要重新校验 */
+    fun needsVolumeRecheck(): Boolean {
+        if (volCheckedSdk < 0) return false
+        return volCheckedSdk != Build.VERSION.SDK_INT ||
+            volCheckedRelease != Build.VERSION.RELEASE
+    }
+
+    /** 记下这次校验用的系统版本 之后不再重复弹 */
+    fun markVolumeChecked(context: Context) {
+        volCheckedSdk = Build.VERSION.SDK_INT
+        volCheckedRelease = Build.VERSION.RELEASE
+        save(context)
     }
 }
 
@@ -146,18 +178,21 @@ fun UiSettingsPage(onBack: () -> Unit) {
         ThemeState.save(context)
     }
 
+    val select = rememberLiquidSelectState()
+
     ScrollPage(
         title = "界面",
         onBack = onBack,
         bottomPadding = WindowInsets.navigationBars.asPaddingValues()
             .calculateBottomPadding() + 24.dp,
+        overlay = { bd -> LiquidSelectHost(select, bd) },
     ) {
                 item { SmallTitle("主题") }
                 // 三样都在一张卡里：明暗三档 / 莫奈取色 / 种子色
                 item {
                     SectionCard {
                         // 一：明暗三档
-                        OverlayDropdownPreference(
+                        LiquidSelectPreference(
                             title = "主题模式",
                             summary = THEME_BRIGHTNESS_ITEMS[brightnessIndex],
                             items = THEME_BRIGHTNESS_ITEMS,
@@ -167,6 +202,7 @@ fun UiSettingsPage(onBack: () -> Unit) {
                                     if (monet) ThemeState.MODE_MONET_SYSTEM + it else it,
                                 )
                             },
+                            state = select,
                         )
                         HorizontalDivider(
                             color = MiuixTheme.colorScheme.dividerLine,
@@ -195,7 +231,7 @@ fun UiSettingsPage(onBack: () -> Unit) {
                                     color = MiuixTheme.colorScheme.dividerLine,
                                     modifier = Modifier.padding(horizontal = 16.dp),
                                 )
-                                OverlayDropdownPreference(
+                                LiquidSelectPreference(
                                     title = "种子色",
                                     summary = if (ThemeState.seedIndex == 0)
                                         "按当前壁纸取色"
@@ -208,6 +244,7 @@ fun UiSettingsPage(onBack: () -> Unit) {
                                         ThemeState.seedIndex = it
                                         ThemeState.save(context)
                                     },
+                                    state = select,
                                 )
                                 // 调色风格 / 色彩规范只在固定取色时才有意义
                                 AnimatedVisibility(
@@ -220,7 +257,7 @@ fun UiSettingsPage(onBack: () -> Unit) {
                                             color = MiuixTheme.colorScheme.dividerLine,
                                             modifier = Modifier.padding(horizontal = 16.dp),
                                         )
-                                        OverlayDropdownPreference(
+                                        LiquidSelectPreference(
                                             title = "调色风格",
                                             summary = PALETTE_STYLE_SUMMARIES[
                                                 ThemeState.paletteStyle.coerceIn(
@@ -237,12 +274,13 @@ fun UiSettingsPage(onBack: () -> Unit) {
                                                 ThemeState.paletteStyle = it
                                                 ThemeState.save(context)
                                             },
+                                            state = select,
                                         )
                                         HorizontalDivider(
                                             color = MiuixTheme.colorScheme.dividerLine,
                                             modifier = Modifier.padding(horizontal = 16.dp),
                                         )
-                                        OverlayDropdownPreference(
+                                        LiquidSelectPreference(
                                             title = "色彩规范",
                                             summary = COLOR_SPEC_SUMMARIES[
                                                 ThemeState.colorSpec.coerceIn(
@@ -259,6 +297,7 @@ fun UiSettingsPage(onBack: () -> Unit) {
                                                 ThemeState.colorSpec = it
                                                 ThemeState.save(context)
                                             },
+                                            state = select,
                                         )
                                     }
                                 }

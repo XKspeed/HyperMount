@@ -106,10 +106,16 @@ private data class EnvResult(
  * 全程不写 any 配置，只有音量键校验通过才落盘 VOLUME_CHECK_ASSESS=1。
  */
 @Composable
-fun OnboardingPage(onDone: () -> Unit) {
+fun OnboardingPage(
+    onDone: () -> Unit,
+    /** 直接从音量键这一步开始（系统版本变了要重验时用） */
+    startAtVolume: Boolean = false,
+    /** 强制校验：忽略已校验标记 作废模块侧结果后重按一遍 */
+    forceVolume: Boolean = false,
+) {
     val context = LocalContext.current
 
-    var step by remember { mutableIntStateOf(0) }
+    var step by remember { mutableIntStateOf(if (startAtVolume) 3 else 0) }
     var agreed by remember { mutableStateOf(false) }
 
     // 环境检查
@@ -145,8 +151,8 @@ fun OnboardingPage(onDone: () -> Unit) {
             moduleVersion = st?.version.orEmpty(),
             moduleAuthor = st?.moduleAuthor.orEmpty(),
         )
-        // 之前校验过就不用再按一遍 直接当作通过
-        if (st?.volumeAssessed == true) {
+        // 之前校验过就不用再按一遍 直接当作通过（版本变了强制重验时不认旧结果）
+        if (st?.volumeAssessed == true && !forceVolume) {
             volAlready = true
             upState = KeyState.Passed
             downState = KeyState.Passed
@@ -166,6 +172,15 @@ fun OnboardingPage(onDone: () -> Unit) {
             downState = KeyState.Failed
             volHint = "没有 ROOT 权限 读不到按键设备 先去授权再来"
             return@LaunchedEffect
+        }
+
+        // 系统版本对不上：先把模块里的校验标记作废 否则救砖会拿旧设备号
+        if (forceVolume) {
+            runCatching {
+                Module.setConf("VOLUME_CHECK_ASSESS", "0")
+                Module.setConf("VOL_UP_DEV", "")
+                Module.setConf("VOL_DOWN_DEV", "")
+            }
         }
 
         upState = KeyState.Waiting
@@ -195,8 +210,13 @@ fun OnboardingPage(onDone: () -> Unit) {
 
         // 两个都过才写配置 记下实测设备 救砖时不用再猜
         val save = runCatching { Module.saveVolumeCheck(upDev, downDev) }.getOrDefault("")
-        volHint = if (save.contains("OK")) "校验通过 已写入模块配置"
-        else "按键能读到 但写入配置失败 去设置里再校验一次"
+        if (save.contains("OK")) {
+            // 记下这次校验时的系统版本 下次系统升级才会再拉一次
+            UiConfigState.markVolumeChecked(context)
+            volHint = "校验通过 已写入模块配置"
+        } else {
+            volHint = "按键能读到 但写入配置失败 去设置里再校验一次"
+        }
     }
 
     val volDone = upState is KeyState.Passed && downState is KeyState.Passed

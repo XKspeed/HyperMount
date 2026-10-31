@@ -106,6 +106,8 @@ fun ScrollPage(
     listState: LazyListState = rememberLazyListState(),
     bottomPadding: Dp = 24.dp,
     backgroundContent: @Composable BoxScope.() -> Unit = {},
+    /** 页面级浮层（下拉弹层等）：画在列表与顶栏之上 拿到的是同一份 backdrop 才能做真模糊 */
+    overlay: @Composable BoxScope.(Backdrop) -> Unit = {},
     content: LazyListScope.() -> Unit,
 ) {
     val pageColor = MiuixTheme.colorScheme.surface
@@ -174,6 +176,8 @@ fun ScrollPage(
             barVisible = collapse.bar,
             smallTitleVisible = collapse.small,
         )
+
+        overlay(backdrop)
     }
 }
 

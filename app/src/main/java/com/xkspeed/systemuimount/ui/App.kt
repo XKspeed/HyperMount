@@ -137,12 +137,21 @@ fun App() {
     // 首次启动先走引导：欢迎 / 须知 / 环境 / 音量键 / 完成
     // 校验收在这里做 装完模块第一次打开就能确认按键读得到
     var onboarded by remember { mutableStateOf(UiConfigState.onboarded) }
-    if (!onboarded) {
+    // 系统版本变了（升级/刷机）：旧校验里的 /dev/input/eventN 不一定还在
+    // 启动就直接把校验面板拉起来 同时把模块侧的 VOLUME_CHECK_ASSESS 归零
+    var volumeStale by remember {
+        mutableStateOf(UiConfigState.onboarded && UiConfigState.needsVolumeRecheck())
+    }
+    if (!onboarded || volumeStale) {
         OnboardingPage(
+            startAtVolume = volumeStale,
+            forceVolume = volumeStale,
             onDone = {
                 UiConfigState.onboarded = true
                 UiConfigState.save(context)
                 onboarded = true
+                // 跳过也算本次已提醒过 下次启动版本仍不一致会再拉起
+                volumeStale = false
             },
         )
         return
@@ -246,6 +255,14 @@ fun App() {
     LaunchedEffect(Unit) {
         rootOk = Root.available()
         if (rootOk == true) runCatching { refresh() }
+    }
+
+    // 升级上来的老用户：模块里已经是校验过的状态 但没有版本记录
+    // 补记当前版本 不然这次系统版本变化永远检测不到
+    LaunchedEffect(state.volumeAssessed) {
+        if (state.volumeAssessed && UiConfigState.volCheckedSdk < 0) {
+            UiConfigState.markVolumeChecked(context)
+        }
     }
 
     // 守护运行中定时刷新（PID / 救砖次数会变）
@@ -401,154 +418,150 @@ fun App() {
             }
     }
 
-    // Overlay 版下拉要靠 Scaffold 提供 popup host（Sonify 也是这么挂的）
-    // 这里不挂 topBar/bottomBar 页面自己管 insets 传进来的 padding 忽略掉
-    Scaffold(containerColor = Color.Transparent) { _ ->
-        NavDisplay(
-            backStack = backStack,
-            // 转场用 MiuixDefault 圆角裁剪直接读系统圆角 和 LiftArc 一致
-            // 返回（含预测性返回手势）全交给 NavDisplay 自己接管
-            transition = NavTransitions.MiuixDefault,
-            effects = NavDisplayEffects(
-                cornerClipRadius = rememberNavSystemCornerRadius(),
-                backdropColor = MiuixTheme.colorScheme.surface,
-            ),
-        ) {
-            entry<Route.Main> {
-                MainScaffold(
-                    state = state,
-                    rootOk = rootOk,
-                    busy = busy,
-                    jumpTab = jumpTab,
-                    onJumpTabConsumed = { jumpTab = -1 },
-                    onPickRescue = { pickFile(PickerTarget.RESCUE) },
-                    onPickTarget = { pickFile(PickerTarget.TARGET) },
-                    onPickMainRescue = { pickFile(PickerTarget.MAIN_RESCUE) },
-                    onPickMainTarget = { pickFile(PickerTarget.MAIN_TARGET) },
-                    onStart = start@{
-                        val target = state.targetPath
-                        if (target.isBlank()) {
-                            toast(context, "请先选择待测界面")
-                            return@start
-                        }
-                        busy = true
-                        busyTitle = "启动测试"
-                        busySub = "正在准备救砖文件…"
-                        scope.launch {
-                            val out = Module.testRun(target)
-                            if (out.contains("OK")) {
-                                busySub = "已启动"
-                                runCatching { refresh() }
-                                DaemonService.start(context)
-                            } else {
-                                busyTitle = "启动失败"
-                                busySub = firstLine(out)
-                            }
-                            delay(700)
-                            busy = false
-                            busyTitle = null
-                        }
-                    },
-                    onStop = {
-                        busy = true
-                        busyTitle = "停止守护"
-                        busySub = "正在结束进程…"
-                        scope.launch {
-                            val out = Module.stop()
+    NavDisplay(
+        backStack = backStack,
+        // 转场用 MiuixDefault 圆角裁剪直接读系统圆角 和 LiftArc 一致
+        // 返回（含预测性返回手势）全交给 NavDisplay 自己接管
+        transition = NavTransitions.MiuixDefault,
+        effects = NavDisplayEffects(
+            cornerClipRadius = rememberNavSystemCornerRadius(),
+            backdropColor = MiuixTheme.colorScheme.surface,
+        ),
+    ) {
+        entry<Route.Main> {
+            MainScaffold(
+                state = state,
+                rootOk = rootOk,
+                busy = busy,
+                jumpTab = jumpTab,
+                onJumpTabConsumed = { jumpTab = -1 },
+                onPickRescue = { pickFile(PickerTarget.RESCUE) },
+                onPickTarget = { pickFile(PickerTarget.TARGET) },
+                onPickMainRescue = { pickFile(PickerTarget.MAIN_RESCUE) },
+                onPickMainTarget = { pickFile(PickerTarget.MAIN_TARGET) },
+                onStart = start@{
+                    val target = state.targetPath
+                    if (target.isBlank()) {
+                        toast(context, "请先选择待测界面")
+                        return@start
+                    }
+                    busy = true
+                    busyTitle = "启动测试"
+                    busySub = "正在准备救砖文件…"
+                    scope.launch {
+                        val out = Module.testRun(target)
+                        if (out.contains("OK")) {
+                            busySub = "已启动"
                             runCatching { refresh() }
-                            DaemonService.stop(context)
-                            busyTitle = null
-                            busy = false
-                            toast(context, firstLine(out).ifBlank { "已停止" })
+                            DaemonService.start(context)
+                        } else {
+                            busyTitle = "启动失败"
+                            busySub = firstLine(out)
                         }
-                    },
-                    onOpenLogs = { push(Route.Logs) },
-                    onOpenUiSettings = { push(Route.UiSettings) },
-                    onOpenVolumeCheck = { push(Route.VolumeCheck) },
-                    onOpenCrashLog = { push(Route.CrashLogs) },
-                    onOpenThirdPartyLicenses = { push(Route.ThirdPartyLicenses) },
-                    onOpenAbout = { push(Route.About) },
-                    onOpenGuide = { push(Route.Guide) },
-                    latest = latest,
-                    onOpenRelease = { openRelease() },
-                    onCheckUpdate = {
-                        // 点了至少要有反应 否则像没按到
-                        toast(context, "正在检查更新…")
-                        checkUpdate(manual = true)
-                    },
-                    checkingUpdate = checkingUpdate,
-                    onSetConf = { k, v ->
-                        scope.launch {
-                            Module.setConf(k, v)
-                            runCatching { refresh() }
-                        }
-                    },
-                    onRescueToggle = { off ->
-                        scope.launch {
-                            val out = Module.setRescueOff(off)
-                            runCatching { refresh() }
-                            if (!out.contains("OK")) toast(context, firstLine(out))
-                        }
-                    },
-                    onSetCrashLimit = { limit ->
-                        scope.launch {
-                            val out = Module.setCrashLimit(limit)
-                            runCatching { refresh() }
-                            if (!out.contains("OK")) toast(context, firstLine(out))
-                        }
-                    },
-                )
-            }
-
-            entry<Route.Logs> {
-                LogPage(
-                    title = "调试日志",
-                    autoRefresh = state.debug,
-                    loader = { lines -> Module.tailDebug(lines) },
-                    onBack = { backStack.removeLastOrNull() },
-                )
-            }
-
-            entry<Route.UiSettings> {
-                UiSettingsPage(onBack = { backStack.removeLastOrNull() })
-            }
-
-            entry<Route.VolumeCheck> {
-                VolumeCheckPage(
-                    onBack = { backStack.removeLastOrNull() },
-                    onFinished = { scope.launch { runCatching { refresh() } } },
-                )
-            }
-
-            entry<Route.CrashLogs> {
-                CrashLogPage(onBack = { backStack.removeLastOrNull() })
-            }
-
-            entry<Route.ThirdPartyLicenses> {
-                ThirdPartyLicensesPage(onBack = { backStack.removeLastOrNull() })
-            }
-
-            entry<Route.About> {
-                AboutPage(
-                    state = state,
-                    latest = latest,
-                    onOpenRelease = { openRelease() },
-                    onOpenThirdPartyLicenses = { push(Route.ThirdPartyLicenses) },
-                    onBack = { backStack.removeLastOrNull() },
-                )
-            }
-
-            entry<Route.Guide> {
-                OnboardingPage(
-                    onDone = {
-                        // 引导里可能重新校验了音量键 回来顺手刷一次状态
-                        scope.launch { runCatching { refresh() } }
-                        backStack.removeLastOrNull()
-                    },
-                )
-            }
-
+                        delay(700)
+                        busy = false
+                        busyTitle = null
+                    }
+                },
+                onStop = {
+                    busy = true
+                    busyTitle = "停止守护"
+                    busySub = "正在结束进程…"
+                    scope.launch {
+                        val out = Module.stop()
+                        runCatching { refresh() }
+                        DaemonService.stop(context)
+                        busyTitle = null
+                        busy = false
+                        toast(context, firstLine(out).ifBlank { "已停止" })
+                    }
+                },
+                onOpenLogs = { push(Route.Logs) },
+                onOpenUiSettings = { push(Route.UiSettings) },
+                onOpenVolumeCheck = { push(Route.VolumeCheck) },
+                onOpenCrashLog = { push(Route.CrashLogs) },
+                onOpenThirdPartyLicenses = { push(Route.ThirdPartyLicenses) },
+                onOpenAbout = { push(Route.About) },
+                onOpenGuide = { push(Route.Guide) },
+                latest = latest,
+                onOpenRelease = { openRelease() },
+                onCheckUpdate = {
+                    // 点了至少要有反应 否则像没按到
+                    toast(context, "正在检查更新…")
+                    checkUpdate(manual = true)
+                },
+                checkingUpdate = checkingUpdate,
+                onSetConf = { k, v ->
+                    scope.launch {
+                        Module.setConf(k, v)
+                        runCatching { refresh() }
+                    }
+                },
+                onRescueToggle = { off ->
+                    scope.launch {
+                        val out = Module.setRescueOff(off)
+                        runCatching { refresh() }
+                        if (!out.contains("OK")) toast(context, firstLine(out))
+                    }
+                },
+                onSetCrashLimit = { limit ->
+                    scope.launch {
+                        val out = Module.setCrashLimit(limit)
+                        runCatching { refresh() }
+                        if (!out.contains("OK")) toast(context, firstLine(out))
+                    }
+                },
+            )
         }
+
+        entry<Route.Logs> {
+            LogPage(
+                title = "调试日志",
+                autoRefresh = state.debug,
+                loader = { lines -> Module.tailDebug(lines) },
+                onBack = { backStack.removeLastOrNull() },
+            )
+        }
+
+        entry<Route.UiSettings> {
+            UiSettingsPage(onBack = { backStack.removeLastOrNull() })
+        }
+
+        entry<Route.VolumeCheck> {
+            VolumeCheckPage(
+                onBack = { backStack.removeLastOrNull() },
+                onFinished = { scope.launch { runCatching { refresh() } } },
+            )
+        }
+
+        entry<Route.CrashLogs> {
+            CrashLogPage(onBack = { backStack.removeLastOrNull() })
+        }
+
+        entry<Route.ThirdPartyLicenses> {
+            ThirdPartyLicensesPage(onBack = { backStack.removeLastOrNull() })
+        }
+
+        entry<Route.About> {
+            AboutPage(
+                state = state,
+                latest = latest,
+                onOpenRelease = { openRelease() },
+                onOpenThirdPartyLicenses = { push(Route.ThirdPartyLicenses) },
+                onBack = { backStack.removeLastOrNull() },
+            )
+        }
+
+        entry<Route.Guide> {
+            OnboardingPage(
+                onDone = {
+                    // 引导里可能重新校验了音量键 回来顺手刷一次状态
+                    scope.launch { runCatching { refresh() } }
+                    backStack.removeLastOrNull()
+                },
+            )
+        }
+
     }
 
     // 关掉预测性返回预览时把返回事件拦在 NavDisplay 前面：

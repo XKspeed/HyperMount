@@ -39,7 +39,9 @@ import top.yukonga.miuix.kmp.basic.TextField
 import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.preference.ArrowPreference
 import top.yukonga.miuix.kmp.preference.SwitchPreference
-import top.yukonga.miuix.kmp.preference.OverlayDropdownPreference
+import com.xkspeed.systemuimount.ui.components.LiquidSelectHost
+import com.xkspeed.systemuimount.ui.components.LiquidSelectPreference
+import com.xkspeed.systemuimount.ui.components.rememberLiquidSelectState
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.window.WindowDialog
 import kotlin.math.roundToInt
@@ -128,20 +130,24 @@ fun SettingsPage(
         mutableFloatStateOf((state.fatalThreshold.toIntOrNull() ?: 3).coerceIn(1, 10).toFloat())
     }
 
+    val select = rememberLiquidSelectState()
+
     ScrollPage(
         title = "设置",
         // 与主页/关于一致：底栏高度（70dp）已由外层 pagePadding 给出 这里只加一点呼吸
         bottomPadding = padding.calculateBottomPadding() + 16.dp,
+        overlay = { bd -> LiquidSelectHost(select, bd, bottomInset = padding.calculateBottomPadding()) },
     ) {
                 item { SmallTitle("运行") }
                 item {
                     SectionCard {
-                        OverlayDropdownPreference(
+                        LiquidSelectPreference(
                             title = "运行模式",
                             summary = LOG_MODE_SUMMARIES[logModeIndex],
                             items = LOG_MODE_LABELS,
                             selectedIndex = logModeIndex,
                             onSelectedIndexChange = { applyMode(it) },
+                            state = select,
                         )
                         // 只要带日志就联动出现 点了直接改 LOG_DIR
                         AnimatedVisibility(
