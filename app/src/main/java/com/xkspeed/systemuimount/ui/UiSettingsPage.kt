@@ -50,7 +50,7 @@ import top.yukonga.miuix.kmp.basic.HorizontalDivider
 import top.yukonga.miuix.kmp.basic.MiuixScrollBehavior
 import top.yukonga.miuix.kmp.basic.SmallTitle
 import top.yukonga.miuix.kmp.preference.SwitchPreference
-import top.yukonga.miuix.kmp.preference.WindowDropdownPreference
+import top.yukonga.miuix.kmp.preference.OverlayDropdownPreference
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import kotlin.math.roundToInt
 
@@ -157,7 +157,7 @@ fun UiSettingsPage(onBack: () -> Unit) {
                 item {
                     SectionCard {
                         // 一：明暗三档
-                        WindowDropdownPreference(
+                        OverlayDropdownPreference(
                             title = "主题模式",
                             summary = THEME_BRIGHTNESS_ITEMS[brightnessIndex],
                             items = THEME_BRIGHTNESS_ITEMS,
@@ -195,7 +195,7 @@ fun UiSettingsPage(onBack: () -> Unit) {
                                     color = MiuixTheme.colorScheme.dividerLine,
                                     modifier = Modifier.padding(horizontal = 16.dp),
                                 )
-                                WindowDropdownPreference(
+                                OverlayDropdownPreference(
                                     title = "种子色",
                                     summary = if (ThemeState.seedIndex == 0)
                                         "按当前壁纸取色"
@@ -220,7 +220,7 @@ fun UiSettingsPage(onBack: () -> Unit) {
                                             color = MiuixTheme.colorScheme.dividerLine,
                                             modifier = Modifier.padding(horizontal = 16.dp),
                                         )
-                                        WindowDropdownPreference(
+                                        OverlayDropdownPreference(
                                             title = "调色风格",
                                             summary = PALETTE_STYLE_SUMMARIES[
                                                 ThemeState.paletteStyle.coerceIn(
@@ -242,7 +242,7 @@ fun UiSettingsPage(onBack: () -> Unit) {
                                             color = MiuixTheme.colorScheme.dividerLine,
                                             modifier = Modifier.padding(horizontal = 16.dp),
                                         )
-                                        WindowDropdownPreference(
+                                        OverlayDropdownPreference(
                                             title = "色彩规范",
                                             summary = COLOR_SPEC_SUMMARIES[
                                                 ThemeState.colorSpec.coerceIn(

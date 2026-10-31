@@ -35,10 +35,11 @@ import top.yukonga.miuix.kmp.basic.ButtonDefaults
 import top.yukonga.miuix.kmp.basic.HorizontalDivider
 import top.yukonga.miuix.kmp.basic.SmallTitle
 import top.yukonga.miuix.kmp.basic.Text
+import top.yukonga.miuix.kmp.basic.TextField
 import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.preference.ArrowPreference
 import top.yukonga.miuix.kmp.preference.SwitchPreference
-import top.yukonga.miuix.kmp.preference.WindowDropdownPreference
+import top.yukonga.miuix.kmp.preference.OverlayDropdownPreference
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.window.WindowDialog
 import kotlin.math.roundToInt
@@ -67,8 +68,6 @@ fun SettingsPage(
     onOpenGuide: () -> Unit = {},
     onCheckUpdate: () -> Unit = {},
     checkingUpdate: Boolean = false,
-    // 日志目录改成底部弹层 由外层 MainScaffold 统一渲染（那边才有 backdrop 采样源）
-    onOpenLogDir: (String) -> Unit = {},
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
 
@@ -82,6 +81,9 @@ fun SettingsPage(
         mutableStateOf((state.logMode.toIntOrNull() ?: 0) >= 3)
     }
     var askEnhance by remember { mutableStateOf(false) }
+    // 日志目录：点开直接改 settings.conf 的 LOG_DIR
+    var showLogDir by remember { mutableStateOf(false) }
+    var logDirText by remember(state.logDir) { mutableStateOf(state.logDir) }
 
     fun applyMode(value: Int) {
         logModeIndex = if (value >= 2) 2 else value
@@ -134,7 +136,7 @@ fun SettingsPage(
                 item { SmallTitle("运行") }
                 item {
                     SectionCard {
-                        WindowDropdownPreference(
+                        OverlayDropdownPreference(
                             title = "运行模式",
                             summary = LOG_MODE_SUMMARIES[logModeIndex],
                             items = LOG_MODE_LABELS,
@@ -155,7 +157,10 @@ fun SettingsPage(
                                 ArrowPreference(
                                     title = "日志目录",
                                     summary = state.logDir.ifBlank { "未设置" },
-                                    onClick = { onOpenLogDir(state.logDir) },
+                                    onClick = {
+                                        logDirText = state.logDir
+                                        showLogDir = true
+                                    },
                                 )
                             }
                         }
@@ -336,7 +341,7 @@ fun SettingsPage(
                     }
                 }
 
-                // 关于整页挪成二级页 设置最下面留一个入口
+                // 关于整页挪成二级页 三行并成一张卡：关于 / 检查更新 / 自动检查更新
                 item { SmallTitle("关于") }
                 item {
                     SectionCard {
@@ -345,21 +350,20 @@ fun SettingsPage(
                             summary = "版本 · 开源许可",
                             onClick = onOpenAbout,
                         )
-                    }
-                }
-                // 检查更新：普通基础组件 没有副标题 右边只留箭头
-                item {
-                    SectionCard {
+                        HorizontalDivider(
+                            color = MiuixTheme.colorScheme.dividerLine,
+                            modifier = Modifier.padding(horizontal = 16.dp),
+                        )
+                        // 检查更新：普通基础组件 没有副标题 右边只留箭头
                         ArrowPreference(
                             title = if (checkingUpdate) "检查中…" else "检查更新",
                             enabled = !checkingUpdate,
                             onClick = onCheckUpdate,
                         )
-                    }
-                }
-                // 自动检查更新：单独一张短卡 就是示例里那种只有一个开关的
-                item {
-                    SectionCard {
+                        HorizontalDivider(
+                            color = MiuixTheme.colorScheme.dividerLine,
+                            modifier = Modifier.padding(horizontal = 16.dp),
+                        )
                         SwitchPreference(
                             checked = UiConfigState.autoCheckUpdate,
                             onCheckedChange = {
@@ -371,6 +375,43 @@ fun SettingsPage(
                     }
                 }
             }
+
+    // 日志目录：和滑动条点标题弹出来的那个输入框完全一致
+    WindowDialog(
+        show = showLogDir,
+        title = "日志目录",
+        summary = "目录不存在会自动创建 改完对下一次抓取生效",
+        maxWidth = 560.dp,
+        onDismissRequest = { showLogDir = false },
+    ) {
+        TextField(
+            value = logDirText,
+            onValueChange = { logDirText = it },
+            label = "目录路径",
+            useLabelAsPlaceholder = true,
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth(),
+        )
+        Spacer(Modifier.height(20.dp))
+        Row(modifier = Modifier.fillMaxWidth()) {
+            TextButton(
+                text = "取消",
+                onClick = { showLogDir = false },
+                modifier = Modifier.weight(1f),
+            )
+            Spacer(Modifier.width(20.dp))
+            TextButton(
+                text = "保存",
+                onClick = {
+                    val v = logDirText.trim()
+                    if (v.isNotBlank()) onSetConf("LOG_DIR", v)
+                    showLogDir = false
+                },
+                modifier = Modifier.weight(1f),
+                colors = ButtonDefaults.textButtonColorsPrimary(),
+            )
+        }
+    }
 
     // 警告用宽对话框 标题和副标题走 Miuix 自己的样式
     WindowDialog(

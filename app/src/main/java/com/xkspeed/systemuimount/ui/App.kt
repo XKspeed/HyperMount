@@ -61,7 +61,6 @@ import com.kyant.backdrop.backdrops.layerBackdrop as kyantLayerBackdrop
 import com.kyant.backdrop.backdrops.rememberLayerBackdrop as kyantRememberLayerBackdrop
 import com.xkspeed.systemuimount.ui.component.glass.GlassBottomNav
 import com.xkspeed.systemuimount.ui.component.glass.GlassNavItem
-import com.xkspeed.systemuimount.ui.components.GlassSheet
 import com.xkspeed.systemuimount.ui.components.MiuixDialog
 import com.xkspeed.systemuimount.ui.util.LocalIsWideScreen
 import com.xkspeed.systemuimount.ui.util.shouldShowSplitPane
@@ -94,6 +93,7 @@ import top.yukonga.miuix.kmp.nav.core.NavKey
 import top.yukonga.miuix.kmp.nav.core.rememberNavBackStack
 import top.yukonga.miuix.kmp.nav.core.rememberNavSystemCornerRadius
 import top.yukonga.miuix.kmp.nav.transition.NavTransitions
+import top.yukonga.miuix.kmp.basic.Scaffold
 import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.basic.TextField
 import top.yukonga.miuix.kmp.theme.MiuixTheme
@@ -401,150 +401,154 @@ fun App() {
             }
     }
 
-    NavDisplay(
-        backStack = backStack,
-        // 转场用 MiuixDefault 圆角裁剪直接读系统圆角 和 LiftArc 一致
-        // 返回（含预测性返回手势）全交给 NavDisplay 自己接管
-        transition = NavTransitions.MiuixDefault,
-        effects = NavDisplayEffects(
-            cornerClipRadius = rememberNavSystemCornerRadius(),
-            backdropColor = MiuixTheme.colorScheme.surface,
-        ),
-    ) {
-        entry<Route.Main> {
-            MainScaffold(
-                state = state,
-                rootOk = rootOk,
-                busy = busy,
-                jumpTab = jumpTab,
-                onJumpTabConsumed = { jumpTab = -1 },
-                onPickRescue = { pickFile(PickerTarget.RESCUE) },
-                onPickTarget = { pickFile(PickerTarget.TARGET) },
-                onPickMainRescue = { pickFile(PickerTarget.MAIN_RESCUE) },
-                onPickMainTarget = { pickFile(PickerTarget.MAIN_TARGET) },
-                onStart = start@{
-                    val target = state.targetPath
-                    if (target.isBlank()) {
-                        toast(context, "请先选择待测界面")
-                        return@start
-                    }
-                    busy = true
-                    busyTitle = "启动测试"
-                    busySub = "正在准备救砖文件…"
-                    scope.launch {
-                        val out = Module.testRun(target)
-                        if (out.contains("OK")) {
-                            busySub = "已启动"
-                            runCatching { refresh() }
-                            DaemonService.start(context)
-                        } else {
-                            busyTitle = "启动失败"
-                            busySub = firstLine(out)
+    // Overlay 版下拉要靠 Scaffold 提供 popup host（Sonify 也是这么挂的）
+    // 这里不挂 topBar/bottomBar 页面自己管 insets 传进来的 padding 忽略掉
+    Scaffold(containerColor = Color.Transparent) { _ ->
+        NavDisplay(
+            backStack = backStack,
+            // 转场用 MiuixDefault 圆角裁剪直接读系统圆角 和 LiftArc 一致
+            // 返回（含预测性返回手势）全交给 NavDisplay 自己接管
+            transition = NavTransitions.MiuixDefault,
+            effects = NavDisplayEffects(
+                cornerClipRadius = rememberNavSystemCornerRadius(),
+                backdropColor = MiuixTheme.colorScheme.surface,
+            ),
+        ) {
+            entry<Route.Main> {
+                MainScaffold(
+                    state = state,
+                    rootOk = rootOk,
+                    busy = busy,
+                    jumpTab = jumpTab,
+                    onJumpTabConsumed = { jumpTab = -1 },
+                    onPickRescue = { pickFile(PickerTarget.RESCUE) },
+                    onPickTarget = { pickFile(PickerTarget.TARGET) },
+                    onPickMainRescue = { pickFile(PickerTarget.MAIN_RESCUE) },
+                    onPickMainTarget = { pickFile(PickerTarget.MAIN_TARGET) },
+                    onStart = start@{
+                        val target = state.targetPath
+                        if (target.isBlank()) {
+                            toast(context, "请先选择待测界面")
+                            return@start
                         }
-                        delay(700)
-                        busy = false
-                        busyTitle = null
-                    }
-                },
-                onStop = {
-                    busy = true
-                    busyTitle = "停止守护"
-                    busySub = "正在结束进程…"
-                    scope.launch {
-                        val out = Module.stop()
-                        runCatching { refresh() }
-                        DaemonService.stop(context)
-                        busyTitle = null
-                        busy = false
-                        toast(context, firstLine(out).ifBlank { "已停止" })
-                    }
-                },
-                onOpenLogs = { push(Route.Logs) },
-                onOpenUiSettings = { push(Route.UiSettings) },
-                onOpenVolumeCheck = { push(Route.VolumeCheck) },
-                onOpenCrashLog = { push(Route.CrashLogs) },
-                onOpenThirdPartyLicenses = { push(Route.ThirdPartyLicenses) },
-                onOpenAbout = { push(Route.About) },
-                onOpenGuide = { push(Route.Guide) },
-                latest = latest,
-                onOpenRelease = { openRelease() },
-                onCheckUpdate = {
-                    // 点了至少要有反应 否则像没按到
-                    toast(context, "正在检查更新…")
-                    checkUpdate(manual = true)
-                },
-                checkingUpdate = checkingUpdate,
-                onSetConf = { k, v ->
-                    scope.launch {
-                        Module.setConf(k, v)
-                        runCatching { refresh() }
-                    }
-                },
-                onRescueToggle = { off ->
-                    scope.launch {
-                        val out = Module.setRescueOff(off)
-                        runCatching { refresh() }
-                        if (!out.contains("OK")) toast(context, firstLine(out))
-                    }
-                },
-                onSetCrashLimit = { limit ->
-                    scope.launch {
-                        val out = Module.setCrashLimit(limit)
-                        runCatching { refresh() }
-                        if (!out.contains("OK")) toast(context, firstLine(out))
-                    }
-                },
-            )
-        }
+                        busy = true
+                        busyTitle = "启动测试"
+                        busySub = "正在准备救砖文件…"
+                        scope.launch {
+                            val out = Module.testRun(target)
+                            if (out.contains("OK")) {
+                                busySub = "已启动"
+                                runCatching { refresh() }
+                                DaemonService.start(context)
+                            } else {
+                                busyTitle = "启动失败"
+                                busySub = firstLine(out)
+                            }
+                            delay(700)
+                            busy = false
+                            busyTitle = null
+                        }
+                    },
+                    onStop = {
+                        busy = true
+                        busyTitle = "停止守护"
+                        busySub = "正在结束进程…"
+                        scope.launch {
+                            val out = Module.stop()
+                            runCatching { refresh() }
+                            DaemonService.stop(context)
+                            busyTitle = null
+                            busy = false
+                            toast(context, firstLine(out).ifBlank { "已停止" })
+                        }
+                    },
+                    onOpenLogs = { push(Route.Logs) },
+                    onOpenUiSettings = { push(Route.UiSettings) },
+                    onOpenVolumeCheck = { push(Route.VolumeCheck) },
+                    onOpenCrashLog = { push(Route.CrashLogs) },
+                    onOpenThirdPartyLicenses = { push(Route.ThirdPartyLicenses) },
+                    onOpenAbout = { push(Route.About) },
+                    onOpenGuide = { push(Route.Guide) },
+                    latest = latest,
+                    onOpenRelease = { openRelease() },
+                    onCheckUpdate = {
+                        // 点了至少要有反应 否则像没按到
+                        toast(context, "正在检查更新…")
+                        checkUpdate(manual = true)
+                    },
+                    checkingUpdate = checkingUpdate,
+                    onSetConf = { k, v ->
+                        scope.launch {
+                            Module.setConf(k, v)
+                            runCatching { refresh() }
+                        }
+                    },
+                    onRescueToggle = { off ->
+                        scope.launch {
+                            val out = Module.setRescueOff(off)
+                            runCatching { refresh() }
+                            if (!out.contains("OK")) toast(context, firstLine(out))
+                        }
+                    },
+                    onSetCrashLimit = { limit ->
+                        scope.launch {
+                            val out = Module.setCrashLimit(limit)
+                            runCatching { refresh() }
+                            if (!out.contains("OK")) toast(context, firstLine(out))
+                        }
+                    },
+                )
+            }
 
-        entry<Route.Logs> {
-            LogPage(
-                title = "调试日志",
-                autoRefresh = state.debug,
-                loader = { lines -> Module.tailDebug(lines) },
-                onBack = { backStack.removeLastOrNull() },
-            )
-        }
+            entry<Route.Logs> {
+                LogPage(
+                    title = "调试日志",
+                    autoRefresh = state.debug,
+                    loader = { lines -> Module.tailDebug(lines) },
+                    onBack = { backStack.removeLastOrNull() },
+                )
+            }
 
-        entry<Route.UiSettings> {
-            UiSettingsPage(onBack = { backStack.removeLastOrNull() })
-        }
+            entry<Route.UiSettings> {
+                UiSettingsPage(onBack = { backStack.removeLastOrNull() })
+            }
 
-        entry<Route.VolumeCheck> {
-            VolumeCheckPage(
-                onBack = { backStack.removeLastOrNull() },
-                onFinished = { scope.launch { runCatching { refresh() } } },
-            )
-        }
+            entry<Route.VolumeCheck> {
+                VolumeCheckPage(
+                    onBack = { backStack.removeLastOrNull() },
+                    onFinished = { scope.launch { runCatching { refresh() } } },
+                )
+            }
 
-        entry<Route.CrashLogs> {
-            CrashLogPage(onBack = { backStack.removeLastOrNull() })
-        }
+            entry<Route.CrashLogs> {
+                CrashLogPage(onBack = { backStack.removeLastOrNull() })
+            }
 
-        entry<Route.ThirdPartyLicenses> {
-            ThirdPartyLicensesPage(onBack = { backStack.removeLastOrNull() })
-        }
+            entry<Route.ThirdPartyLicenses> {
+                ThirdPartyLicensesPage(onBack = { backStack.removeLastOrNull() })
+            }
 
-        entry<Route.About> {
-            AboutPage(
-                state = state,
-                latest = latest,
-                onOpenRelease = { openRelease() },
-                onOpenThirdPartyLicenses = { push(Route.ThirdPartyLicenses) },
-                onBack = { backStack.removeLastOrNull() },
-            )
-        }
+            entry<Route.About> {
+                AboutPage(
+                    state = state,
+                    latest = latest,
+                    onOpenRelease = { openRelease() },
+                    onOpenThirdPartyLicenses = { push(Route.ThirdPartyLicenses) },
+                    onBack = { backStack.removeLastOrNull() },
+                )
+            }
 
-        entry<Route.Guide> {
-            OnboardingPage(
-                onDone = {
-                    // 引导里可能重新校验了音量键 回来顺手刷一次状态
-                    scope.launch { runCatching { refresh() } }
-                    backStack.removeLastOrNull()
-                },
-            )
-        }
+            entry<Route.Guide> {
+                OnboardingPage(
+                    onDone = {
+                        // 引导里可能重新校验了音量键 回来顺手刷一次状态
+                        scope.launch { runCatching { refresh() } }
+                        backStack.removeLastOrNull()
+                    },
+                )
+            }
 
+        }
     }
 
     // 关掉预测性返回预览时把返回事件拦在 NavDisplay 前面：
@@ -761,10 +765,6 @@ private fun MainScaffold(
     }
     val scope = rememberCoroutineScope()
 
-    // 日志目录弹层：状态放在这一层 弹层才能画在底栏之上并采样整页做模糊
-    var showLogDir by remember { mutableStateOf(false) }
-    var logDirText by remember { mutableStateOf("") }
-
     // 渲染阶段埋点：崩了能知道是第几个 tab / 哪一层出的问题
     LaunchedEffect(selected) {
         CrashLog.stage("主界面 tab=${listOf("界面", "主页", "设置").getOrElse(selected) { "?" }}")
@@ -864,10 +864,6 @@ private fun MainScaffold(
                             onOpenGuide = onOpenGuide,
                             onCheckUpdate = onCheckUpdate,
                             checkingUpdate = checkingUpdate,
-                            onOpenLogDir = {
-                                logDirText = it
-                                showLogDir = true
-                            },
                         )
                     }
                 }
@@ -892,40 +888,6 @@ private fun MainScaffold(
                 )
             }
 
-            // 日志目录：底部弹层 版式对齐滑动条的输入弹窗 遮罩走顶栏同款 backdrop 模糊
-            GlassSheet(
-                show = showLogDir,
-                onDismissRequest = { showLogDir = false },
-                backdrop = backdrop,
-                title = "日志目录",
-                summary = "日志写在这个目录下 不存在会自动创建 改完对下一次抓取生效",
-                actions = {
-                    TextButton(
-                        text = "取消",
-                        onClick = { showLogDir = false },
-                        modifier = Modifier.weight(1f),
-                    )
-                    TextButton(
-                        text = "保存",
-                        onClick = {
-                            val v = logDirText.trim()
-                            if (v.isNotBlank()) onSetConf("LOG_DIR", v)
-                            showLogDir = false
-                        },
-                        modifier = Modifier.weight(1f),
-                        colors = ButtonDefaults.textButtonColorsPrimary(),
-                    )
-                },
-            ) {
-                TextField(
-                    value = logDirText,
-                    onValueChange = { logDirText = it },
-                    label = "目录路径",
-                    useLabelAsPlaceholder = true,
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-            }
         }
     }
 }
