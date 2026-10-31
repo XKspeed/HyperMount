@@ -61,6 +61,7 @@ import com.kyant.backdrop.backdrops.layerBackdrop as kyantLayerBackdrop
 import com.kyant.backdrop.backdrops.rememberLayerBackdrop as kyantRememberLayerBackdrop
 import com.xkspeed.systemuimount.ui.component.glass.GlassBottomNav
 import com.xkspeed.systemuimount.ui.component.glass.GlassNavItem
+import com.xkspeed.systemuimount.ui.components.GlassSheet
 import com.xkspeed.systemuimount.ui.components.MiuixDialog
 import com.xkspeed.systemuimount.ui.util.LocalIsWideScreen
 import com.xkspeed.systemuimount.ui.util.shouldShowSplitPane
@@ -93,6 +94,8 @@ import top.yukonga.miuix.kmp.nav.core.NavKey
 import top.yukonga.miuix.kmp.nav.core.rememberNavBackStack
 import top.yukonga.miuix.kmp.nav.core.rememberNavSystemCornerRadius
 import top.yukonga.miuix.kmp.nav.transition.NavTransitions
+import top.yukonga.miuix.kmp.basic.TextButton
+import top.yukonga.miuix.kmp.basic.TextField
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 @Serializable
@@ -758,6 +761,10 @@ private fun MainScaffold(
     }
     val scope = rememberCoroutineScope()
 
+    // 日志目录弹层：状态放在这一层 弹层才能画在底栏之上并采样整页做模糊
+    var showLogDir by remember { mutableStateOf(false) }
+    var logDirText by remember { mutableStateOf("") }
+
     // 渲染阶段埋点：崩了能知道是第几个 tab / 哪一层出的问题
     LaunchedEffect(selected) {
         CrashLog.stage("主界面 tab=${listOf("界面", "主页", "设置").getOrElse(selected) { "?" }}")
@@ -857,6 +864,10 @@ private fun MainScaffold(
                             onOpenGuide = onOpenGuide,
                             onCheckUpdate = onCheckUpdate,
                             checkingUpdate = checkingUpdate,
+                            onOpenLogDir = {
+                                logDirText = it
+                                showLogDir = true
+                            },
                         )
                     }
                 }
@@ -878,6 +889,41 @@ private fun MainScaffold(
                     },
                     items = navItems,
                     backdrop = backdrop,
+                )
+            }
+
+            // 日志目录：底部弹层 版式对齐滑动条的输入弹窗 遮罩走顶栏同款 backdrop 模糊
+            GlassSheet(
+                show = showLogDir,
+                onDismissRequest = { showLogDir = false },
+                backdrop = backdrop,
+                title = "日志目录",
+                summary = "日志写在这个目录下 不存在会自动创建 改完对下一次抓取生效",
+                actions = {
+                    TextButton(
+                        text = "取消",
+                        onClick = { showLogDir = false },
+                        modifier = Modifier.weight(1f),
+                    )
+                    TextButton(
+                        text = "保存",
+                        onClick = {
+                            val v = logDirText.trim()
+                            if (v.isNotBlank()) onSetConf("LOG_DIR", v)
+                            showLogDir = false
+                        },
+                        modifier = Modifier.weight(1f),
+                        colors = ButtonDefaults.textButtonColorsPrimary(),
+                    )
+                },
+            ) {
+                TextField(
+                    value = logDirText,
+                    onValueChange = { logDirText = it },
+                    label = "目录路径",
+                    useLabelAsPlaceholder = true,
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
                 )
             }
         }

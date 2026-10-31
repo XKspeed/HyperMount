@@ -28,9 +28,7 @@ import com.xkspeed.systemuimount.core.CRASH_LIMIT_MANUAL
 import com.xkspeed.systemuimount.core.CrashLog
 import com.xkspeed.systemuimount.core.ModuleState
 import com.xkspeed.systemuimount.ui.component.glass.ScrollPage
-import com.xkspeed.systemuimount.ui.components.DialogActions
 import com.xkspeed.systemuimount.ui.components.InfoRow
-import com.xkspeed.systemuimount.ui.components.MiuixDialog
 import com.xkspeed.systemuimount.ui.components.SectionCard
 import com.xkspeed.systemuimount.ui.components.SliderInputPreference
 import top.yukonga.miuix.kmp.basic.ButtonDefaults
@@ -38,7 +36,6 @@ import top.yukonga.miuix.kmp.basic.HorizontalDivider
 import top.yukonga.miuix.kmp.basic.SmallTitle
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextButton
-import top.yukonga.miuix.kmp.basic.TextField
 import top.yukonga.miuix.kmp.preference.ArrowPreference
 import top.yukonga.miuix.kmp.preference.SwitchPreference
 import top.yukonga.miuix.kmp.preference.WindowDropdownPreference
@@ -70,6 +67,8 @@ fun SettingsPage(
     onOpenGuide: () -> Unit = {},
     onCheckUpdate: () -> Unit = {},
     checkingUpdate: Boolean = false,
+    // 日志目录改成底部弹层 由外层 MainScaffold 统一渲染（那边才有 backdrop 采样源）
+    onOpenLogDir: (String) -> Unit = {},
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
 
@@ -96,10 +95,6 @@ fun SettingsPage(
             value >= 2 -> onSetCrashLimit(CRASH_LIMIT_MANUAL)
         }
     }
-
-    // 日志目录：点开直接改 settings.conf 的 LOG_DIR
-    var showLogDir by remember { mutableStateOf(false) }
-    var logDirText by remember(state.logDir) { mutableStateOf(state.logDir) }
 
     // 老配置兜底：模式已经是「增强救砖」或「日志 + 救砖」 上限却还是旧的 12
     // 进设置页纠正一次 之后用户手动改不再干预
@@ -160,10 +155,7 @@ fun SettingsPage(
                                 ArrowPreference(
                                     title = "日志目录",
                                     summary = state.logDir.ifBlank { "未设置" },
-                                    onClick = {
-                                        logDirText = state.logDir
-                                        showLogDir = true
-                                    },
+                                    onClick = { onOpenLogDir(state.logDir) },
                                 )
                             }
                         }
@@ -379,35 +371,6 @@ fun SettingsPage(
                     }
                 }
             }
-
-    // 日志目录：直接输路径 目录不存在时脚本自己 mkdir -p
-    if (showLogDir) {
-        MiuixDialog(title = "日志目录", onDismiss = { showLogDir = false }) {
-            TextField(
-                value = logDirText,
-                onValueChange = { logDirText = it },
-                label = "目录路径",
-                useLabelAsPlaceholder = true,
-                singleLine = true,
-            )
-            Spacer(Modifier.height(8.dp))
-            Text(
-                "日志写在这个目录下 目录不存在会自动创建\n" +
-                    "改完对下一次抓取生效",
-                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                style = MiuixTheme.textStyles.subtitle,
-            )
-            DialogActions(
-                confirmText = "保存",
-                onConfirm = {
-                    val v = logDirText.trim()
-                    if (v.isNotBlank()) onSetConf("LOG_DIR", v)
-                    showLogDir = false
-                },
-                onCancel = { showLogDir = false },
-            )
-        }
-    }
 
     // 警告用宽对话框 标题和副标题走 Miuix 自己的样式
     WindowDialog(
