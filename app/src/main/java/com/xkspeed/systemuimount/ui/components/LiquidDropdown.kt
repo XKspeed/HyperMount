@@ -734,8 +734,9 @@ fun LiquidDropdownRow(
 // =====================================================================
 
 /**
- * 行尾内容在弹层展开时淡出（Sonify 设置页 SelectItem 同参数）：
- * 出现时 fraction<0.15 才显示、关闭时 <0.2 恢复，tween(180)，基准 alpha 0.4。
+ * 行尾内容在弹层展开时淡出（Sonify 设置页 SelectItem 同一套阈值与时长）：
+ * 展开时 fraction 过 0.15 就消失、收起掉到 0.2 以下才回来，tween(180) 两端对称。
+ * 基准透明度交给颜色本身（见 [LiquidSelectPreference] 的 actionColor），这里只跑 1→0。
  */
 @Composable
 private fun rememberRowContentAlpha(fraction: () -> Float): Float {
@@ -802,9 +803,10 @@ fun LiquidSelectPreference(
     var rect by remember { mutableStateOf(IntRect.Zero) }
     val isOpen = state.expanded && state.owner === rowKey
     val rowAlpha = rememberRowContentAlpha { if (state.owner === rowKey) state.fraction else 0f }
-    // 行尾「当前值 + 箭头」的颜色也跟主题走：onSurfaceVariantActions 在非莫奈模式下
-    // 本身只有 40% 不透明度 再乘下面那层 0.4 会淡到看不见
-    val actionColor = if (enabled) colorScheme.onSurface
+    // 行尾「当前值 + 箭头」用 Miuix 的语义色：SliderPreference 的数值就是这个口径
+    // （onSurfaceVariantActions + body2）。Sonify 那边是 onBackground 再压 0.4 透明度，
+    // 换算过来就是这一档灰度；所以这里不再额外乘 0.4，浮动只交给展开动画
+    val actionColor = if (enabled) colorScheme.onSurfaceVariantActions
     else colorScheme.disabledOnSecondaryVariant
     val valueText = items.getOrNull(selectedIndex).orEmpty()
 
@@ -824,7 +826,7 @@ fun LiquidSelectPreference(
         endActions = {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.graphicsLayer { alpha = 0.4f * rowAlpha },
+                modifier = Modifier.graphicsLayer { alpha = rowAlpha },
             ) {
                 if (valueText.isNotBlank()) {
                     top.yukonga.miuix.kmp.basic.Text(
