@@ -42,6 +42,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.xkspeed.systemuimount.core.Module
 import com.xkspeed.systemuimount.core.ModuleState
+import com.xkspeed.systemuimount.core.SystemVersion
 import kotlinx.coroutines.delay
 import com.xkspeed.systemuimount.ui.component.glass.ScrollPage
 import com.xkspeed.systemuimount.ui.components.InfoRow
@@ -281,17 +282,15 @@ fun HomePage(
                 }
 
                 // ---- 设备 ----
-                if (state.model.isNotBlank() || state.osName.isNotBlank()) {
+                val sysBuild = SystemVersion.build
+                if (state.model.isNotBlank() || sysBuild.isNotBlank() || state.androidVer.isNotBlank()) {
                     item { SmallTitle("设备") }
                     item {
                         SectionCard {
-                            if (state.osName.isNotBlank() || state.androidVer.isNotBlank()) {
-                                InfoRow(
-                                    "系统",
-                                    listOf(state.osName, "Android ${state.androidVer}")
-                                        .filter { it.isNotBlank() }.joinToString(" · "),
-                                )
-                            }
+                            // 只给 ROM 的具体版本串（4.0.24.0.WOCCNXM 这种）
+                            // os4.0 / Android 16 这类大版本号不参与展示
+                            val sysVer = sysBuild.ifBlank { state.androidVer }
+                            if (sysVer.isNotBlank()) InfoRow("系统", sysVer)
                             if (state.model.isNotBlank()) InfoRow("机型", state.model)
                             InfoRow(
                                 "音量键",
