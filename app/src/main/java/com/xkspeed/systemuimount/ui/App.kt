@@ -187,8 +187,8 @@ fun App() {
     val uriHandler = LocalUriHandler.current
 
     fun openRelease() {
-        val url = latest?.url?.takeIf { it.isNotBlank() }
-            ?: "https://github.com/XKspeed/SystemUIRescue/releases"
+        // 下载地址跟着本次扫通的镜像走：查更新时 GitHub 直连不通 这里就不能还给直连链接
+        val url = Update.downloadUrl(latest?.url.orEmpty())
         runCatching { uriHandler.openUri(url) }
     }
 
@@ -196,7 +196,8 @@ fun App() {
         if (checkingUpdate) return
         scope.launch {
             checkingUpdate = true
-            val info = Update.check(10_000)
+            // 多镜像轮询 给足时间（内部每条 3.5s 就放弃 不会死等）
+            val info = Update.check()
             checkingUpdate = false
             if (info == null) {
                 // 超时/断网：手动点才提示 启动那次安静失败

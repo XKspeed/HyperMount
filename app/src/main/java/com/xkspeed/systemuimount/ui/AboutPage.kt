@@ -132,10 +132,6 @@ fun AboutPage(
                     title = "模块版本",
                     summary = if (state.version.isNotBlank()) "v${state.version}" else "未读到",
                 )
-                BasicComponent(
-                    title = "最低系统",
-                    summary = "Android 15 (SDK 35)",
-                )
             }
         }
 
