@@ -27,7 +27,6 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -39,6 +38,7 @@ import androidx.compose.ui.unit.dp
 import com.xkspeed.systemuimount.KeyColors
 import com.xkspeed.systemuimount.ThemeState
 import com.xkspeed.systemuimount.core.CrashLog
+import com.xkspeed.systemuimount.core.SystemVersion
 import com.xkspeed.systemuimount.ui.component.glass.GlassEffectState
 import com.xkspeed.systemuimount.ui.component.glass.ScrollPage
 import com.xkspeed.systemuimount.ui.components.BackIcon
@@ -74,14 +74,13 @@ object UiConfigState {
     var onboarded by mutableStateOf(false)
 
     /**
-     * 上次校验音量键时的系统版本
+     * 上次校验音量键时的系统版本（见 [SystemVersion]：ROM 的 OTA 版本串，如 4.0.24.0.WOCCNXM）
      *
      * 系统升级后 /dev/input/eventN 与按键能力位都可能变 旧的校验结果不能再用，
      * 启动时发现版本对不上就作废模块里的 VOLUME_CHECK_ASSESS 并重新拉起校验面板。
-     * -1 = 没记录过（老用户升级上来）不打扰。
+     * 空串 = 没记录过（老用户升级上来）不打扰。
      */
-    var volCheckedSdk by mutableIntStateOf(-1)
-    var volCheckedRelease by mutableStateOf("")
+    var volCheckedVersion by mutableStateOf("")
 
     /**
      * 安全模式：连续崩溃过（多半是液态玻璃这块的绘制炸了）
@@ -97,8 +96,21 @@ object UiConfigState {
         // 老用户升级上来时 ui_config 里已经有键 不再弹一次引导
         // 全新安装时 prefs 是空的 才会走引导
         onboarded = p.getBoolean("onboarded", p.contains("auto_check_update"))
-        volCheckedSdk = p.getInt("vol_checked_sdk", -1)
-        volCheckedRelease = p.getString("vol_checked_release", "").orEmpty()
+        volCheckedVersion = p.getString("vol_checked_version", "").orEmpty()
+        // 上一版只记了 SDK + Android 版本：能对上就按当前 ROM 版本认账，
+        // 对不上就拿旧值当指纹（必然 != 当前）-> 升级上来照常触发一次重验
+        if (volCheckedVersion.isBlank()) {
+            val oldSdk = p.getInt("vol_checked_sdk", -1)
+            if (oldSdk >= 0) {
+                val sameAndroid = oldSdk == Build.VERSION.SDK_INT &&
+                    p.getString("vol_checked_release", "").orEmpty() == Build.VERSION.RELEASE
+                volCheckedVersion = if (sameAndroid) {
+                    SystemVersion.fingerprint
+                } else {
+                    "android-$oldSdk"
+                }
+            }
+        }
         safeMode = CrashLog.safeMode()
         GlassEffectState.load(context)
     }
@@ -109,22 +121,19 @@ object UiConfigState {
             putBoolean("predictive_back", predictiveBack)
             putBoolean("auto_check_update", autoCheckUpdate)
             putBoolean("onboarded", onboarded)
-            putInt("vol_checked_sdk", volCheckedSdk)
-            putString("vol_checked_release", volCheckedRelease)
+            putString("vol_checked_version", volCheckedVersion)
         }.apply()
     }
 
-    /** 系统版本与上次校验时不一致：按键设备号可能全变了 需要重新校验 */
+    /** 系统版本（ROM 的 OTA 版本串）与上次校验时不一致：按键设备号可能全变了 需要重新校验 */
     fun needsVolumeRecheck(): Boolean {
-        if (volCheckedSdk < 0) return false
-        return volCheckedSdk != Build.VERSION.SDK_INT ||
-            volCheckedRelease != Build.VERSION.RELEASE
+        if (volCheckedVersion.isBlank()) return false
+        return volCheckedVersion != SystemVersion.fingerprint
     }
 
     /** 记下这次校验用的系统版本 之后不再重复弹 */
     fun markVolumeChecked(context: Context) {
-        volCheckedSdk = Build.VERSION.SDK_INT
-        volCheckedRelease = Build.VERSION.RELEASE
+        volCheckedVersion = SystemVersion.fingerprint
         save(context)
     }
 }

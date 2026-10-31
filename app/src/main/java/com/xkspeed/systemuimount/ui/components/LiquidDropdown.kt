@@ -8,11 +8,11 @@ import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.background
 import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.IntrinsicSize
@@ -667,7 +667,7 @@ fun LiquidDropdownColumn(
 }
 
 // =====================================================================
-// 菜单行：17dp 圆角按下高亮、选中 primary 着色并在尾部显示勾
+// 菜单行：17dp 圆角按下光晕、选中 primary 着色并在尾部显示勾
 // =====================================================================
 
 @OptIn(ExperimentalFoundationApi::class)
@@ -683,10 +683,11 @@ fun LiquidDropdownRow(
     verticalPadding: Dp = 10.5.dp,
     marquee: Boolean = false,
 ) {
-    val contentColor = if (isInDarkTheme()) Color.White else Color.Black
+    // 文字跟主题走（onSurface）：莫奈取色下深浅两态都不是纯黑纯白，
+    // 写死 Color.Black/Color.White 会跟卡片里的行差一截
+    val contentColor = colorScheme.onSurface
     val selectedColor = colorScheme.primary
     val interactionSource = remember { MutableInteractionSource() }
-    val pressed by interactionSource.collectIsPressedAsState()
     Row(
         modifier = modifier
             .padding(
@@ -696,13 +697,12 @@ fun LiquidDropdownRow(
                 bottom = if (isLast) 8.dp else 0.dp,
             )
             .clip(RoundedCornerShape(17.dp))
-            .drawBehind {
-                if (pressed) drawRect(contentColor.copy(alpha = 0.10f))
-            }
+            // 点击光晕用主题给的 Indication（Miuix 那套 spring 按压高亮），
+            // 跟卡片里的 ArrowPreference / SwitchPreference 完全同一手感
             .clickable(
                 enabled = enabled,
                 interactionSource = interactionSource,
-                indication = null,
+                indication = LocalIndication.current,
                 onClick = onClick,
             )
             .padding(horizontal = 14.dp, vertical = verticalPadding)
@@ -802,7 +802,9 @@ fun LiquidSelectPreference(
     var rect by remember { mutableStateOf(IntRect.Zero) }
     val isOpen = state.expanded && state.owner === rowKey
     val rowAlpha = rememberRowContentAlpha { if (state.owner === rowKey) state.fraction else 0f }
-    val actionColor = if (enabled) colorScheme.onSurfaceVariantActions
+    // 行尾「当前值 + 箭头」的颜色也跟主题走：onSurfaceVariantActions 在非莫奈模式下
+    // 本身只有 40% 不透明度 再乘下面那层 0.4 会淡到看不见
+    val actionColor = if (enabled) colorScheme.onSurface
     else colorScheme.disabledOnSecondaryVariant
     val valueText = items.getOrNull(selectedIndex).orEmpty()
 

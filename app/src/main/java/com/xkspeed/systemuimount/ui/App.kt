@@ -260,7 +260,7 @@ fun App() {
     // 升级上来的老用户：模块里已经是校验过的状态 但没有版本记录
     // 补记当前版本 不然这次系统版本变化永远检测不到
     LaunchedEffect(state.volumeAssessed) {
-        if (state.volumeAssessed && UiConfigState.volCheckedSdk < 0) {
+        if (state.volumeAssessed && UiConfigState.volCheckedVersion.isBlank()) {
             UiConfigState.markVolumeChecked(context)
         }
     }
