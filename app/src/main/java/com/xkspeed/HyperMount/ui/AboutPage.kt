@@ -41,8 +41,8 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.core.graphics.drawable.toBitmap
-import com.xkspeed.HyperMount.BuildConfig
 import com.xkspeed.HyperMount.R
+import com.xkspeed.HyperMount.core.AppVersion
 import com.xkspeed.HyperMount.core.ModuleState
 import com.xkspeed.HyperMount.core.Update
 import com.xkspeed.HyperMount.core.UpdateInfo
@@ -155,7 +155,7 @@ fun AboutPage(
             FrostedCard(backdrop = backdrop) {
                 ArrowPreference(
                     title = "应用版本",
-                    summary = "v${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})",
+                    summary = "v${AppVersion.name} (${AppVersion.code})",
                     onClick = {
                         runCatching {
                             uriHandler.openUri("https://github.com/XKspeed/SystemUIRescue")
@@ -432,7 +432,7 @@ private fun AboutLogo(
                     scaleY = 1 - (versionProgress * 0.05f)
                 },
             color = colorScheme.onSurfaceVariantSummary,
-            text = "v${BuildConfig.VERSION_NAME}",
+            text = "v${AppVersion.name}",
             fontSize = 14.sp,
             textAlign = TextAlign.Center,
         )

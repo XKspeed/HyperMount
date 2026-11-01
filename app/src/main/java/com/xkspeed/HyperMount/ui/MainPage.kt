@@ -47,7 +47,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.xkspeed.HyperMount.BuildConfig
+import com.xkspeed.HyperMount.core.AppVersion
 import com.xkspeed.HyperMount.core.LogConfig
 import com.xkspeed.HyperMount.core.Logcat
 import com.xkspeed.HyperMount.core.Module
@@ -213,7 +213,7 @@ fun MainPage(
 
     ScrollPage(
         title = "主页",
-        subtitle = "v${BuildConfig.VERSION_NAME}",
+        subtitle = "v${AppVersion.name}",
         subtitleExtra = {
             AnimatedVisibility(
                 visible = latest != null,

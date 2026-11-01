@@ -1,6 +1,5 @@
 package com.xkspeed.HyperMount.core
 
-import com.xkspeed.HyperMount.BuildConfig
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
@@ -67,8 +66,9 @@ object Update {
     @Volatile
     private var liveProxy: String? = null
 
-    val currentCode: Int get() = BuildConfig.VERSION_CODE
-    val currentName: String get() = BuildConfig.VERSION_NAME
+    // 本地版本走 PackageManager：用 MT 改过 AndroidManifest 的包装上来 这里读到的就是改后的值
+    val currentCode: Int get() = AppVersion.code.toInt()
+    val currentName: String get() = AppVersion.name
 
     /** 超时返回 null 与「没有更新」区分开：调用方可以区分"没查到"和"已最新" */
     suspend fun check(timeoutMs: Long = 15_000): UpdateInfo? = withContext(Dispatchers.IO) {

@@ -2,6 +2,7 @@ package com.xkspeed.HyperMount
 
 import android.app.Application
 import com.xkspeed.HyperMount.core.AppLog
+import com.xkspeed.HyperMount.core.AppVersion
 import com.xkspeed.HyperMount.core.Root
 
 /**
@@ -14,6 +15,8 @@ import com.xkspeed.HyperMount.core.Root
 class MountApplication : Application() {
     override fun onCreate() {
         super.onCreate()
+        // 版本号走 PackageManager 读 先给它 context（界面与更新检查都要用）
+        AppVersion.install(this)
         AppLog.install(this)
         Root.init(this)
     }
