@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.widget.Toast
+import androidx.annotation.DrawableRes
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -138,17 +139,13 @@ fun AboutPage(
                 ArrowPreference(
                     title = "XKspeed",
                     summary = "开发者",
-                    startAction = {
-                        Image(
-                            painter = painterResource(R.drawable.avatar_xkspeed),
-                            contentDescription = null,
-                            contentScale = ContentScale.Crop,
-                            modifier = Modifier
-                                .size(40.dp)
-                                .squircleClip(cornerRadius = 13.dp),
-                        )
-                    },
+                    startAction = { DeveloperAvatar(R.drawable.avatar_xkspeed) },
                     onClick = { showPlatforms = true },
+                )
+                BasicComponent(
+                    title = "DeepSeek",
+                    summary = "代码与文档协助",
+                    startAction = { DeveloperAvatar(R.drawable.avatar_deepseek) },
                 )
             }
         }
@@ -271,6 +268,21 @@ fun AboutPage(
             )
         }
     }
+}
+
+/**
+ * 开发者头像：40dp 圆角方图，和 miuix 示例里的头像观感一致
+ */
+@Composable
+private fun DeveloperAvatar(@DrawableRes res: Int) {
+    Image(
+        painter = painterResource(res),
+        contentDescription = null,
+        contentScale = ContentScale.Crop,
+        modifier = Modifier
+            .size(40.dp)
+            .squircleClip(cornerRadius = 13.dp),
+    )
 }
 
 /**
