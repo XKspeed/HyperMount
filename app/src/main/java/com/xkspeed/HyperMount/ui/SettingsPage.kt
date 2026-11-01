@@ -327,10 +327,19 @@ fun SettingsPage(
                             },
                             state = select,
                         )
-                        ArrowPreference(
-                            title = "应用日志内容",
-                            onClick = onOpenAppLog,
-                        )
+                        // 等级为「关闭」时不写日志 内容那行跟着收起 动画同「日志目录」
+                        AnimatedVisibility(
+                            visible = AppLog.level != LogLevel.OFF,
+                            enter = fadeIn() + expandVertically(),
+                            exit = fadeOut() + shrinkVertically(),
+                        ) {
+                            Column {
+                                ArrowPreference(
+                                    title = "应用日志内容",
+                                    onClick = onOpenAppLog,
+                                )
+                            }
+                        }
                         // 这两行不带副标题：开关本身就是说明
                         SwitchPreference(
                             checked = state.debug,
