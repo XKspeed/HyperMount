@@ -12,7 +12,7 @@ on:
         required: false
         default: ''
       version_code:
-        description: 'versionCode（留空沿用；要覆盖已装的更高版本时填更大的数）'
+        description: 'versionCode：可填 +1 这种相对写法 也可填纯数字；留空沿用'
         required: false
         default: ''
 
@@ -101,12 +101,18 @@ jobs:
             NAME=$(grep -oP 'versionName\s*=\s*"\K[^"]+' app/build.gradle.kts | head -1)
             echo "未填版本名 沿用 ${NAME}"
           fi
+          CUR_CODE=$(grep -oP 'versionCode\s*=\s*\K\d+' app/build.gradle.kts | head -1)
           CODE="${IN_CODE}"
           if [ -z "$CODE" ]; then
-            CODE=$(grep -oP 'versionCode\s*=\s*\K\d+' app/build.gradle.kts | head -1)
+            CODE="$CUR_CODE"
             echo "未填 versionCode 沿用 ${CODE}"
-          elif ! printf '%s' "$CODE" | grep -qE '^[0-9]+$'; then
-            echo "::error::versionCode 必须是纯数字：${CODE}"
+          elif printf '%s' "$CODE" | grep -qE '^\+[0-9]+$'; then
+            CODE=$((CUR_CODE + ${CODE#+}))
+            echo "versionCode 相对写法 ${IN_CODE}：${CUR_CODE} → ${CODE}"
+          elif printf '%s' "$CODE" | grep -qE '^[0-9]+$'; then
+            echo "versionCode 指定为 ${CODE}"
+          else
+            echo "::error::versionCode 只能是 +1 这种相对写法或纯数字：${CODE}"
             exit 1
           fi
 

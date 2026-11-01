@@ -9,6 +9,10 @@ on:
         description: '版本号（如 1.0.1 / 1.2.0-hotfix1，可带 v）；留空沿用 build.gradle.kts 现有版本 不改动'
         required: false
         default: ''
+      version_code:
+        description: 'versionCode：可填 +1 这种相对写法 也可填纯数字；留空则版本名变化时自动 +1'
+        required: false
+        default: ''
 
 permissions:
   contents: write
@@ -111,51 +115,75 @@ jobs:
       #  · 填了且与现有版本不同 → 用它（下一步自动改 versionName 并递增 versionCode）
       #  · 填的和现有版本一样 → 不再递增 versionCode 直接复用（重发同一版不虚增版本号）
       #  · 留空 → 沿用 build.gradle.kts 现有 versionName 不改任何文件
+      # 版本号解析：
+      #  · version 留空沿用现有 versionName；填了必须是 x.y.z 或带后缀
+      #  · version_code 留空按老规则（版本名变了就 +1，没变不动）
+      #    支持 "+1" / "+2" 这种相对写法，也支持纯数字绝对值
       - name: Resolve version
         id: version
+        env:
+          IN_NAME: ${{ github.event.inputs.version }}
+          IN_CODE: ${{ github.event.inputs.version_code }}
         run: |
           set -euo pipefail
-          INPUT="${{ github.event.inputs.version }}"
-          INPUT="${INPUT#v}"
-          CURRENT=$(grep -oP 'versionName\s*=\s*"\K[^"]+' app/build.gradle.kts | head -1)
-          if [ -z "$INPUT" ]; then
-            VERSION="$CURRENT"
-            echo "bump=false" >> "$GITHUB_OUTPUT"
-            echo "未填版本号 沿用现有 versionName: ${VERSION}"
-          else
-            # 允许正式版 1.2.1，也允许 1.2.0-hotfix1 / 1.2.0-beta.2 这种后缀
-            # tag 直接拼 v${VERSION}，versionName 原样写进 build.gradle.kts
-            if ! printf '%s' "$INPUT" | grep -qE '^[0-9]+(\.[0-9]+)+([-.+][0-9A-Za-z]+)*$'; then
-              echo "::error::版本号格式不对：${INPUT}（支持 1.0.1 / 1.2.0-hotfix1 / 1.2.0-beta.2）"
-              exit 1
-            fi
-            VERSION="$INPUT"
-            if [ "$INPUT" = "$CURRENT" ]; then
-              echo "bump=false" >> "$GITHUB_OUTPUT"
-              echo "输入版本与现有 versionName 一致（${CURRENT}） 不再递增 versionCode"
-            else
-              echo "bump=true" >> "$GITHUB_OUTPUT"
-              echo "将自动改为 versionName=${VERSION} 并递增 versionCode"
-            fi
-          fi
-          echo "version_name=${VERSION}" >> "$GITHUB_OUTPUT"
-          echo "tag=v${VERSION}" >> "$GITHUB_OUTPUT"
-          echo "目标版本: ${VERSION}（tag v${VERSION}）"
+          NAME="${IN_NAME#v}"
+          CUR_NAME=$(grep -oP 'versionName\s*=\s*"\K[^"]+' app/build.gradle.kts | head -1)
+          CUR_CODE=$(grep -oP 'versionCode\s*=\s*\K\d+' app/build.gradle.kts | head -1)
 
-      # 自动改版本号：versionName = 输入值 versionCode = 旧值 + 1
+          if [ -z "$NAME" ]; then
+            NAME="$CUR_NAME"
+            echo "未填版本号 沿用现有 versionName: ${NAME}"
+          elif ! printf '%s' "$NAME" | grep -qE '^[0-9]+(\.[0-9]+)+([-.+][0-9A-Za-z]+)*$'; then
+            # 允许正式版 1.2.1，也允许 1.2.0-hotfix1 / 1.2.0-beta.2 这种后缀
+            echo "::error::版本号格式不对：${NAME}（支持 1.0.1 / 1.2.0-hotfix1 / 1.2.0-beta.2）"
+            exit 1
+          fi
+
+          if [ -z "$IN_CODE" ]; then
+            if [ "$NAME" = "$CUR_NAME" ]; then
+              CODE="$CUR_CODE"
+            else
+              CODE=$((CUR_CODE + 1))
+              echo "版本名有变化 未指定 versionCode 自动 ${CUR_CODE} → ${CODE}"
+            fi
+          elif printf '%s' "$IN_CODE" | grep -qE '^\+[0-9]+$'; then
+            CODE=$((CUR_CODE + ${IN_CODE#+}))
+            echo "versionCode 相对写法 ${IN_CODE}：${CUR_CODE} → ${CODE}"
+          elif printf '%s' "$IN_CODE" | grep -qE '^[0-9]+$'; then
+            CODE="$IN_CODE"
+            echo "versionCode 指定为 ${CODE}"
+          else
+            echo "::error::version_code 只能是 +1 这种相对写法或纯数字：${IN_CODE}"
+            exit 1
+          fi
+
+          if [ "$NAME" = "$CUR_NAME" ] && [ "$CODE" = "$CUR_CODE" ]; then
+            echo "bump=false" >> "$GITHUB_OUTPUT"
+            echo "版本名与 versionCode 都没变 不改文件"
+          else
+            echo "bump=true" >> "$GITHUB_OUTPUT"
+            echo "将改为 versionName=${NAME} versionCode=${CODE}"
+          fi
+          {
+            echo "version_name=${NAME}"
+            echo "version_code=${CODE}"
+            echo "tag=v${NAME}"
+          } >> "$GITHUB_OUTPUT"
+          echo "目标版本: ${NAME}（versionCode ${CODE} tag v${NAME}）"
+
+      # 改版本号：versionName 与 versionCode 都用上一步算好的值
       # versionCode 必须递增 否则新包装不上（覆盖安装会失败）
       - name: Bump version in build.gradle.kts
         if: steps.version.outputs.bump == 'true'
         env:
           VERSION: ${{ steps.version.outputs.version_name }}
+          CODE: ${{ steps.version.outputs.version_code }}
         run: |
           set -euo pipefail
           FILE=app/build.gradle.kts
           sed -i -E "s/versionName\s*=\s*\"[^\"]*\"/versionName = \"${VERSION}\"/" "$FILE"
-          OLD_CODE=$(grep -oP 'versionCode\s*=\s*\K\d+' "$FILE" | head -1)
-          NEW_CODE=$((OLD_CODE + 1))
-          sed -i -E "s/versionCode\s*=\s*[0-9]+/versionCode = ${NEW_CODE}/" "$FILE"
-          echo "versionName -> ${VERSION} versionCode ${OLD_CODE} -> ${NEW_CODE}"
+          sed -i -E "s/versionCode\s*=\s*[0-9]+/versionCode = ${CODE}/" "$FILE"
+          echo "versionName -> ${VERSION} versionCode -> ${CODE}"
           grep -nE 'versionCode|versionName' "$FILE"
 
       # 密码通过环境变量传给 Gradle（build.gradle.kts 读取）
