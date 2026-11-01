@@ -1,3 +1,7 @@
+## v1.3.0-hotfix1 更新
+
+- 修复若干问题 完善细节
+
 ## v1.3.0 更新
 
 - 应用更名为 HyperMount 包名同步改为 com.xkspeed.HyperMount
