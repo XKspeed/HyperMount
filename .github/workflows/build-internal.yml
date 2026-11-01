@@ -125,7 +125,7 @@ jobs:
           {
             echo "version_name=${NAME}"
             echo "version_code=${CODE}"
-            echo "asset=SystemUIRescue-arm64-${NAME}.apk"
+            echo "asset=HyperMount-arm64-${NAME}.apk"
           } >> "$GITHUB_OUTPUT"
 
       - name: Build release APK
@@ -150,7 +150,7 @@ jobs:
             }
           fi
 
-      # 命名与发布版本一致：SystemUIRescue-arm64-<版本>.apk
+      # 命名与发布版本一致：HyperMount-arm64-<版本>.apk
       - name: Rename APK
         env:
           ASSET: ${{ steps.v.outputs.asset }}

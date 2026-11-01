@@ -5,11 +5,11 @@ plugins {
 }
 
 android {
-    namespace = "com.xkspeed.systemuimount"
+    namespace = "com.xkspeed.HyperMount"
     compileSdk = 37
 
     defaultConfig {
-        applicationId = "com.xkspeed.systemuimount"
+        applicationId = "com.xkspeed.HyperMount"
         minSdk = 35
         targetSdk = 37
         versionCode = 7

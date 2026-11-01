@@ -27,7 +27,7 @@
 -keep class kotlinx.serialization.** { *; }
 
 # ------- 应用入口（双保险，AGP 的 aapt 规则也会保留清单组件）-------
--keep public class com.xkspeed.systemuimount.MainActivity { *; }
+-keep public class com.xkspeed.HyperMount.MainActivity { *; }
 
 # ------- libsu（root 命令执行，含反射/ServiceLoader，自带规则保底）-------
 -keep class com.topjohnwu.superuser.** { *; }

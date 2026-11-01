@@ -1,6 +1,6 @@
 <div align="center">
 
-# SystemUI救援
+# HyperMount
 
 一个 **SystemUI 界面替换与自动救砖** 的原生控制端 UI 基于 [Miuix](https://github.com/compose-miuix-ui/miuix)（小米 HyperOS 风格 Compose 组件库）
 
@@ -171,7 +171,7 @@ Release 工作流从仓库 Secrets 读取签名密钥 密钥不进入代码库 �
 ## 📁 项目结构
 
 ```text
-app/src/main/java/com/xkspeed/systemuimount/
+app/src/main/java/com/xkspeed/HyperMount/
 ├── ui/                   界面层
 │   ├── App.kt            导航与底栏（界面 / 主页 / 设置）
 │   ├── HomePage.kt       界面页：救砖 / 待测界面选择、开始停止

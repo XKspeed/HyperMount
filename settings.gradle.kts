@@ -16,5 +16,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "SystemUiMount"
+rootProject.name = "HyperMount"
 include(":app")

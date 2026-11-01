@@ -215,7 +215,7 @@ jobs:
             echo "签名校验通过（存在 META-INF/*.RSA）"
           fi
 
-      # 产物改名：SystemUIRescue-arm64-<版本>.apk
+      # 产物改名：HyperMount-arm64-<版本>.apk
       # 签名校验用未改名的原文件 校验通过后再复制成发布用的名字
       - name: Rename APK
         env:
@@ -223,7 +223,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p dist
-          OUT="dist/SystemUIRescue-arm64-${VERSION}.apk"
+          OUT="dist/HyperMount-arm64-${VERSION}.apk"
           cp app/build/outputs/apk/release/app-release.apk "$OUT"
           echo "发布产物: ${OUT}"
           ls -l "$OUT"
@@ -290,7 +290,7 @@ jobs:
           tag_name: ${{ steps.version.outputs.tag }}
           name: ${{ steps.version.outputs.version_name }}
           body_path: release_notes.md
-          files: dist/SystemUIRescue-arm64-${{ steps.version.outputs.version_name }}.apk
+          files: dist/HyperMount-arm64-${{ steps.version.outputs.version_name }}.apk
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -306,7 +306,7 @@ jobs:
         run: |
           set -euo pipefail
           CODE=$(grep -oP 'versionCode\s*=\s*\K\d+' app/build.gradle.kts | head -1)
-          URL="https://github.com/${REPO}/releases/download/${TAG}/SystemUIRescue-arm64-${VERSION}.apk"
+          URL="https://github.com/${REPO}/releases/download/${TAG}/HyperMount-arm64-${VERSION}.apk"
           export CODE URL
           python3 - <<'PY'
           import json, os, re
@@ -364,5 +364,5 @@ jobs:
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: SystemUIRescue-arm64
-          path: dist/SystemUIRescue-arm64-*.apk
+          name: HyperMount-arm64
+          path: dist/HyperMount-arm64-*.apk

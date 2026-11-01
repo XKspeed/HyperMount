@@ -2,12 +2,12 @@
 layout: home
 
 hero:
-  name: SystemUI 救援
+  name: HyperMount
   text: 换界面不再怕黑屏
   tagline: 先留一份确认可用的 SystemUI 当后路，再换入要测的那一版。崩溃、卡死、界面点不动，它自己换回去——不用救命线，不用重刷系统。
   image:
     src: /app-icon.svg
-    alt: SystemUI 救援
+    alt: HyperMount
   actions:
     - theme: brand
       text: 下载 APK
