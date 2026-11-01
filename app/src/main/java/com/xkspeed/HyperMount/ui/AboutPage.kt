@@ -215,9 +215,17 @@ fun AboutPage(
         // ---- 卡片 2：链接与许可证（对齐 apkeditor 的「GPL / 第三方许可证」卡）----
         item {
             FrostedCard(backdrop = backdrop) {
+                // 官网放最上面：安装教程 / 常见问题 / 模块说明都在那边
+                ArrowPreference(
+                    title = "官网",
+                    onClick = {
+                        runCatching {
+                            uriHandler.openUri("https://xkspeed.github.io/SystemUIRescue/")
+                        }
+                    },
+                )
                 ArrowPreference(
                     title = "GitHub 仓库",
-                    summary = "github.com/XKspeed/SystemUIRescue",
                     onClick = {
                         runCatching {
                             uriHandler.openUri("https://github.com/XKspeed/SystemUIRescue")
@@ -226,14 +234,12 @@ fun AboutPage(
                 )
                 ArrowPreference(
                     title = "GNU General Public License v3.0",
-                    summary = "开源许可证",
                     onClick = {
                         runCatching { uriHandler.openUri("https://www.gnu.org/licenses/gpl-3.0.html") }
                     },
                 )
                 ArrowPreference(
                     title = "第三方许可证",
-                    summary = "依赖库版权声明",
                     onClick = onOpenThirdPartyLicenses,
                 )
             }
