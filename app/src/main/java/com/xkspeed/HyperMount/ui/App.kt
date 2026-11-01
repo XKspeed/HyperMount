@@ -263,7 +263,7 @@ fun App() {
      * 写一项配置：先把新值盖到界面，后台写模块，1 秒后回读校准。
      *
      * 用户点一下开关就该立刻看到它动了，而不是等 root shell 跑完；
-     * 写失败或模块没吃进去时，用回读到的真实值把界面还原并提示。
+     * 写失败或模块没吃进去时，用回读到的真实值把界面还原，只往错误日志里记一笔。
      */
     fun writeConf(key: String, value: String) {
         pendingConf = pendingConf + (key to value)
@@ -279,8 +279,11 @@ fun App() {
             val expected = base.withConf(key, value).confValue(key)
             val actual = base.confValue(key)
             if (!ok || expected != actual) {
-                AppLog.w("配置", "校验未通过 $key 期望=$expected 实际=$actual ok=$ok")
-                toast(context, "写入失败 已按实际配置显示")
+                // 界面已经按回读值还原了 不再弹 toast 打扰 只留一条错误日志
+                AppLog.e(
+                    "配置",
+                    "写入失败 已按实际配置显示 $key 期望=$expected 实际=$actual ok=$ok",
+                )
             }
         }
     }
@@ -530,8 +533,14 @@ fun App() {
                         val fresh = runCatching { Module.readState() }.getOrNull()
                         if (fresh != null) state = fresh
                         pendingConf = pendingConf - "RESCUE_OFF"
-                        if (!out.contains("OK") || (fresh != null && fresh.rescueOff != off)) {
-                            toast(context, if (out.contains("OK")) "写入失败 已按实际配置显示" else firstLine(out))
+                        // 命令本身报错才提示；只是没生效的那种 界面已按回读值还原 记日志就够
+                        if (!out.contains("OK")) {
+                            toast(context, firstLine(out))
+                        } else if (fresh != null && fresh.rescueOff != off) {
+                            AppLog.e(
+                                "配置",
+                                "写入失败 已按实际配置显示 RESCUE_OFF 期望=$off 实际=${fresh.rescueOff}",
+                            )
                         }
                     }
                 },
@@ -543,10 +552,14 @@ fun App() {
                         val fresh = runCatching { Module.readState() }.getOrNull()
                         if (fresh != null) state = fresh
                         pendingConf = pendingConf - "CRASH_LIMIT"
-                        if (!out.contains("OK") ||
-                            (fresh != null && fresh.crashLimit != limit.toString())
-                        ) {
-                            toast(context, if (out.contains("OK")) "写入失败 已按实际配置显示" else firstLine(out))
+                        if (!out.contains("OK")) {
+                            toast(context, firstLine(out))
+                        } else if (fresh != null && fresh.crashLimit != limit.toString()) {
+                            AppLog.e(
+                                "配置",
+                                "写入失败 已按实际配置显示 CRASH_LIMIT " +
+                                    "期望=$limit 实际=${fresh.crashLimit}",
+                            )
                         }
                     }
                 },
