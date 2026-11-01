@@ -1,6 +1,6 @@
 {
   "versionCode": 6,
   "versionName": "1.2.1",
-  "url": "https://github.com/XKspeed/SystemUIRescue/releases/download/v1.2.1/app-release.apk",
+  "url": "https://github.com/XKspeed/SystemUIRescue/releases/download/v1.2.1/SystemUIRescue-arm64-1.2.1.apk",
   "changelog": "界面页下拉改为液态选择器 点开时原文字与箭头向左下收进模糊面板 选项逐个展开\n下拉行文字与取值跟随主题取色 支持莫奈 点击补上按压光晕 展开时取值淡出\n音量键校验绑定系统具体版本 系统升级后首次打开自动重新校验 模块里的旧按键设备号一并作废\n检查更新支持镜像站 GitHub 直连不通时自动改走 gh-proxy / ghproxy / ghfast / moeyy / jsDelivr 查到更新后下载也走同一条线路\n设置页日志目录改用 Miuix 弹窗 关于区三张卡合并为一张\n关于页移除最低系统 界面页设备卡的系统只显示具体版本串 如 4.0.24.0.WOCCNXM"
 }
