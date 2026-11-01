@@ -120,10 +120,6 @@ sealed interface Route : NavKey {
 
     @Serializable
     data object About : Route
-
-    /** 从设置里重新看一遍引导 */
-    @Serializable
-    data object Guide : Route
 }
 
 /** 底栏三页 默认停在中间的主页 */
@@ -483,7 +479,6 @@ fun App() {
                 onOpenAppLog = { push(Route.AppLogs) },
                 onOpenThirdPartyLicenses = { push(Route.ThirdPartyLicenses) },
                 onOpenAbout = { push(Route.About) },
-                onOpenGuide = { push(Route.Guide) },
                 latest = latest,
                 onOpenRelease = { openRelease() },
                 onCheckUpdate = {
@@ -554,18 +549,6 @@ fun App() {
                 onOpenRelease = { openRelease() },
                 onOpenThirdPartyLicenses = { push(Route.ThirdPartyLicenses) },
                 onBack = { backStack.removeLastOrNull() },
-            )
-        }
-
-        entry<Route.Guide> {
-            OnboardingPage(
-                // 从设置里回看：随时能退 环境不过也不拦着出去
-                allowExit = true,
-                onDone = {
-                    // 引导里可能重新校验了音量键 回来顺手刷一次状态
-                    scope.launch { runCatching { refresh() } }
-                    backStack.removeLastOrNull()
-                },
             )
         }
 
@@ -764,7 +747,6 @@ private fun MainScaffold(
     onOpenAppLog: () -> Unit,
     onOpenThirdPartyLicenses: () -> Unit,
     onOpenAbout: () -> Unit,
-    onOpenGuide: () -> Unit,
     latest: UpdateInfo?,
     onOpenRelease: () -> Unit,
     onCheckUpdate: () -> Unit,
@@ -881,7 +863,6 @@ private fun MainScaffold(
                             onOpenAppLog = onOpenAppLog,
                             onOpenVolumeCheck = onOpenVolumeCheck,
                             onOpenAbout = onOpenAbout,
-                            onOpenGuide = onOpenGuide,
                             onCheckUpdate = onCheckUpdate,
                             checkingUpdate = checkingUpdate,
                         )

@@ -112,8 +112,6 @@ fun OnboardingPage(
     startAtVolume: Boolean = false,
     /** 强制校验：忽略已校验标记 作废模块侧结果后重按一遍 */
     forceVolume: Boolean = false,
-    /** 从设置里回看：允许随时退出 首次引导不给退 */
-    allowExit: Boolean = false,
 ) {
     val context = LocalContext.current
 
@@ -255,24 +253,18 @@ fun OnboardingPage(
         if (step < ONBOARD_STEPS - 1) step++
     }
 
-    // 首次引导只处理步骤回退 第 1 步之前不给退（退了也进不了主界面）
-    // 从设置进来时第 1 步按返回等同于退出引导
-    BackHandler(enabled = step > 0 || allowExit) {
-        when {
-            step > 0 -> {
-                if (step == 3 && !volDone) volSkip = true
-                step--
-            }
-            else -> onDone()
-        }
+    // 只能一步步往回退 退到第一步就不再拦 由系统退出 App
+    BackHandler(enabled = step > 0) {
+        if (step == 3 && !volDone) volSkip = true
+        step--
     }
 
     Box(Modifier.fillMaxSize().background(MiuixTheme.colorScheme.surface)) {
         Column(Modifier.fillMaxSize().statusBarsPadding()) {
-            // 顶部：步骤条（首次引导没有「跳过」 只有从设置进来才给退出）
+            // 顶部只有步骤条：引导不给跳过 必须走到最后一步
             Row(
                 Modifier.fillMaxWidth()
-                    .padding(start = 24.dp, end = if (allowExit) 10.dp else 24.dp, top = 10.dp),
+                    .padding(horizontal = 24.dp, vertical = 10.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Row(
@@ -289,21 +281,6 @@ fun OnboardingPage(
                                     if (i <= step) MiuixTheme.colorScheme.primary
                                     else MiuixTheme.colorScheme.surfaceContainer
                                 )
-                        )
-                    }
-                }
-                if (allowExit) {
-                    Spacer(Modifier.width(14.dp))
-                    Box(
-                        Modifier
-                            .clip(RoundedCornerShape(50))
-                            .clickable { onDone() }
-                            .padding(horizontal = 10.dp, vertical = 6.dp)
-                    ) {
-                        Text(
-                            "退出",
-                            style = MiuixTheme.textStyles.subtitle,
-                            color = MiuixTheme.colorScheme.onSurfaceVariantActions,
                         )
                     }
                 }

@@ -72,7 +72,6 @@ fun SettingsPage(
     onOpenAppLog: () -> Unit = {},
     onOpenVolumeCheck: () -> Unit = {},
     onOpenAbout: () -> Unit = {},
-    onOpenGuide: () -> Unit = {},
     onCheckUpdate: () -> Unit = {},
     checkingUpdate: Boolean = false,
 ) {
@@ -357,18 +356,6 @@ fun SettingsPage(
                         InfoRow("已救砖", "${state.protectCount} 次")
                         InfoRow("SystemUI", if (state.pid.isNotBlank()) "PID ${state.pid}" else "未运行")
                         InfoRow("崩溃上限", state.rescueLimitText)
-                    }
-                }
-
-                // 引导随时能重看：首次启动的三页说明 + 音量键校验
-                item { SmallTitle("使用") }
-                item {
-                    SectionCard {
-                        ArrowPreference(
-                            title = "使用引导",
-                            summary = "再看一遍说明 顺手重新校验音量键",
-                            onClick = onOpenGuide,
-                        )
                     }
                 }
 
