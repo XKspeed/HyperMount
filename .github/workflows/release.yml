@@ -366,3 +366,15 @@ jobs:
         with:
           name: HyperMount-arm64
           path: dist/HyperMount-arm64-*.apk
+
+  # 发版收尾：update.json 已在本轮推到 main 这里紧接着重建官网
+  # 用 GITHUB_TOKEN 推送的 commit 不会再触发 push 事件 所以只能主动调用
+  # 站点构建逻辑只有 pages.yml 一份 这里复用 不复制粘贴
+  site:
+    name: Deploy Site
+    needs: release
+    uses: ./.github/workflows/pages.yml
+    permissions:
+      contents: read
+      pages: write
+      id-token: write

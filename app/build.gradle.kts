@@ -12,8 +12,8 @@ android {
         applicationId = "com.xkspeed.HyperMount"
         minSdk = 35
         targetSdk = 37
-        versionCode = 7
-        versionName = "1.2.2"
+        versionCode = 8
+        versionName = "1.3.0"
 
         // 只打 arm64：HyperOS 机型全是 arm64-v8a，
         // 其余 ABI 的 .so（目前只有 androidx.graphics.path）白占体积

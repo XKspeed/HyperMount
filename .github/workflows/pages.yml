@@ -6,6 +6,10 @@ name: Deploy Site
 
 on:
   workflow_dispatch:
+  # 发版工作流直接复用这份（uses: ./.github/workflows/pages.yml）
+  # 发版是用 GITHUB_TOKEN 推 main 的 那个 push 事件不会再触发 workflow
+  # 所以只能由 Release 主动调用 否则站点会停在上一版的下载链接
+  workflow_call:
   push:
     branches: [main]
     paths:
@@ -28,6 +32,10 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          # 固定取 main 最新：被 Release 复用时 github.sha 还停在这次运行开始的那一刻
+          # 而版本号与 update.json 是发版过程中才推到 main 的 按默认 sha 取会拿到旧清单
+          ref: main
 
       # 清单以仓库根的为准，站点同域提供一份给页面读版本号 / 下载地址
       - name: 同步更新清单
