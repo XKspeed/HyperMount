@@ -46,6 +46,38 @@ data class ModuleState(
     val rescueReady: Boolean get() = rescueSize > 0
     val daemonRunning: Boolean get() = running.isNotBlank()
     val rescueLimitText: String get() = if (crashLimit.isBlank()) "—" else crashLimit
+
+    /**
+     * 界面的乐观更新：把待写入的一项先盖到旧状态上。
+     *
+     * 开关和下拉不能等 root shell 跑完再动，点了就得有反应；
+     * 真实写入交给后台，1 秒后 readState 回读，对不上再按实际值把界面拉回来。
+     */
+    fun withConf(key: String, value: String): ModuleState = when (key) {
+        "LOG_MODE" -> copy(logMode = value.ifBlank { "0" })
+        "KEY_TIMEOUT" -> copy(keyTimeout = value)
+        "FATAL_THRESHOLD" -> copy(fatalThreshold = value)
+        "DEBUG" -> copy(debug = value.lowercase() in listOf("true", "1", "yes"))
+        "LOG_DIR" -> copy(logDir = value)
+        "TARGET_APK_PATH" -> copy(targetPath = value)
+        // 下面两个不是 settings.conf 里的键 是对应写操作的占位 用于写前先把界面改掉
+        "RESCUE_OFF" -> copy(rescueOff = value == "1")
+        "CRASH_LIMIT" -> copy(crashLimit = value)
+        else -> this
+    }
+
+    /** 回读校验用：取这一项在状态里的当前值 */
+    fun confValue(key: String): String = when (key) {
+        "LOG_MODE" -> logMode
+        "KEY_TIMEOUT" -> keyTimeout
+        "FATAL_THRESHOLD" -> fatalThreshold
+        "DEBUG" -> if (debug) "true" else "false"
+        "LOG_DIR" -> logDir
+        "TARGET_APK_PATH" -> targetPath
+        "RESCUE_OFF" -> if (rescueOff) "1" else "0"
+        "CRASH_LIMIT" -> crashLimit
+        else -> ""
+    }
 }
 
 /** 目录项（对应 webctl.sh ls 的 名称|类型|大小） */

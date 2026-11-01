@@ -317,11 +317,12 @@ fun SettingsPage(
                 item { SmallTitle("调试") }
                 item {
                     SectionCard {
+                        // 顺序：应用日志等级 → 应用日志内容 → 模块调试日志 → 其预览
                         // 全局日志的等级：和运行模式同一套下拉
                         // 排查「改了没生效」这类问题时调高 平时留常规就够
                         LiquidSelectPreference(
-                            title = "日志等级",
-                            summary = "当前 ${AppLog.level.label} · 记录到应用日志",
+                            title = "应用日志等级",
+                            summary = "当前 ${AppLog.level.label}",
                             items = LOG_LEVEL_LABELS,
                             selectedIndex = AppLog.level.ordinal,
                             onSelectedIndexChange = {
@@ -329,24 +330,32 @@ fun SettingsPage(
                             },
                             state = select,
                         )
-                        SwitchPreference(
-                            checked = state.debug,
-                            onCheckedChange = { onSetConf("DEBUG", if (it) "true" else "false") },
-                            title = "调试日志",
-                            summary = "在 config/debug.log 里记录每一步动作",
-                        )
                         ArrowPreference(
-                            title = "调试日志预览",
-                            summary = if (state.debug) "查看脚本每一步的动作" else "先打开上面的开关",
-                            onClick = onOpenDebugLog,
-                        )
-                        ArrowPreference(
-                            title = "应用日志",
+                            title = "应用日志内容",
                             summary = AppLog.file()?.length()?.takeIf { it > 0 }
                                 ?.let { "${it / 1024} KB · 点此查看运行流水" }
                                 ?: "还没有日志",
                             onClick = onOpenAppLog,
                         )
+                        // 这两行不带副标题：开关本身就是说明
+                        SwitchPreference(
+                            checked = state.debug,
+                            onCheckedChange = { onSetConf("DEBUG", if (it) "true" else "false") },
+                            title = "模块调试日志",
+                        )
+                        // 预览跟着开关展开 动画与上面「日志目录」同款
+                        AnimatedVisibility(
+                            visible = state.debug,
+                            enter = fadeIn() + expandVertically(),
+                            exit = fadeOut() + shrinkVertically(),
+                        ) {
+                            Column {
+                                ArrowPreference(
+                                    title = "调试日志预览",
+                                    onClick = onOpenDebugLog,
+                                )
+                            }
+                        }
                     }
                 }
 

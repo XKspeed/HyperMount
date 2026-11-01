@@ -15,7 +15,6 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -27,7 +26,9 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -59,18 +60,19 @@ import com.xkspeed.HyperMount.ui.components.StatusDot
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import top.yukonga.miuix.kmp.basic.Button
+import top.yukonga.miuix.kmp.basic.ButtonDefaults
 import top.yukonga.miuix.kmp.basic.Card
-import top.yukonga.miuix.kmp.basic.CardDefaults
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.SmallTitle
 import top.yukonga.miuix.kmp.basic.Text
+import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.basic.TextField
 import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.extended.Update
 import top.yukonga.miuix.kmp.preference.ArrowPreference
 import top.yukonga.miuix.kmp.preference.SwitchPreference
 import top.yukonga.miuix.kmp.theme.MiuixTheme
-import top.yukonga.miuix.kmp.window.WindowBottomSheet
+import top.yukonga.miuix.kmp.window.WindowDialog
 import kotlin.math.roundToInt
 
 /** 有新版本时的绿色胶囊 */
@@ -444,72 +446,72 @@ fun MainPage(
         }
     }
 
-    WindowBottomSheet(
-        title = "配置项",
+    // 和设置里的增强救砖弹窗同款：底部滑入的宽对话框
+    WindowDialog(
         show = showConfig,
+        title = "配置项",
+        summary = "目标包名 · 等待时长 · 抓取时长",
+        maxWidth = 560.dp,
         onDismissRequest = { showConfig = false },
-        onDismissFinished = {},
     ) {
-        Column(Modifier.fillMaxWidth().padding(top = 4.dp, bottom = 8.dp)) {
-            SheetCard {
-                TextField(
-                    value = LogConfig.pkg,
-                    onValueChange = {
-                        LogConfig.pkg = it.trim()
-                        LogConfig.save(context)
-                    },
-                    label = "目标包名",
-                    useLabelAsPlaceholder = true,
-                    singleLine = true,
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
-                )
-                SliderInputPreference(
-                    title = "等待时长",
-                    summary = "开抓前等多久 留给 apk 安装",
-                    value = LogConfig.waitSeconds.toFloat(),
-                    onValueChange = { LogConfig.waitSeconds = it.roundToInt() },
-                    onValueChangeFinished = { LogConfig.save(context) },
-                    valueRange = Logcat.MIN_WAIT.toFloat()..Logcat.MAX_WAIT.toFloat(),
-                    steps = Logcat.MAX_WAIT - Logcat.MIN_WAIT - 1,
-                    valueText = "${LogConfig.waitSeconds} 秒",
-                    inputUnit = "秒",
-                )
-                SliderInputPreference(
-                    title = "抓取时长",
-                    summary = "到点自动结束 也可以随时手动停止",
-                    value = LogConfig.seconds.toFloat(),
-                    onValueChange = { LogConfig.seconds = it.roundToInt() },
-                    onValueChangeFinished = { LogConfig.save(context) },
-                    valueRange = Logcat.MIN_SECONDS.toFloat()..Logcat.MAX_SECONDS.toFloat(),
-                    steps = Logcat.MAX_SECONDS - Logcat.MIN_SECONDS - 1,
-                    valueText = "${LogConfig.seconds} 秒",
-                    inputUnit = "秒",
-                )
-            }
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .verticalScroll(rememberScrollState()),
+        ) {
+            TextField(
+                value = LogConfig.pkg,
+                onValueChange = {
+                    LogConfig.pkg = it.trim()
+                    LogConfig.save(context)
+                },
+                label = "目标包名",
+                useLabelAsPlaceholder = true,
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Spacer(Modifier.height(8.dp))
+            SliderInputPreference(
+                title = "等待时长",
+                summary = "开抓前等多久 留给 apk 安装",
+                value = LogConfig.waitSeconds.toFloat(),
+                onValueChange = { LogConfig.waitSeconds = it.roundToInt() },
+                onValueChangeFinished = { LogConfig.save(context) },
+                valueRange = Logcat.MIN_WAIT.toFloat()..Logcat.MAX_WAIT.toFloat(),
+                steps = Logcat.MAX_WAIT - Logcat.MIN_WAIT - 1,
+                valueText = "${LogConfig.waitSeconds} 秒",
+                inputUnit = "秒",
+            )
+            SliderInputPreference(
+                title = "抓取时长",
+                summary = "到点自动结束 也可以随时手动停止",
+                value = LogConfig.seconds.toFloat(),
+                onValueChange = { LogConfig.seconds = it.roundToInt() },
+                onValueChangeFinished = { LogConfig.save(context) },
+                valueRange = Logcat.MIN_SECONDS.toFloat()..Logcat.MAX_SECONDS.toFloat(),
+                steps = Logcat.MAX_SECONDS - Logcat.MIN_SECONDS - 1,
+                valueText = "${LogConfig.seconds} 秒",
+                inputUnit = "秒",
+            )
+            Spacer(Modifier.height(10.dp))
             Text(
                 "目标包名填谁的日志就抓谁 留空抓全部\n" +
                     "和救砖 待测 apk 的包名没有关系 插件崩溃常常记在宿主进程里",
                 color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                 fontSize = 12.sp,
                 lineHeight = 18.sp,
-                modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
+            )
+        }
+        Spacer(Modifier.height(20.dp))
+        Row(modifier = Modifier.fillMaxWidth()) {
+            TextButton(
+                text = "完成",
+                onClick = { showConfig = false },
+                modifier = Modifier.weight(1f),
+                colors = ButtonDefaults.textButtonColorsPrimary(),
             )
         }
     }
-}
-
-/** 底部弹窗里的卡片：显式用 secondaryContainer 否则深色主题下和弹窗底同色 */
-@Composable
-private fun SheetCard(content: @Composable ColumnScope.() -> Unit) {
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(bottom = 12.dp),
-        colors = CardDefaults.defaultColors(
-            color = MiuixTheme.colorScheme.secondaryContainer,
-        ),
-        content = content,
-    )
 }
 
 private fun toast(context: Context, msg: String) {

@@ -163,6 +163,12 @@ fun App() {
         if (backStack.lastOrNull() != route) backStack.add(route)
     }
     var state by remember { mutableStateOf(ModuleState()) }
+    // 乐观更新：改配置时界面先走一步，写盘在后台跑
+    // 1 秒后回读 settings.conf，实际值对不上就把界面拉回去
+    var pendingConf by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
+    val uiState = remember(state, pendingConf) {
+        pendingConf.entries.fold(state) { acc, e -> acc.withConf(e.key, e.value) }
+    }
     var rootOk by remember { mutableStateOf<Boolean?>(null) }
     var busy by remember { mutableStateOf(false) }
     var busyTitle by remember { mutableStateOf<String?>(null) }
@@ -248,6 +254,32 @@ fun App() {
         state = Module.readState()
     }
 
+    /**
+     * 写一项配置：先把新值盖到界面，后台写模块，1 秒后回读校准。
+     *
+     * 用户点一下开关就该立刻看到它动了，而不是等 root shell 跑完；
+     * 写失败或模块没吃进去时，用回读到的真实值把界面还原并提示。
+     */
+    fun writeConf(key: String, value: String) {
+        pendingConf = pendingConf + (key to value)
+        scope.launch {
+            AppLog.i("配置", "写入 $key=$value")
+            val ok = Module.setConf(key, value)
+            // 留出落盘时间：sed 刚写完立刻 cat 偶尔还能读到旧内容
+            delay(1000)
+            val fresh = runCatching { Module.readState() }.getOrNull()
+            if (fresh != null) state = fresh
+            pendingConf = pendingConf - key
+            val base = fresh ?: state
+            val expected = base.withConf(key, value).confValue(key)
+            val actual = base.confValue(key)
+            if (!ok || expected != actual) {
+                AppLog.w("配置", "校验未通过 $key 期望=$expected 实际=$actual ok=$ok")
+                toast(context, "写入失败 已按实际配置显示")
+            }
+        }
+    }
+
     // 首次进入：先要 root 再读状态
     LaunchedEffect(Unit) {
         rootOk = Root.available()
@@ -297,8 +329,7 @@ fun App() {
                 busy = false
                 busyTitle = null
             } else {
-                Module.setConf("TARGET_APK_PATH", path)
-                runCatching { refresh() }
+                writeConf("TARGET_APK_PATH", path)
                 toast(context, "已选择待测界面")
             }
         }
@@ -427,7 +458,7 @@ fun App() {
     ) {
         entry<Route.Main> {
             MainScaffold(
-                state = state,
+                state = uiState,
                 rootOk = rootOk,
                 busy = busy,
                 jumpTab = jumpTab,
@@ -487,28 +518,33 @@ fun App() {
                     checkUpdate(manual = true)
                 },
                 checkingUpdate = checkingUpdate,
-                onSetConf = { k, v ->
-                    scope.launch {
-                        AppLog.i("配置", "写入 $k=$v")
-                        val ok = Module.setConf(k, v)
-                        AppLog.i("配置", "写入 $k 回读${if (ok) "一致" else "不一致"}")
-                        if (!ok) toast(context, "写入 $k 失败 检查 root 与模块目录")
-                        runCatching { refresh() }
-                            .onFailure { AppLog.e("配置", "写入后刷新状态失败", it) }
-                    }
-                },
+                onSetConf = { k, v -> writeConf(k, v) },
                 onRescueToggle = { off ->
+                    pendingConf = pendingConf + ("RESCUE_OFF" to if (off) "1" else "0")
                     scope.launch {
                         val out = Module.setRescueOff(off)
-                        runCatching { refresh() }
-                        if (!out.contains("OK")) toast(context, firstLine(out))
+                        delay(1000)
+                        val fresh = runCatching { Module.readState() }.getOrNull()
+                        if (fresh != null) state = fresh
+                        pendingConf = pendingConf - "RESCUE_OFF"
+                        if (!out.contains("OK") || (fresh != null && fresh.rescueOff != off)) {
+                            toast(context, if (out.contains("OK")) "写入失败 已按实际配置显示" else firstLine(out))
+                        }
                     }
                 },
                 onSetCrashLimit = { limit ->
+                    pendingConf = pendingConf + ("CRASH_LIMIT" to limit.toString())
                     scope.launch {
                         val out = Module.setCrashLimit(limit)
-                        runCatching { refresh() }
-                        if (!out.contains("OK")) toast(context, firstLine(out))
+                        delay(1000)
+                        val fresh = runCatching { Module.readState() }.getOrNull()
+                        if (fresh != null) state = fresh
+                        pendingConf = pendingConf - "CRASH_LIMIT"
+                        if (!out.contains("OK") ||
+                            (fresh != null && fresh.crashLimit != limit.toString())
+                        ) {
+                            toast(context, if (out.contains("OK")) "写入失败 已按实际配置显示" else firstLine(out))
+                        }
                     }
                 },
             )
@@ -517,7 +553,7 @@ fun App() {
         entry<Route.Logs> {
             LogPage(
                 title = "调试日志",
-                autoRefresh = state.debug,
+                autoRefresh = uiState.debug,
                 loader = { lines -> Module.tailDebug(lines) },
                 onBack = { backStack.removeLastOrNull() },
             )
@@ -544,7 +580,7 @@ fun App() {
 
         entry<Route.About> {
             AboutPage(
-                state = state,
+                state = uiState,
                 latest = latest,
                 onOpenRelease = { openRelease() },
                 onOpenThirdPartyLicenses = { push(Route.ThirdPartyLicenses) },
