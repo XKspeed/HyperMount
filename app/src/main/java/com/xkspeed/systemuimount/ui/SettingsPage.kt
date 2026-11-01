@@ -88,9 +88,6 @@ fun SettingsPage(
         mutableStateOf((state.logMode.toIntOrNull() ?: 0) >= 3)
     }
     var askEnhance by remember { mutableStateOf(false) }
-    // 日志目录：点开直接改 settings.conf 的 LOG_DIR
-    var showLogDir by remember { mutableStateOf(false) }
-    var logDirText by remember(state.logDir) { mutableStateOf(state.logDir) }
 
     // MT 的文件夹选择器：选完直接落盘 不用再点保存
     val folderPicker = rememberLauncherForActivityResult(
@@ -113,9 +110,7 @@ fun SettingsPage(
             toast(context, "选的是文件 要选文件夹")
             return@rememberLauncherForActivityResult
         }
-        logDirText = path
         onSetConf("LOG_DIR", path)
-        showLogDir = false
     }
 
     fun pickLogFolder() {
@@ -204,10 +199,8 @@ fun SettingsPage(
                                 ArrowPreference(
                                     title = "日志目录",
                                     summary = state.logDir.ifBlank { "未设置" },
-                                    onClick = {
-                                        logDirText = state.logDir
-                                        showLogDir = true
-                                    },
+                                    // 点一下直接跳 MT 选文件夹 不再先弹输入框
+                                    onClick = { pickLogFolder() },
                                 )
                             }
                         }
@@ -422,51 +415,6 @@ fun SettingsPage(
                     }
                 }
             }
-
-    // 日志目录：和滑动条点标题弹出来的那个输入框完全一致
-    WindowDialog(
-        show = showLogDir,
-        title = "日志目录",
-        summary = "目录不存在会自动创建 也可以直接用 MT 选 改完对下一次抓取生效",
-        maxWidth = 560.dp,
-        onDismissRequest = { showLogDir = false },
-    ) {
-        TextField(
-            value = logDirText,
-            onValueChange = { logDirText = it },
-            label = "目录路径",
-            useLabelAsPlaceholder = true,
-            singleLine = true,
-            modifier = Modifier.fillMaxWidth(),
-        )
-        Spacer(Modifier.height(12.dp))
-        // 走 MT 自己的文件夹选择器 选完直接保存并关窗
-        TextButton(
-            text = "用 MT 选择文件夹",
-            onClick = { pickLogFolder() },
-            modifier = Modifier.fillMaxWidth(),
-            colors = ButtonDefaults.textButtonColorsPrimary(),
-        )
-        Spacer(Modifier.height(16.dp))
-        Row(modifier = Modifier.fillMaxWidth()) {
-            TextButton(
-                text = "取消",
-                onClick = { showLogDir = false },
-                modifier = Modifier.weight(1f),
-            )
-            Spacer(Modifier.width(20.dp))
-            TextButton(
-                text = "保存",
-                onClick = {
-                    val v = logDirText.trim()
-                    if (v.isNotBlank()) onSetConf("LOG_DIR", v)
-                    showLogDir = false
-                },
-                modifier = Modifier.weight(1f),
-                colors = ButtonDefaults.textButtonColorsPrimary(),
-            )
-        }
-    }
 
     // 警告用宽对话框 标题和副标题走 Miuix 自己的样式
     WindowDialog(
