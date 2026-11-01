@@ -20,8 +20,11 @@ export default defineConfig({
   head: [
     ["meta", { name: "theme-color", content: "#3482ff" }],
     ["meta", { name: "color-scheme", content: "light dark" }],
-    ["link", { rel: "icon", href: `${base}Icon.svg` }],
-    ["link", { rel: "apple-touch-icon", href: `${base}Icon.svg` }],
+    ["link", { rel: "icon", type: "image/svg+xml", href: `${base}app-icon.svg` }],
+    ["link", { rel: "apple-touch-icon", href: `${base}app-icon-512.png` }],
+    ["link", { rel: "mask-icon", href: `${base}app-icon.svg`, color: "#3482ff" }],
+    ["meta", { property: "og:image", content: `${base}app-icon-512.png` }],
+    ["meta", { name: "twitter:card", content: "summary" }],
     ["link", { rel: "preconnect", href: "https://cdn-font.hyperos.mi.com" }],
     [
       "link",
@@ -32,7 +35,7 @@ export default defineConfig({
     ],
   ],
   themeConfig: {
-    logo: "/Icon.svg",
+    logo: "/app-icon.svg",
     siteTitle: "SystemUI 救援",
 
     nav: [

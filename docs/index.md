@@ -6,7 +6,7 @@ hero:
   text: 换界面不再怕黑屏
   tagline: 先留一份确认可用的 SystemUI 当后路，再换入要测的那一版。崩溃、卡死、界面点不动，它自己换回去——不用救命线，不用重刷系统。
   image:
-    src: /Icon.svg
+    src: /app-icon.svg
     alt: SystemUI 救援
   actions:
     - theme: brand
@@ -20,16 +20,36 @@ hero:
       link: https://github.com/XKspeed/SystemUIRescue
 
 features:
-  - icon: 🛟
+  - icon: |-
+      <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M20.5 12a8.5 8.5 0 1 1-2.49-6.01"/>
+        <path d="M20.5 3.8v4.3h-4.3"/>
+      </svg>
     title: 崩了自动换回
     details: 累计崩溃到阈值，或者日志疯长判定为卡死，自动把救砖界面装回去并重启 SystemUI。
-  - icon: 🎚️
+  - icon: |-
+      <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M4 9.5h2.6L11 5.6v12.8L6.6 14.5H4z"/>
+        <path d="M15.4 9a4.2 4.2 0 0 1 0 6"/>
+        <path d="M18.2 6.4a8 8 0 0 1 0 11.2"/>
+      </svg>
     title: 音量键救砖
     details: 界面已经点不动、通知也拉不下来的时候，音量 + 直接换回，音量 − 取消误触。
-  - icon: 🧩
+  - icon: |-
+      <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M12 3.2 3.4 7.6 12 12l8.6-4.4z"/>
+        <path d="M3.4 12 12 16.4 20.6 12"/>
+        <path d="M3.4 16.4 12 20.8l8.6-4.4"/>
+      </svg>
     title: 模块化挂载
     details: 真正干活的逻辑在模块里，开机就跑，不依赖应用存活——应用本身也可能被一起带走。
-  - icon: 📋
+  - icon: |-
+      <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M6.5 3.5h7.6L18.5 8v12.5h-12z"/>
+        <path d="M14.1 3.5V8h4.4"/>
+        <path d="M9.3 12.2h6.4"/>
+        <path d="M9.3 16h4.2"/>
+      </svg>
     title: 日志可诊断
     details: 应用日志分等级、脚本日志逐步记录、崩溃堆栈单独留一份，出问题先看它们。
 ---
