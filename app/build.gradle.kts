@@ -12,8 +12,8 @@ android {
         applicationId = "com.xkspeed.systemuimount"
         minSdk = 35
         targetSdk = 37
-        versionCode = 5
-        versionName = "1.2.0-hotfix1"
+        versionCode = 6
+        versionName = "1.2.1"
     }
 
     signingConfigs {
