@@ -2,6 +2,7 @@ package com.xkspeed.HyperMount.ui.components
 
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -16,6 +17,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.dp
+import top.yukonga.miuix.kmp.basic.BasicComponentDefaults
 import top.yukonga.miuix.kmp.basic.ButtonDefaults
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextButton
@@ -47,6 +49,8 @@ fun SliderInputPreference(
     toInput: (Float) -> Float = { it },
     fromInput: (Float) -> Float = { it },
     inputUnit: String = "",
+    // 卡片里保持 16dp 的默认内缩；放进对话框时传 0 让滑轨和输入框一样宽
+    insideMargin: PaddingValues = BasicComponentDefaults.InsideMargin,
 ) {
     var showInput by remember { mutableStateOf(false) }
     var text by remember { mutableStateOf("") }
@@ -81,6 +85,7 @@ fun SliderInputPreference(
             steps = steps,
             enabled = enabled,
             valueText = valueText,
+            insideMargin = insideMargin,
         )
     }
 

@@ -97,6 +97,7 @@ import top.yukonga.miuix.kmp.basic.Scaffold
 import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.basic.TextField
 import top.yukonga.miuix.kmp.theme.MiuixTheme
+import top.yukonga.miuix.kmp.window.WindowDialog
 
 @Serializable
 sealed interface Route : NavKey {
@@ -124,6 +125,9 @@ sealed interface Route : NavKey {
 
 /** 底栏三页 默认停在中间的主页 */
 private const val HOME_PAGE = 1
+
+/** 主页里被拦下的系统界面本体：是待测 apk 还是救砖 apk */
+private enum class SysUiBlock { Target, Rescue }
 
 @Composable
 fun App() {
@@ -179,7 +183,8 @@ fun App() {
     var crashFile by remember { mutableStateOf<File?>(null) }
 
     // 主页选到了系统界面本体：拦下来并引导去界面专区
-    var sysUiInMain by remember { mutableStateOf(false) }
+    // 待测 apk 和救砖 apk 都会被 pm install 进系统 两份都得挡
+    var sysUiBlock by remember { mutableStateOf<SysUiBlock?>(null) }
     // 让底栏跳到指定页（-1 表示无）
     var jumpTab by remember { mutableIntStateOf(-1) }
 
@@ -353,15 +358,13 @@ fun App() {
             // 只拦两件事 —— 待测 apk 和救砖 apk 是同一个文件、待测 apk 是系统界面本体
             if (target == PickerTarget.MAIN_RESCUE || target == PickerTarget.MAIN_TARGET) {
                 val isRescue = target == PickerTarget.MAIN_RESCUE
-                // 主页的待测 apk 是直接 pm install 装进系统的
+                // 主页的两份 apk 都是直接 pm install 装进系统的
                 // 系统界面本体装错一次就是黑砖 这里必须拉黑 只放行界面专区的模块流程
-                if (!isRescue) {
-                    val pkg = withContext(Dispatchers.IO) { packageNameOf(context, file) }
-                    if (pkg == SYSTEMUI_PACKAGE) {
-                        withContext(Dispatchers.IO) { file.delete() }
-                        sysUiInMain = true
-                        return@launch
-                    }
+                val pkg = withContext(Dispatchers.IO) { packageNameOf(context, file) }
+                if (pkg == SYSTEMUI_PACKAGE) {
+                    withContext(Dispatchers.IO) { file.delete() }
+                    sysUiBlock = if (isRescue) SysUiBlock.Rescue else SysUiBlock.Target
+                    return@launch
                 }
                 // 收进私有目录 只有重新选才会覆盖旧的
                 val dst = withContext(Dispatchers.IO) {
@@ -691,39 +694,52 @@ fun App() {
         }
     }
 
-    // 主页选了系统界面本体：这里装了就是黑砖 引导去走模块流程
-    if (sysUiInMain) {
-        MiuixDialog(
-            title = "这个包不能装",
-            onDismiss = { sysUiInMain = false },
+    // 主页塞了系统界面本体：和设置里的增强救砖同款宽对话框 直接把人赶去界面专区
+    val blocked = sysUiBlock
+    if (blocked != null) {
+        val byRescue = blocked == SysUiBlock.Rescue
+        WindowDialog(
+            show = true,
+            title = if (byRescue) "救砖apk不能是系统界面" else "这个包不能装",
+            summary = "系统界面本体 请走界面专区的模块流程",
+            maxWidth = 560.dp,
+            onDismissRequest = { sysUiBlock = null },
         ) {
             Text(
-                "$SYSTEMUI_PACKAGE 是系统界面本体。主页会把待测包直接装进系统，" +
-                    "装坏一次就是黑砖，所以这里不让选。",
+                if (byRescue) {
+                    "$SYSTEMUI_PACKAGE 是系统界面本体。主页的救砖是把崩掉的待测apk" +
+                        "装回正常版本，把系统界面装进去既救不回来，装错一次还会黑砖。"
+                } else {
+                    "$SYSTEMUI_PACKAGE 是系统界面本体。主页会把待测apk直接装进系统，" +
+                        "装坏一次就是黑砖，所以这里不让选。"
+                },
                 color = MiuixTheme.colorScheme.onSurface,
                 style = MiuixTheme.textStyles.subtitle,
             )
             Spacer(Modifier.height(6.dp))
             Text(
-                "要测系统界面请去「界面专区」 那边走模块挂载和救砖守护 " +
+                "要" + (if (byRescue) "换" else "测") + "系统界面请去「界面专区」 那边走模块挂载和救砖守护 " +
                     "崩了会自动换回救砖包",
                 color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                 style = MiuixTheme.textStyles.subtitle,
             )
-            Spacer(Modifier.height(18.dp))
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.End,
-            ) {
-                Button(onClick = { sysUiInMain = false }) { Text("知道了") }
-                Spacer(Modifier.width(10.dp))
-                Button(
+            Spacer(Modifier.height(20.dp))
+            Row(modifier = Modifier.fillMaxWidth()) {
+                TextButton(
+                    text = "知道了",
+                    onClick = { sysUiBlock = null },
+                    modifier = Modifier.weight(1f),
+                )
+                Spacer(Modifier.width(20.dp))
+                TextButton(
+                    text = "前往界面专区",
                     onClick = {
-                        sysUiInMain = false
+                        sysUiBlock = null
                         jumpTab = 0
                     },
-                    colors = ButtonDefaults.buttonColorsPrimary(),
-                ) { Text("前往界面专区") }
+                    modifier = Modifier.weight(1f),
+                    colors = ButtonDefaults.textButtonColorsPrimary(),
+                )
             }
         }
     }

@@ -470,7 +470,7 @@ fun MainPage(
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth(),
             )
-            Spacer(Modifier.height(8.dp))
+            Spacer(Modifier.height(4.dp))
             SliderInputPreference(
                 title = "等待时长",
                 summary = "开抓前等多久 留给 apk 安装",
@@ -481,6 +481,8 @@ fun MainPage(
                 steps = Logcat.MAX_WAIT - Logcat.MIN_WAIT - 1,
                 valueText = "${LogConfig.waitSeconds} 秒",
                 inputUnit = "秒",
+                // 对话框里不要卡片那层 16dp 内缩 滑轨和上面的包名输入框等宽
+                insideMargin = PaddingValues(horizontal = 0.dp, vertical = 14.dp),
             )
             SliderInputPreference(
                 title = "抓取时长",
@@ -492,14 +494,7 @@ fun MainPage(
                 steps = Logcat.MAX_SECONDS - Logcat.MIN_SECONDS - 1,
                 valueText = "${LogConfig.seconds} 秒",
                 inputUnit = "秒",
-            )
-            Spacer(Modifier.height(10.dp))
-            Text(
-                "目标包名填谁的日志就抓谁 留空抓全部\n" +
-                    "和救砖 待测 apk 的包名没有关系 插件崩溃常常记在宿主进程里",
-                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                fontSize = 12.sp,
-                lineHeight = 18.sp,
+                insideMargin = PaddingValues(horizontal = 0.dp, vertical = 14.dp),
             )
         }
         Spacer(Modifier.height(20.dp))
