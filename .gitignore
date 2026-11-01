@@ -17,3 +17,8 @@ app/release-key.jks
 
 # Kotlin 编译器会话文件
 .kotlin/
+
+# 官网（VitePress）
+docs/node_modules/
+docs/.vitepress/dist/
+docs/.vitepress/cache/

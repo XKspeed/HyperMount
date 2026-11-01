@@ -331,8 +331,8 @@ jobs:
           print(open("update.json", encoding="utf-8").read())
           PY
           # 官网也是读同一份清单：页面上「下载 / 版本号」都从这里取
-          # 放在 docs 下 站点同域请求 不受 GitHub 直连影响
-          cp update.json docs/update.json
+          # 放在站点 public/ 下 部署后同域请求 不受 GitHub 直连影响
+          cp update.json docs/public/update.json
 
       # 清单改动提交回 main：推送被拒（别人刚好也推了）就 rebase 重试
       - name: Commit update.json
@@ -342,7 +342,7 @@ jobs:
           set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add update.json docs/update.json
+          git add update.json docs/public/update.json
           if git diff --cached --quiet; then
             echo "update.json 没有变化 跳过提交"
             exit 0

@@ -1,0 +1,278 @@
+/**
+ * 主题定制：沿用 Miuix 官网那套变量（品牌蓝 / MiSans / 标题渐变），
+ * 再加上本站自己的首页区块样式。
+ */
+
+:root {
+  /* 亮色主题色 */
+  --miuix-color-primary: #3482ff;
+  --miuix-color-primary-container: #5d9bff;
+  --miuix-color-on-tertiary-container: #3482ff;
+  --miuix-color-outline: #d9d9d9;
+  --miuix-color-divider-line: #e0e0e0;
+
+  /* 主要字体 */
+  --vp-font-family-base: "MiSans VF", "MiSans", "Inter", ui-sans-serif,
+    system-ui, -apple-system, "PingFang SC", "Hiragino Sans GB",
+    "Microsoft YaHei", "Apple Color Emoji", "Segoe UI Emoji", sans-serif;
+  --vp-font-family-mono: "SF Mono", "JetBrains Mono", ui-monospace, Menlo,
+    Consolas, monospace;
+
+  /* 主题色 */
+  --vp-c-brand-1: var(--miuix-color-primary);
+  --vp-c-brand-2: var(--miuix-color-primary-container);
+  --vp-c-brand-3: var(--miuix-color-on-tertiary-container);
+  --vp-c-brand-soft: rgba(52, 130, 255, 0.14);
+
+  /* 边框和分隔线 */
+  --vp-c-divider: var(--miuix-color-divider-line);
+  --vp-c-gutter: var(--miuix-color-outline);
+
+  /* hero 图标背景光晕 */
+  --vp-home-hero-image-background-image: linear-gradient(
+    to right bottom,
+    var(--miuix-color-primary),
+    var(--miuix-color-primary-container)
+  );
+  --vp-home-hero-image-filter: blur(40px);
+}
+
+/* 深色主题色 */
+.dark {
+  --miuix-color-primary: #277af7;
+  --miuix-color-primary-container: #338fe4;
+  --miuix-color-on-tertiary-container: #277af7;
+  --miuix-color-outline: #404040;
+  --miuix-color-divider-line: #393939;
+
+  --vp-c-brand-soft: rgba(39, 122, 247, 0.18);
+}
+
+/* 搜索框描边 */
+@media (min-width: 960px) {
+  .DocSearch-Button {
+    border: 1px solid var(--miuix-color-outline);
+  }
+}
+
+/* 文档标题渐变 */
+.VPDoc h1 {
+  background: linear-gradient(
+    120deg,
+    var(--miuix-color-primary),
+    var(--miuix-color-primary-container)
+  );
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+/* 中文标题略微收紧字距，和 Miuix 一致 */
+.VPDoc h1,
+.VPDoc h2,
+.VPDoc h3 {
+  letter-spacing: -0.01em;
+}
+
+/* 正文里的行内代码稍微提亮一点，深色下不至于糊 */
+.dark .vp-doc code {
+  background-color: rgba(255, 255, 255, 0.07);
+}
+
+/* 手机端菜单栏多余的分割线隐藏 */
+.VPNavBar.screen-open {
+  border-bottom: none;
+}
+
+.VPNavScreenMenuLink,
+.VPNavScreenMenuGroup {
+  border-bottom: none;
+}
+
+/* hero 图标：纯色方块比 logo 图更压视觉，收一点 */
+.VPHero .image-src {
+  max-width: 176px;
+  max-height: 176px;
+}
+
+/* 光晕别太浓，接近 Miuix 官网那种淡淡的雾 */
+.VPHero .image-bg {
+  opacity: 0.5;
+}
+
+@media (max-width: 640px) {
+  .VPHero .image-src {
+    max-width: 132px;
+    max-height: 132px;
+  }
+
+  .VPHero .image {
+    min-height: 220px;
+  }
+}
+
+/* ---------------- 首页正文区 ---------------- */
+
+.VPHome .vp-doc.container {
+  max-width: 1152px;
+  padding: 0 24px;
+}
+
+.home-section {
+  margin-top: 72px;
+}
+
+.home-section h2 {
+  margin: 0 0 6px;
+  padding-top: 0;
+  border-top: none;
+  font-size: 24px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.home-section .home-sub {
+  margin: 0 0 24px;
+  font-size: 15px;
+  color: var(--vp-c-text-2);
+}
+
+/* 三步 */
+.steps {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 16px;
+}
+
+.step {
+  padding: 20px 22px;
+  border: 1px solid var(--vp-c-divider);
+  border-radius: 12px;
+  background: var(--vp-c-bg);
+  transition: border-color 0.25s;
+}
+
+.step:hover {
+  border-color: var(--vp-c-brand-1);
+}
+
+.step .no {
+  display: block;
+  font-family: var(--vp-font-family-mono);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  color: var(--vp-c-brand-1);
+}
+
+.step h3 {
+  margin: 8px 0 0;
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.5;
+}
+
+.step p {
+  margin: 6px 0 0;
+  font-size: 14px;
+  line-height: 1.7;
+  color: var(--vp-c-text-2);
+}
+
+/* 下载卡 */
+.dl-card {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  margin-top: 8px;
+  padding: 28px 32px;
+  border: 1px solid var(--vp-c-divider);
+  border-radius: 12px;
+  background: var(--vp-c-bg-soft);
+}
+
+.dl-card h2 {
+  margin: 0;
+  padding: 0;
+  border: none;
+  font-size: 22px;
+  font-weight: 700;
+}
+
+.dl-card p {
+  margin: 8px 0 0;
+  font-size: 14px;
+  color: var(--vp-c-text-2);
+}
+
+.dl-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  margin-top: 12px;
+  font-size: 13px;
+  color: var(--vp-c-text-3);
+}
+
+.dl-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.dl-actions .VPButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 40px;
+  padding: 0 20px;
+  border: 1px solid transparent;
+  border-radius: 20px;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1;
+  white-space: nowrap;
+  text-decoration: none;
+  transition: background-color 0.2s, border-color 0.2s, color 0.2s;
+}
+
+.dl-actions .VPButton.brand {
+  background: var(--vp-c-brand-3);
+  color: #fff;
+}
+
+.dl-actions .VPButton.brand:hover {
+  background: var(--vp-c-brand-2);
+  color: #fff;
+}
+
+.dl-actions .VPButton.alt {
+  background: var(--vp-c-default-soft);
+  color: var(--vp-c-text-1);
+}
+
+.dl-actions .VPButton.alt:hover {
+  background: var(--vp-c-default-extra-soft, var(--vp-c-default-soft));
+  color: var(--vp-c-brand-1);
+  border-color: var(--vp-c-divider);
+}
+
+@media (max-width: 640px) {
+  .home-section {
+    margin-top: 56px;
+  }
+
+  .dl-card {
+    padding: 24px;
+  }
+
+  .dl-actions {
+    width: 100%;
+  }
+
+  .dl-actions .VPButton {
+    flex: 1 1 auto;
+  }
+}
