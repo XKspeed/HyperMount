@@ -1,5 +1,9 @@
 package com.xkspeed.systemuimount.ui
 
+import android.content.Context
+import android.content.Intent
+import android.net.Uri
+import android.widget.Toast
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -17,13 +21,17 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -33,6 +41,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.core.graphics.drawable.toBitmap
 import com.xkspeed.systemuimount.BuildConfig
+import com.xkspeed.systemuimount.R
 import com.xkspeed.systemuimount.core.ModuleState
 import com.xkspeed.systemuimount.core.Update
 import com.xkspeed.systemuimount.core.UpdateInfo
@@ -46,6 +55,7 @@ import top.yukonga.miuix.kmp.basic.ButtonDefaults
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.CardDefaults
 import top.yukonga.miuix.kmp.basic.Text as MiuixText
+import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.blur.BlendColorEntry
 import top.yukonga.miuix.kmp.blur.BlurBlendMode
 import top.yukonga.miuix.kmp.blur.BlurDefaults
@@ -53,8 +63,10 @@ import top.yukonga.miuix.kmp.blur.layerBackdrop
 import top.yukonga.miuix.kmp.blur.textureBlur
 import top.yukonga.miuix.kmp.preference.ArrowPreference
 import top.yukonga.miuix.kmp.squircle.squircleClip
+import top.yukonga.miuix.kmp.theme.LocalDismissState
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.theme.MiuixTheme.colorScheme
+import top.yukonga.miuix.kmp.window.WindowDialog
 
 /**
  * 关于页（设置页最下面的入口 点进来的二级页）
@@ -77,6 +89,10 @@ fun AboutPage(
 ) {
     val listState = rememberLazyListState()
     val uriHandler = LocalUriHandler.current
+    val context = LocalContext.current
+
+    // 开发者那一行点开后选平台（GitHub / 酷安）
+    var showPlatforms by remember { mutableStateOf(false) }
 
     // 前 600px 的滚动量当作淡出进度；再往上就完全收起
     val scrollProgress by remember {
@@ -114,6 +130,27 @@ fun AboutPage(
                 scrollProgressProvider = { scrollProgress },
                 backdrop = backdrop,
             )
+        }
+
+        // ---- 卡片 0：开发者（点开选平台，GitHub / 酷安）----
+        item {
+            FrostedCard(backdrop = backdrop) {
+                ArrowPreference(
+                    title = "XKspeed",
+                    summary = "开发者",
+                    startAction = {
+                        Image(
+                            painter = painterResource(R.drawable.avatar_xkspeed),
+                            contentDescription = null,
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier
+                                .size(40.dp)
+                                .squircleClip(cornerRadius = 13.dp),
+                        )
+                    },
+                    onClick = { showPlatforms = true },
+                )
+            }
         }
 
         // ---- 卡片 1：版本信息（对齐 apkeditor 的「应用版本 / 作者」卡）----
@@ -204,6 +241,80 @@ fun AboutPage(
                 )
             }
         }
+    }
+
+    // 选平台：Miuix 的 WindowDialog（竖屏就是从底部滑出的那个宽对话框）
+    WindowDialog(
+        show = showPlatforms,
+        title = "选择平台",
+        maxWidth = 560.dp,
+        onDismissRequest = { showPlatforms = false },
+    ) {
+        val dismissState = LocalDismissState.current
+        Column(modifier = Modifier.fillMaxWidth()) {
+            PlatformAction("打开 GitHub") {
+                dismissState?.invoke()
+                runCatching { uriHandler.openUri("https://github.com/XKspeed") }
+            }
+            PlatformAction("打开酷安") {
+                dismissState?.invoke()
+                openCoolapk(context)
+            }
+            Spacer(Modifier.height(8.dp))
+            TextButton(
+                text = "取消",
+                onClick = { dismissState?.invoke() },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(52.dp),
+                colors = ButtonDefaults.textButtonColors(textColor = colorScheme.error),
+            )
+        }
+    }
+}
+
+/**
+ * 对话框里的一行平台入口：铺满宽度、文字居中、底色透明
+ * 排布与 miuix 示例 dialog 里的 TextButton 一致
+ */
+@Composable
+private fun PlatformAction(text: String, onClick: () -> Unit) {
+    TextButton(
+        text = text,
+        onClick = onClick,
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(52.dp),
+        colors = ButtonDefaults.textButtonColors(
+            color = Color.Transparent,
+            disabledColor = Color.Transparent,
+            textColor = colorScheme.onSurface,
+        ),
+    )
+}
+
+/**
+ * 直接拉起酷安 App：coolmarket:// 由酷安本体接管，不经过浏览器
+ * 先指名包名 避免系统弹「用哪个应用打开」；没装就退回网页版
+ */
+private fun openCoolapk(context: Context) {
+    val schemeUri = Uri.parse("coolmarket://www.coolapk.com/u/34717033")
+    val webUri = Uri.parse("https://www.coolapk.com/u/34717033")
+
+    val named = Intent(Intent.ACTION_VIEW, schemeUri)
+        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        .setPackage("com.coolapk.market")
+    if (runCatching { context.startActivity(named) }.isSuccess) return
+
+    val anyApp = Intent(Intent.ACTION_VIEW, schemeUri)
+        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+    if (runCatching { context.startActivity(anyApp) }.isSuccess) return
+
+    Toast.makeText(context, "没有安装酷安，先打开网页版", Toast.LENGTH_SHORT).show()
+    runCatching {
+        context.startActivity(
+            Intent(Intent.ACTION_VIEW, webUri).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+        )
     }
 }
 
