@@ -94,7 +94,7 @@ fun SettingsPage(
     var showManualDir by remember { mutableStateOf(false) }
     var manualDirText by remember(state.logDir) { mutableStateOf(state.logDir) }
 
-    // MT 的文件夹选择器：选完直接落盘 不用再点保存
+    // SAF 目录选择器：选完直接落盘 不用再点保存
     val folderPicker = rememberLauncherForActivityResult(
         ActivityResultContracts.StartActivityForResult(),
     ) { result ->
@@ -109,44 +109,21 @@ fun SettingsPage(
         }
         val path = pick.path
         if (path == null) {
-            // MT 回了 OK 却没带任何可用路径：它这个入口只负责「选完自己用」不对外交目录
-            AppLog.w("选目录", "MT 未回传目录 改手动填写")
-            toast(context, "MT 没把文件夹交回来 手动填一下路径")
+            // SAF 只给系统认识的位置 解不出来就让人手填
+            AppLog.w("选目录", "这个位置解析不出真实路径 改手动填写")
+            toast(context, "这个位置拿不到真实路径 手动填一下")
             manualDirText = state.logDir
             showManualDir = true
             return@rememberLauncherForActivityResult
         }
         AppLog.i("选目录", "解析出 $path（来源 ${pick.source}）")
-        // MT 通配模式下游标指的是文件 那就按它所在目录算
-        // （进到目标目录随便点一个文件 效果和「选中当前文件夹」一样）
-        var dir = path
-        if (runCatching { java.io.File(path).let { it.exists() && !it.isDirectory } }
-                .getOrDefault(false)) {
-            val parent = java.io.File(path).parent
-            AppLog.i("选目录", "$path 是文件 取父目录 $parent")
-            if (parent == null) {
-                toast(context, "这个位置取不到所在文件夹 手动填一下路径")
-                manualDirText = state.logDir
-                showManualDir = true
-                return@rememberLauncherForActivityResult
-            }
-            dir = parent
-        }
-        AppLog.i("选目录", "提交 LOG_DIR=$dir")
-        onSetConf("LOG_DIR", dir)
+        AppLog.i("选目录", "提交 LOG_DIR=$path")
+        onSetConf("LOG_DIR", path)
     }
 
     fun pickLogFolder() {
         val intent = buildFolderPickIntent(context)
-        if (intent == null) {
-            AppLog.w("选目录", "没探测到 MT 管理器")
-            toast(context, "未找到mt管理器 你连这个都没有吗")
-            return
-        }
-        AppLog.i(
-            "选目录",
-            "拉起 ${intent.action} component=${intent.component?.flattenToShortString()}",
-        )
+        AppLog.i("选目录", "拉起 ${intent.action}")
         runCatching { folderPicker.launch(intent) }
             .onFailure {
                 AppLog.e("选目录", "启动选择器失败", it)

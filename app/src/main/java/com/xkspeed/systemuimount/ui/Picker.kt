@@ -84,27 +84,33 @@ fun buildSourcePickIntent(component: ComponentName): Intent =
     }
 
 /**
- * 拉起 MT 的文件/文件夹选择器
+ * 拉起系统 SAF 目录选择器（DocumentsUI）
  *
- * 来源探测与选 apk 完全同一套（queryMtPickers 只认 MT 的两个包名），
- * 不装就直接返回 null，由调用方 toast，不弹任何系统选择器。
+ * 不再借 MT：MT 对外的 activity 只声明了 GET_CONTENT，显式发 TREE 进去会立刻
+ * setResult 空 Intent 弹回来（实测 resultCode=-1 但 data=null），拿不到任何路径。
  *
- * 这里必须给通配类型：MT 收到通配类型才会进「选择当前文件夹」模式，
- * 给具体类型它只让你挑文件 —— 见 buildSourcePickIntent，两边正好相反。
- *
- * 不要改成 ACTION_OPEN_DOCUMENT_TREE：MT 的 manifest 只声明了 GET_CONTENT
- * 这一个 filter，显式 component 发 TREE 进去它也会立刻 setResult 空 Intent 弹回来
- * （实测 resultCode=-1 但 data=null，什么路径都拿不到）。
+ * 这里不指定 component，交给系统解析 —— HyperOS 上一般落到系统文件选择器的
+ * 「使用此文件夹」界面，返回 tree uri（primary:xxx），能还原成 /storage/emulated/0/xxx。
+ * 缺点和 SAF 一致：root 专属目录（/data/adb 这类）看不到，需要的话用手动填写兜底。
  */
-fun buildFolderPickIntent(context: Context): Intent? {
-    val source = queryMtPickers(context).firstOrNull() ?: return null
-    return Intent(Intent.ACTION_GET_CONTENT).apply {
-        addCategory(Intent.CATEGORY_OPENABLE)
-        type = "*/*"
+fun buildFolderPickIntent(context: Context): Intent {
+    val intent = Intent(Intent.ACTION_OPEN_DOCUMENT_TREE).apply {
         addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-        component = source.component
+        addFlags(Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
+        addFlags(Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION)
     }
+    // 从内部存储根开始翻 省得每次从「最近」一层层点下去
+    runCatching {
+        intent.putExtra(
+            DocumentsContract.EXTRA_INITIAL_URI,
+            DocumentsContract.buildDocumentUri(EXTERNAL_STORAGE_PROVIDER, "primary:"),
+        )
+    }
+    return intent
 }
+
+/** 系统外置存储的 DocumentsProvider 包名 */
+private const val EXTERNAL_STORAGE_PROVIDER = "com.android.externalstorage.documents"
 
 /** 选择器返回了什么、我们从中解析出了什么 */
 data class FolderPick(val path: String?, val source: String, val dump: String)
@@ -192,6 +198,10 @@ fun folderPathOf(context: Context, uri: Uri): String? {
 
 /** document id → 挂载路径：primary:Download/x → /storage/emulated/0/Download/x */
 private fun externalStoragePath(docId: String): String? {
+    // 下载/媒体一类的 provider 直接给 raw:/storage/... 去掉前缀就是真实路径
+    if (docId.startsWith("raw:")) {
+        return docId.removePrefix("raw:").takeIf { it.startsWith("/") }
+    }
     val idx = docId.indexOf(':')
     if (idx <= 0) return null
     val volume = docId.substring(0, idx)
