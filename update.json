@@ -1,6 +1,6 @@
 {
-  "versionCode": 7,
-  "versionName": "1.2.2",
-  "url": "https://github.com/XKspeed/SystemUIRescue/releases/download/v1.2.2/SystemUIRescue-arm64-1.2.2.apk",
-  "changelog": "崩溃日志升级为全局应用日志 每条带时间与等级 设置里新增「日志等级」下拉 可调 关闭 / 仅错误 / 警告 / 常规 / 详细 / 全部\n崩溃仍单独保存完整堆栈 清空日志不会删掉崩溃现场 安全模式与启动崩溃弹窗逻辑不变\n日志目录改用系统文件夹选择器 选中即写入并回读确认 写入失败会直接提示 不再静默失败\n切换日志目录后设置页立刻刷新 不用再退出重进\n卡片内的行不再画分隔线 与 Miuix 原生样式一致 只保留行本身的留白\n发版包更名为 SystemUIRescue-arm64-版本号.apk 并且只打包 arm64 安装包体积更小\n新增内测构建工作流 只出包不发版 与正式发版共用 Gradle 缓存"
+  "versionCode": 8,
+  "versionName": "1.3.0",
+  "url": "https://github.com/XKspeed/SystemUIRescue/releases/download/v1.3.0/HyperMount-arm64-1.3.0.apk",
+  "changelog": "应用更名为 HyperMount 包名同步改为 com.xkspeed.HyperMount\n这个版本不能覆盖安装旧版 请先卸载再装 卸载会清掉应用内保存的待测 apk 与救砖 apk 重装后重新选一次即可 模块里的配置和日志不受影响\n新增官网 xkspeed.github.io/SystemUIRescue 下载最新版 看安装教程 常见问题 模块说明都在上面\n关于页顶部新增开发者卡片 点头像弹出平台列表 可选 GitHub 或酷安 酷安会直接拉起 App 跳到作者主页\n新手引导的环境检测改成硬门槛 root 与模块都就绪才能进下一步 不再提供跳过 缺哪项会直接标出来\n主页的配置项改成从底部弹出的宽面板 目标包名 等待时长 抓取时长一次改完\n主页选到系统界面本体时 待测 apk 和救砖 apk 都会被拦下 并引导去「界面专区」走模块流程\n开关和数值改完界面立刻跟随 后台写入后 1 秒回读校验 没写进去会自动回落到实际值\n写配置没生效时不再弹窗打断 界面直接回到模块里的真实值 只有脚本本身报错才会提示\n设置里的调试日志去掉多余副标题 顺序改为 应用日志等级 日志内容 模块调试日志 内容 模块日志随开关展开"
 }
