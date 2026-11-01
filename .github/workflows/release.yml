@@ -29,8 +29,26 @@ jobs:
           distribution: 'temurin'
           java-version: '21'
 
+      # 关掉 setup-gradle 自带的缓存：它的 key 里带 workflow 名，
+      # 两条工作流（Release / Build Internal）永远不会命中同一份。
+      # 缓存改由下一步 actions/cache 统一管，key 里只有 Gradle 版本，两边共用。
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-provider: external
+
+      - name: Cache Gradle
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches/modules-2
+            ~/.gradle/caches/build-cache-1
+            ~/.gradle/wrapper/dists
+          # 只有 Gradle 版本变化才换 key；版本号写在 build.gradle 里不参与计算，
+          # 否则每次发版 sed 改一下 versionName 就会整份缓存作废。
+          key: gradle-${{ runner.os }}-${{ hashFiles('gradle/wrapper/gradle-wrapper.properties') }}
+          restore-keys: |
+            gradle-${{ runner.os }}-
 
       # 把 Secrets 里的 keystore（jks 的 base64 单行文本）解码回文件
       # 解码后立刻按别名校验：内容不对时在这一步就报明确错误
