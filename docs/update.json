@@ -1,0 +1,6 @@
+{
+  "versionCode": 7,
+  "versionName": "1.2.2",
+  "url": "https://github.com/XKspeed/SystemUIRescue/releases/download/v1.2.2/SystemUIRescue-arm64-1.2.2.apk",
+  "changelog": "崩溃日志升级为全局应用日志 每条带时间与等级 设置里新增「日志等级」下拉 可调 关闭 / 仅错误 / 警告 / 常规 / 详细 / 全部\n崩溃仍单独保存完整堆栈 清空日志不会删掉崩溃现场 安全模式与启动崩溃弹窗逻辑不变\n日志目录改用系统文件夹选择器 选中即写入并回读确认 写入失败会直接提示 不再静默失败\n切换日志目录后设置页立刻刷新 不用再退出重进\n卡片内的行不再画分隔线 与 Miuix 原生样式一致 只保留行本身的留白\n发版包更名为 SystemUIRescue-arm64-版本号.apk 并且只打包 arm64 安装包体积更小\n新增内测构建工作流 只出包不发版 与正式发版共用 Gradle 缓存"
+}

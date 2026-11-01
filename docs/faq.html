@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>常见问题 · SystemUI 救援</title>
+<meta name="description" content="SystemUI 救援的常见问题：环境检查、音量键、自动救砖、日志目录、更新检查。">
+<link rel="stylesheet" href="assets/style.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='24' fill='%23ff5a48'/><path d='M50 22v34' stroke='white' stroke-width='9' stroke-linecap='round'/><path d='M34 42l16 16 16-16' stroke='white' stroke-width='9' stroke-linecap='round' stroke-linejoin='round' fill='none'/></svg>">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="wrap topbar-inner">
+    <a class="brand" href="index.html">
+      <span class="brand-mark">
+        <svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 4v10"/><path d="M7 10l5 5 5-5"/><path d="M5 20h14"/>
+        </svg>
+      </span>
+      SystemUI 救援
+      <small>SystemUIRescue</small>
+    </a>
+    <nav class="nav">
+      <a href="index.html">首页</a>
+      <a href="guide.html">使用教程</a>
+      <a href="faq.html" class="active">常见问题</a>
+      <a href="module.html">模块说明</a>
+      <a class="gh" href="https://github.com/XKspeed/SystemUIRescue" target="_blank" rel="noopener">GitHub</a>
+    </nav>
+  </div>
+</header>
+
+<main class="wrap doc">
+  <aside class="toc">
+    <h5>本页目录</h5>
+    <a href="#env">环境与安装</a>
+    <a href="#volume">音量键</a>
+    <a href="#auto">自动救砖</a>
+    <a href="#logdir">日志目录</a>
+    <a href="#main">主页测试</a>
+    <a href="#update">更新与升级</a>
+    <a href="#risk">风险相关</a>
+  </aside>
+
+  <div class="doc-body">
+    <h1>常见问题</h1>
+    <p class="sub">按出问题的环节分组。动手前先确认一件事：<strong>救砖界面必须是一份确认可用的 SystemUI</strong>。</p>
+
+    <h2 id="env">环境与安装</h2>
+
+    <details>
+      <summary>打开提示环境检查不过，说模块不对</summary>
+      <p>应用只认作者为 <code>XKspeed</code> 的 <code>systemui_mount</code> 模块。检查：</p>
+      <ul>
+        <li>模块是否真的刷入并重启过（Root 管理器里能看到且为启用状态）；</li>
+        <li>装的是不是同名但非本项目的模块——同名不同作者会被拦，这是故意的，脚本接口对不上会静默失败；</li>
+        <li>Root 是否真的可用：应用走的是常驻 <code>su</code> shell，授权被拒会直接表现为读不到配置。</li>
+      </ul>
+    </details>
+
+    <details>
+      <summary>提示「未找到 MT 管理器」</summary>
+      <p>选 apk 用的就是 MT 的选择器（正版 <code>bin.mt.plus</code> 优先，其次是共存版 <code>bin.mt.plus.canary</code>），不会退回系统文件选择器。装一个即可。</p>
+      <p>另外注意：Android 11 之后有包可见性限制，如果两种 MT 都装了却仍提示未找到，多半是系统把查询挡了，重启一次应用再看。</p>
+    </details>
+
+    <details>
+      <summary>装上新版本提示「应用未安装」</summary>
+      <p>两个原因：<code>versionCode</code> 没递增，或签名变了。正式版一直用同一套密钥签名，正常覆盖升级不会有问题；如果你装过自行编译的包，需要先卸载再装。</p>
+      <p>卸载会清掉应用内的设置（模块里的配置不受影响）。</p>
+    </details>
+
+    <h2 id="volume">音量键</h2>
+
+    <details>
+      <summary>音量键显示「未识别」，但音量键明明能用</summary>
+      <p>「能用」和「能读到事件」是两件事。应用要求按键真的产生一次 <code>KEY_VOLUMEUP</code> / <code>KEY_VOLUMEDOWN</code> 事件才算识别通过，只是声明了能力位不算。</p>
+      <p>校验时按提示真的按一下音量键；如果一直读不到，可能按键被系统手势或辅助功能占用了，换一个按键组合或关掉相关功能再试。</p>
+    </details>
+
+    <details>
+      <summary>系统升级后又要重新校验</summary>
+      <p>这是设计如此。系统升级会改变输入设备号，旧结果继续用就是「按了没反应」。应用记录校验时的具体版本（如 <code>4.0.24.0.WOCCNXM</code>），对不上就作废旧值并重新拉起校验面板。</p>
+    </details>
+
+    <details>
+      <summary>救砖时按音量 + 没反应</summary>
+      <ul>
+        <li>守护是否在跑：状态卡显示「未在运行」就不会响应按键；</li>
+        <li>音量键是否已识别：未识别说明设备号没写进模块配置；</li>
+        <li>是否处于「仅日志」或「完全禁用」模式：这两种模式不执行救砖。</li>
+      </ul>
+      <p>实在不行进 Recovery 处理，别反复重启等它自己好。</p>
+    </details>
+
+    <h2 id="auto">自动救砖</h2>
+
+    <details>
+      <summary>换了待测界面黑屏了，但没有自动换回</summary>
+      <p>按可能性排：</p>
+      <ul>
+        <li><strong>系统先动手了</strong>：AMS 自己的崩溃上限（默认 12）比设定的阈值更早触发，SystemUI 被系统重启成原版或被收走。这种情况需要开「屏蔽系统救援」。</li>
+        <li><strong>崩溃次数没到阈值</strong>：单次崩溃但阈值较高。这类情况靠「卡死检测」兜——日志疯长会直接触发，不看次数。</li>
+        <li><strong>守护没起来</strong>：模式为「仅日志」或「完全禁用」。</li>
+      </ul>
+    </details>
+
+    <details>
+      <summary>开启增强救砖后，为什么「屏蔽系统救援」是灰的</summary>
+      <p>两者绑死了。增强救砖要靠崩溃次数累积到阈值才动作，如果不屏蔽系统救援，系统会先崩到自己的上限把 SystemUI 收走，自动救砖根本没机会执行。所以开启增强时强制打开，不可关闭。</p>
+    </details>
+
+    <details>
+      <summary>崩溃上限 30 是怎么来的</summary>
+      <p>「日志 + 救砖」模式（不开增强）下自动设成 30。系统默认的 12 太紧，等不到人按音量键就已经被收走。开了增强救砖之后这个值可以自己调。</p>
+    </details>
+
+    <details>
+      <summary>救回之后界面还是旧的 / 还是崩的</summary>
+      <p>替换后需要等 SystemUI 重启完成，这段时间屏幕可能是黑的，属于正常。设置里的「等待超时」就是给这个留的时间，太短会误判失败。</p>
+      <p>如果反复救回又崩，说明救砖界面那份本身在当前系统上不可用，换一份从当前系统提取的再试。</p>
+    </details>
+
+    <h2 id="logdir">日志目录</h2>
+
+    <details>
+      <summary>改了日志目录，设置页没变化</summary>
+      <p>正常情况下选完立刻写入并回读校验，写入失败会弹提示而不是静默失败。如果确实没变，去「应用日志」看这几行：</p>
+      <div class="code">I/选目录 解析出 &lt;路径&gt;（来源 data.uri）<br>I/选目录 提交 LOG_DIR=&lt;路径&gt;<br>I/状态 LOG_DIR 配置=&lt;值&gt; → 界面显示 &lt;值&gt;</div>
+      <p>三行齐全且值一致就是写进去了，可能是页面还没刷新，退出设置页再进。</p>
+    </details>
+
+    <details>
+      <summary>选不到 /data/adb 这类目录</summary>
+      <p>系统文件夹选择器（SAF）看不到 root 专属目录。日志目录选 <code>/storage/emulated/0/...</code> 即可；一定要写到 <code>/data/adb</code> 时，在弹窗里手动填路径。</p>
+      <p>注意脚本以 root 身份运行，写 sdcard 没有权限问题。</p>
+    </details>
+
+    <h2 id="main">主页测试</h2>
+
+    <details>
+      <summary>主页选 apk 提示「这个包不能装」</summary>
+      <p>那是 <code>com.android.systemui</code>。主页是给普通 apk 做崩溃测试用的，把系统界面本体装进去很容易直接黑砖。要换系统界面，去「界面」页。</p>
+    </details>
+
+    <details>
+      <summary>主页能测不是 SystemUI 的应用吗</summary>
+      <p>可以。主页不校验包名，测的是「装上、跑起来、会不会崩」。目标包名只用于筛日志，和选的两个 apk 没有绑定关系——测插件时崩溃日志会记在宿主包名下。</p>
+    </details>
+
+    <details>
+      <summary>主页跑完，日志在哪</summary>
+      <p>在设置页「日志目录」指定的位置，文件名是 <code>logcat_&lt;包名&gt;_&lt;时间&gt;.log</code>。只有运行模式带日志时才会出现「日志目录」这张卡。</p>
+    </details>
+
+    <h2 id="update">更新与升级</h2>
+
+    <details>
+      <summary>检查更新一直失败</summary>
+      <p>应用会按顺序试 GitHub 直连和几个镜像（gh-proxy、ghproxy、ghfast、moeyy、jsDelivr），任何一个通了就算成功。全都不通时：</p>
+      <ul>
+        <li>确认网络能出网（部分校园网 / 企业网会拦）；</li>
+        <li>过一会儿再试，镜像站偶尔集体抽风；</li>
+        <li>直接来<a href="index.html#download" style="color:var(--brand)">官网</a>点镜像下载。</li>
+      </ul>
+    </details>
+
+    <details>
+      <summary>新版本能直接覆盖安装吗</summary>
+      <p>能。正式版固定签名，<code>versionCode</code> 递增，直接覆盖。更新只换应用，模块配置和已选的界面文件都不受影响。</p>
+    </details>
+
+    <h2 id="risk">风险相关</h2>
+
+    <details>
+      <summary>会不会影响系统 OTA</summary>
+      <p>模块通过挂载替换 SystemUI，OTA 前后行为以模块说明为准。升级系统前建议先在应用里停止守护、把界面还原成原版，升级后再重新走一遍模块安装与音量键校验。</p>
+    </details>
+
+    <details>
+      <summary>最坏的情况是什么</summary>
+      <p>SystemUI 起不来 → 黑屏但系统仍在运行 → 靠音量键 / Recovery 换回。真正救不回来的是「救砖界面本身也不可用」和「模块被卸载但界面还是替换状态」。所以第一次用请务必确认救砖界面可用。</p>
+    </details>
+
+    <p style="margin-top:36px">
+      没找到答案？<a href="https://github.com/XKspeed/SystemUIRescue/issues" style="color:var(--brand)" target="_blank" rel="noopener">提个 issue</a>，附上应用日志里对应的那几行。
+    </p>
+  </div>
+</main>
+
+<footer>
+  <div class="wrap foot-inner">
+    <span>SystemUI 救援 · 换界面出问题风险自负，务必先备好可用的救砖界面</span>
+    <div class="foot-links">
+      <a href="guide.html">教程</a>
+      <a href="faq.html">FAQ</a>
+      <a href="module.html">模块</a>
+      <a href="https://github.com/XKspeed/SystemUIRescue" target="_blank" rel="noopener">GitHub</a>
+    </div>
+  </div>
+</footer>
+
+<script src="assets/app.js"></script>
+</body>
+</html>
