@@ -90,32 +90,50 @@ fun SettingsPage(
     }
     var askEnhance by remember { mutableStateOf(false) }
 
+    // MT 不交目录时的兜底：手动填路径（默认填当前值）
+    var showManualDir by remember { mutableStateOf(false) }
+    var manualDirText by remember(state.logDir) { mutableStateOf(state.logDir) }
+
     // MT 的文件夹选择器：选完直接落盘 不用再点保存
     val folderPicker = rememberLauncherForActivityResult(
         ActivityResultContracts.StartActivityForResult(),
     ) { result ->
-        val uri = result.data?.data
-        // 这几条是排查「选了没生效」的关键：返回码、原始 uri、解析出的真实路径
-        AppLog.i("选目录", "返回 resultCode=${result.resultCode} uri=$uri")
-        if (result.resultCode != Activity.RESULT_OK || uri == null) {
-            AppLog.w("选目录", "取消或未返回 uri")
+        // 这几条是排查「选了没生效」的关键：返回码、原始 Intent 全貌、解析出的真实路径
+        AppLog.i("选目录", "返回 resultCode=${result.resultCode}")
+        val pick = resolveFolderResult(context, result.data)
+        AppLog.i("选目录", "来源=${pick.source} path=${pick.path}")
+        if (pick.dump.isNotBlank()) AppLog.d("选目录", "原始返回 ${pick.dump}")
+        if (result.resultCode != Activity.RESULT_OK) {
+            AppLog.w("选目录", "用户取消")
             return@rememberLauncherForActivityResult
         }
-        val path = folderPathOf(context, uri)
-        AppLog.i("选目录", "uri=$uri → path=$path")
+        val path = pick.path
         if (path == null) {
-            toast(context, "这个位置拿不到真实路径 换一个目录试试")
+            // MT 回了 OK 却没带任何可用路径：它这个入口只负责「选完自己用」不对外交目录
+            AppLog.w("选目录", "MT 未回传目录 改手动填写")
+            toast(context, "MT 没把文件夹交回来 手动填一下路径")
+            manualDirText = state.logDir
+            showManualDir = true
             return@rememberLauncherForActivityResult
         }
-        // MT 的通配选择器也能挑到文件 别把文件路径当目录写进去
+        AppLog.i("选目录", "解析出 $path（来源 ${pick.source}）")
+        // MT 通配模式下游标指的是文件 那就按它所在目录算
+        // （进到目标目录随便点一个文件 效果和「选中当前文件夹」一样）
+        var dir = path
         if (runCatching { java.io.File(path).let { it.exists() && !it.isDirectory } }
                 .getOrDefault(false)) {
-            AppLog.w("选目录", "$path 是文件不是目录")
-            toast(context, "选的是文件 要选文件夹")
-            return@rememberLauncherForActivityResult
+            val parent = java.io.File(path).parent
+            AppLog.i("选目录", "$path 是文件 取父目录 $parent")
+            if (parent == null) {
+                toast(context, "这个位置取不到所在文件夹 手动填一下路径")
+                manualDirText = state.logDir
+                showManualDir = true
+                return@rememberLauncherForActivityResult
+            }
+            dir = parent
         }
-        AppLog.i("选目录", "提交 LOG_DIR=$path")
-        onSetConf("LOG_DIR", path)
+        AppLog.i("选目录", "提交 LOG_DIR=$dir")
+        onSetConf("LOG_DIR", dir)
     }
 
     fun pickLogFolder() {
@@ -473,6 +491,48 @@ fun SettingsPage(
                 onClick = {
                     askEnhance = false
                     applyMode(3)
+                },
+                modifier = Modifier.weight(1f),
+                colors = ButtonDefaults.textButtonColorsPrimary(),
+            )
+        }
+    }
+
+    // MT 回不来目录路径时的兜底：手动填（默认带上当前配置值）
+    WindowDialog(
+        show = showManualDir,
+        title = "日志目录",
+        summary = "目录不存在会自动创建 改完对下一次抓取生效",
+        maxWidth = 560.dp,
+        onDismissRequest = { showManualDir = false },
+    ) {
+        TextField(
+            value = manualDirText,
+            onValueChange = { manualDirText = it },
+            label = "目录路径",
+            useLabelAsPlaceholder = true,
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth(),
+        )
+        Spacer(Modifier.height(20.dp))
+        Row(modifier = Modifier.fillMaxWidth()) {
+            TextButton(
+                text = "取消",
+                onClick = { showManualDir = false },
+                modifier = Modifier.weight(1f),
+            )
+            Spacer(Modifier.width(20.dp))
+            TextButton(
+                text = "保存",
+                onClick = {
+                    val p = manualDirText.trim()
+                    showManualDir = false
+                    if (p.isEmpty()) {
+                        toast(context, "路径不能为空")
+                        return@TextButton
+                    }
+                    AppLog.i("选目录", "手动提交 LOG_DIR=$p")
+                    onSetConf("LOG_DIR", p)
                 },
                 modifier = Modifier.weight(1f),
                 colors = ButtonDefaults.textButtonColorsPrimary(),

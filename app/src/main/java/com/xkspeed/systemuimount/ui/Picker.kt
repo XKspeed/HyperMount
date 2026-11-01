@@ -84,22 +84,79 @@ fun buildSourcePickIntent(component: ComponentName): Intent =
     }
 
 /**
- * 拉起 MT 的文件夹选择器
+ * 拉起 MT 的文件/文件夹选择器
  *
  * 来源探测与选 apk 完全同一套（queryMtPickers 只认 MT 的两个包名），
  * 不装就直接返回 null，由调用方 toast，不弹任何系统选择器。
  *
- * 必须发 ACTION_OPEN_DOCUMENT_TREE 并显式指定 MT 的 activity：
- * MT 的 manifest 只声明了 GET_CONTENT 加通配 mimeType 这一个 filter，走那条路进的是选文件；
- * 用显式 component 启动不做 filter 匹配，MT 收到 TREE action 才会切到「选择文件夹」。
- * 这两条路的界面完全不同（一个选文件 一个选文件夹），别再换回去。
+ * 这里必须给通配类型：MT 收到通配类型才会进「选择当前文件夹」模式，
+ * 给具体类型它只让你挑文件 —— 见 buildSourcePickIntent，两边正好相反。
+ *
+ * 不要改成 ACTION_OPEN_DOCUMENT_TREE：MT 的 manifest 只声明了 GET_CONTENT
+ * 这一个 filter，显式 component 发 TREE 进去它也会立刻 setResult 空 Intent 弹回来
+ * （实测 resultCode=-1 但 data=null，什么路径都拿不到）。
  */
 fun buildFolderPickIntent(context: Context): Intent? {
     val source = queryMtPickers(context).firstOrNull() ?: return null
-    return Intent(Intent.ACTION_OPEN_DOCUMENT_TREE).apply {
-        component = source.component
+    return Intent(Intent.ACTION_GET_CONTENT).apply {
+        addCategory(Intent.CATEGORY_OPENABLE)
+        type = "*/*"
         addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        component = source.component
     }
+}
+
+/** 选择器返回了什么、我们从中解析出了什么 */
+data class FolderPick(val path: String?, val source: String, val dump: String)
+
+/**
+ * 从选择器返回的 Intent 里捞目录路径
+ *
+ * MT 的「选择文件夹」界面点确定时会回 RESULT_OK，但 data 上不一定挂 uri
+ * （实测有的版本回的是空 Intent，路径可能放在 extras 或 ClipData 里）。
+ * 所以这里按常见携带位置逐层找：data → clipData → dataString → extras。
+ * 全都没有就返回 null，由调用方决定降级方案；dump 原样带出去 方便看它到底给了什么。
+ */
+fun resolveFolderResult(context: Context, data: Intent?): FolderPick {
+    if (data == null) return FolderPick(null, "无返回 Intent", "")
+    val dump = buildString {
+        append("action=${data.action} type=${data.type} data=${data.data} dataString=${data.dataString}")
+        data.clipData?.let { cd ->
+            append(" clip=[").append((0 until cd.itemCount).joinToString(", ") { cd.getItemAt(it)?.uri?.toString().orEmpty() }).append(']')
+        }
+        data.extras?.let { b ->
+            append(" extras={")
+            b.keySet().forEach { k -> append(k).append('=').append(runCatching { b.get(k) }.getOrNull()).append(' ') }
+            append('}')
+        }
+    }
+    data.data?.let { uri -> folderPathOf(context, uri)?.let { return FolderPick(it, "data.uri", dump) } }
+    data.clipData?.let { cd ->
+        for (i in 0 until cd.itemCount) {
+            cd.getItemAt(i)?.uri?.let { u ->
+                folderPathOf(context, u)?.let { return FolderPick(it, "clipData[$i]", dump) }
+            }
+        }
+    }
+    pathFromText(context, data.dataString)?.let { return FolderPick(it, "dataString", dump) }
+    data.extras?.let { b ->
+        for (k in b.keySet()) {
+            val v = runCatching { b.get(k) }.getOrNull() as? String ?: continue
+            pathFromText(context, v)?.let { return FolderPick(it, "extra.$k", dump) }
+        }
+    }
+    return FolderPick(null, "未携带路径", dump)
+}
+
+/** 字符串形式的结果：绝对路径直接用，uri 形式交给 folderPathOf */
+private fun pathFromText(context: Context, raw: String?): String? {
+    val s = raw?.trim().orEmpty()
+    if (s.isEmpty()) return null
+    if (s.startsWith("/")) return s
+    if (s.startsWith("content://") || s.startsWith("file://")) {
+        return runCatching { folderPathOf(context, Uri.parse(s)) }.getOrNull()
+    }
+    return null
 }
 
 /**
@@ -114,6 +171,11 @@ fun folderPathOf(context: Context, uri: Uri): String? {
     // 有的 provider 直接把真实路径塞在 path 里
     uri.path?.let { p ->
         if (p.startsWith("/storage/") || p.startsWith("/data/") || p.startsWith("/mnt/")) return p
+        // MT 这类 provider 会在前面挂自己的根（/root/storage/...） 从第一个真挂载点截断
+        listOf("/storage/", "/mnt/", "/data/").forEach { seg ->
+            val i = p.indexOf(seg)
+            if (i > 0) return p.substring(i)
+        }
     }
     val docId = runCatching {
         if (DocumentsContract.isTreeUri(uri)) DocumentsContract.getTreeDocumentId(uri)
