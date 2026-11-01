@@ -86,22 +86,22 @@ fun buildSourcePickIntent(component: ComponentName): Intent =
 /**
  * 拉起 MT 的文件夹选择器
  *
- * 先看 MT 有没有实现 OPEN_DOCUMENT_TREE：实现了就是标准目录树，返回 tree uri；
- * 没实现就退回 GET_CONTENT + 通配类型 —— MT 在通配类型下会进「选择当前文件夹」模式，
- * 这条路能进 /data/adb 这类系统文档树不让看的位置（MT 自己是 root 浏览）。
- * 两条路都只认 MT，不装就直接返回 null，由调用方提示。
+ * 来源探测与选 apk 完全同一套（queryMtPickers 只认 MT 的两个包名），
+ * 不装就直接返回 null，由调用方 toast，不弹任何系统选择器。
+ *
+ * 这里必须给通配类型：MT 收到通配类型才会进「选择当前文件夹」模式
+ * （底部就是选择当前文件夹，能进 /data/adb 这种系统文档树不让看的位置）；
+ * 给具体类型它只让你挑文件 —— 见 buildSourcePickIntent，两边正好相反。
+ *
+ * 不发 ACTION_OPEN_DOCUMENT_TREE：那要先过一轮 provider 解析，
+ * 而且 MT 未必声明这个 intent-filter，直接通配 GET_CONTENT 最稳。
  */
 fun buildFolderPickIntent(context: Context): Intent? {
     val source = queryMtPickers(context).firstOrNull() ?: return null
-    val tree = Intent(Intent.ACTION_OPEN_DOCUMENT_TREE).apply { component = source.component }
-    val supportsTree = runCatching {
-        context.packageManager.queryIntentActivities(tree, 0).isNotEmpty()
-    }.getOrDefault(false)
-    if (supportsTree) return tree
     return Intent(Intent.ACTION_GET_CONTENT).apply {
         addCategory(Intent.CATEGORY_OPENABLE)
-        // 这里必须给通配类型：给具体类型 MT 只会让你挑文件
         type = "*/*"
+        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         component = source.component
     }
 }
