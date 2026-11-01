@@ -61,7 +61,6 @@ import kotlinx.coroutines.launch
 import top.yukonga.miuix.kmp.basic.Button
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.CardDefaults
-import top.yukonga.miuix.kmp.basic.HorizontalDivider
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.SmallTitle
 import top.yukonga.miuix.kmp.basic.Text
@@ -284,9 +283,7 @@ fun MainPage(
                         style = MiuixTheme.textStyles.subtitle,
                     )
                     if (logAreaHeight > 0.dp) {
-                        Spacer(Modifier.height(10.dp))
-                        HorizontalDivider(color = MiuixTheme.colorScheme.dividerLine)
-                        Spacer(Modifier.height(8.dp))
+                        Spacer(Modifier.height(12.dp))
                         Box(
                             Modifier.fillMaxWidth()
                                 .height(logAreaHeight)
@@ -368,10 +365,6 @@ fun MainPage(
                     exit = fadeOut() + shrinkVertically(),
                 ) {
                     Column {
-                        HorizontalDivider(
-                            color = MiuixTheme.colorScheme.dividerLine,
-                            modifier = Modifier.padding(horizontal = 16.dp),
-                        )
                         ArrowPreference(
                             title = "救砖apk",
                             summary = if (rescueReady)
@@ -382,10 +375,6 @@ fun MainPage(
                         )
                     }
                 }
-                HorizontalDivider(
-                    color = MiuixTheme.colorScheme.dividerLine,
-                    modifier = Modifier.padding(horizontal = 16.dp),
-                )
                 ArrowPreference(
                     title = "待测apk",
                     summary = if (targetReady)
@@ -474,10 +463,6 @@ fun MainPage(
                     singleLine = true,
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
                 )
-                HorizontalDivider(
-                    color = MiuixTheme.colorScheme.dividerLine,
-                    modifier = Modifier.padding(horizontal = 16.dp),
-                )
                 SliderInputPreference(
                     title = "等待时长",
                     summary = "开抓前等多久 留给 apk 安装",
@@ -488,10 +473,6 @@ fun MainPage(
                     steps = Logcat.MAX_WAIT - Logcat.MIN_WAIT - 1,
                     valueText = "${LogConfig.waitSeconds} 秒",
                     inputUnit = "秒",
-                )
-                HorizontalDivider(
-                    color = MiuixTheme.colorScheme.dividerLine,
-                    modifier = Modifier.padding(horizontal = 16.dp),
                 )
                 SliderInputPreference(
                     title = "抓取时长",

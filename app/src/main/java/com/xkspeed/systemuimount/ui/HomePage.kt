@@ -54,7 +54,6 @@ import com.xkspeed.systemuimount.ui.util.pageScrollModifiers
 import com.xkspeed.systemuimount.ui.util.rememberBlurBackdrop
 import top.yukonga.miuix.kmp.basic.Button
 import top.yukonga.miuix.kmp.basic.Card
-import top.yukonga.miuix.kmp.basic.HorizontalDivider
 import top.yukonga.miuix.kmp.basic.MiuixScrollBehavior
 import top.yukonga.miuix.kmp.basic.Scaffold
 import top.yukonga.miuix.kmp.basic.SmallTitle
@@ -150,9 +149,7 @@ fun HomePage(
                                 style = MiuixTheme.textStyles.subtitle,
                             )
                             if (logAreaHeight > 0.dp) {
-                                Spacer(Modifier.height(10.dp))
-                                HorizontalDivider(color = MiuixTheme.colorScheme.dividerLine)
-                                Spacer(Modifier.height(8.dp))
+                                Spacer(Modifier.height(12.dp))
                                 Box(
                                     Modifier.fillMaxWidth()
                                         .height(logAreaHeight)
@@ -224,10 +221,6 @@ fun HomePage(
                                 "MiuiSystemUI.apk · ${Module.fmtSize(state.rescueSize)}"
                             else "未选择 · 点击选择要恢复的 APK",
                             onClick = onPickRescue,
-                        )
-                        HorizontalDivider(
-                            color = MiuixTheme.colorScheme.dividerLine,
-                            modifier = Modifier.padding(horizontal = 16.dp),
                         )
                         ArrowPreference(
                             title = "待测界面",

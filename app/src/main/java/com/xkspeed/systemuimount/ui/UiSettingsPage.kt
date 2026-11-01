@@ -48,7 +48,6 @@ import com.xkspeed.systemuimount.ui.util.pageContentPadding
 import com.xkspeed.systemuimount.ui.util.pageScrollModifiers
 import com.xkspeed.systemuimount.ui.util.rememberBlurBackdrop
 import top.yukonga.miuix.kmp.basic.BasicComponent
-import top.yukonga.miuix.kmp.basic.HorizontalDivider
 import top.yukonga.miuix.kmp.basic.MiuixScrollBehavior
 import top.yukonga.miuix.kmp.basic.SmallTitle
 import top.yukonga.miuix.kmp.preference.SwitchPreference
@@ -213,10 +212,6 @@ fun UiSettingsPage(onBack: () -> Unit) {
                             },
                             state = select,
                         )
-                        HorizontalDivider(
-                            color = MiuixTheme.colorScheme.dividerLine,
-                            modifier = Modifier.padding(horizontal = 16.dp),
-                        )
                         // 二：莫奈取色
                         SwitchPreference(
                             title = "莫奈取色",
@@ -236,10 +231,6 @@ fun UiSettingsPage(onBack: () -> Unit) {
                             exit = fadeOut() + shrinkVertically(),
                         ) {
                             Column {
-                                HorizontalDivider(
-                                    color = MiuixTheme.colorScheme.dividerLine,
-                                    modifier = Modifier.padding(horizontal = 16.dp),
-                                )
                                 LiquidSelectPreference(
                                     title = "种子色",
                                     summary = if (ThemeState.seedIndex == 0)
@@ -262,10 +253,6 @@ fun UiSettingsPage(onBack: () -> Unit) {
                                     exit = fadeOut() + shrinkVertically(),
                                 ) {
                                     Column {
-                                        HorizontalDivider(
-                                            color = MiuixTheme.colorScheme.dividerLine,
-                                            modifier = Modifier.padding(horizontal = 16.dp),
-                                        )
                                         LiquidSelectPreference(
                                             title = "调色风格",
                                             summary = PALETTE_STYLE_SUMMARIES[
@@ -284,10 +271,6 @@ fun UiSettingsPage(onBack: () -> Unit) {
                                                 ThemeState.save(context)
                                             },
                                             state = select,
-                                        )
-                                        HorizontalDivider(
-                                            color = MiuixTheme.colorScheme.dividerLine,
-                                            modifier = Modifier.padding(horizontal = 16.dp),
                                         )
                                         LiquidSelectPreference(
                                             title = "色彩规范",

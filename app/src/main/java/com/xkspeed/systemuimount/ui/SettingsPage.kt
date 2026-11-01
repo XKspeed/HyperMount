@@ -38,7 +38,6 @@ import com.xkspeed.systemuimount.ui.components.InfoRow
 import com.xkspeed.systemuimount.ui.components.SectionCard
 import com.xkspeed.systemuimount.ui.components.SliderInputPreference
 import top.yukonga.miuix.kmp.basic.ButtonDefaults
-import top.yukonga.miuix.kmp.basic.HorizontalDivider
 import top.yukonga.miuix.kmp.basic.SmallTitle
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextField
@@ -200,10 +199,6 @@ fun SettingsPage(
                             exit = fadeOut() + shrinkVertically(),
                         ) {
                             Column {
-                                HorizontalDivider(
-                                    color = MiuixTheme.colorScheme.dividerLine,
-                                    modifier = Modifier.padding(horizontal = 16.dp),
-                                )
                                 ArrowPreference(
                                     title = "日志目录",
                                     summary = state.logDir.ifBlank { "未设置" },
@@ -219,10 +214,6 @@ fun SettingsPage(
                             exit = fadeOut() + shrinkVertically(),
                         ) {
                             Column {
-                                HorizontalDivider(
-                                    color = MiuixTheme.colorScheme.dividerLine,
-                                    modifier = Modifier.padding(horizontal = 16.dp),
-                                )
                                 SliderInputPreference(
                                     title = "等待超时",
                                     summary = "替换界面后等 SystemUI 重启的秒数",
@@ -259,10 +250,6 @@ fun SettingsPage(
                                     else "未校验 · 救砖时音量键可能没反应",
                                     onClick = onOpenVolumeCheck,
                                 )
-                                HorizontalDivider(
-                                    color = MiuixTheme.colorScheme.dividerLine,
-                                    modifier = Modifier.padding(horizontal = 16.dp),
-                                )
                                 SwitchPreference(
                                     checked = enhanced,
                                     onCheckedChange = { on ->
@@ -274,10 +261,6 @@ fun SettingsPage(
                                     },
                                     title = "增强救砖",
                                     summary = "崩溃达到阈值自动替换 SystemUI",
-                                )
-                                HorizontalDivider(
-                                    color = MiuixTheme.colorScheme.dividerLine,
-                                    modifier = Modifier.padding(horizontal = 16.dp),
                                 )
                                 SliderInputPreference(
                                     title = "崩溃阈值",
@@ -298,10 +281,6 @@ fun SettingsPage(
                                     steps = 8,
                                     valueText = "${fatalThreshold.roundToInt()} 次",
                                     inputUnit = "次",
-                                )
-                                HorizontalDivider(
-                                    color = MiuixTheme.colorScheme.dividerLine,
-                                    modifier = Modifier.padding(horizontal = 16.dp),
                                 )
                                 // 增强救砖和屏蔽系统救援绑死：开了增强就必须屏蔽
                                 // 否则系统先崩到上限 自动救砖还没轮到就已经把界面收了
@@ -351,28 +330,16 @@ fun SettingsPage(
                             },
                             state = select,
                         )
-                        HorizontalDivider(
-                            color = MiuixTheme.colorScheme.dividerLine,
-                            modifier = Modifier.padding(horizontal = 16.dp),
-                        )
                         SwitchPreference(
                             checked = state.debug,
                             onCheckedChange = { onSetConf("DEBUG", if (it) "true" else "false") },
                             title = "调试日志",
                             summary = "在 config/debug.log 里记录每一步动作",
                         )
-                        HorizontalDivider(
-                            color = MiuixTheme.colorScheme.dividerLine,
-                            modifier = Modifier.padding(horizontal = 16.dp),
-                        )
                         ArrowPreference(
                             title = "调试日志预览",
                             summary = if (state.debug) "查看脚本每一步的动作" else "先打开上面的开关",
                             onClick = onOpenDebugLog,
-                        )
-                        HorizontalDivider(
-                            color = MiuixTheme.colorScheme.dividerLine,
-                            modifier = Modifier.padding(horizontal = 16.dp),
                         )
                         ArrowPreference(
                             title = "应用日志",
@@ -414,19 +381,11 @@ fun SettingsPage(
                             summary = "版本 · 开源许可",
                             onClick = onOpenAbout,
                         )
-                        HorizontalDivider(
-                            color = MiuixTheme.colorScheme.dividerLine,
-                            modifier = Modifier.padding(horizontal = 16.dp),
-                        )
                         // 检查更新：普通基础组件 没有副标题 右边只留箭头
                         ArrowPreference(
                             title = if (checkingUpdate) "检查中…" else "检查更新",
                             enabled = !checkingUpdate,
                             onClick = onCheckUpdate,
-                        )
-                        HorizontalDivider(
-                            color = MiuixTheme.colorScheme.dividerLine,
-                            modifier = Modifier.padding(horizontal = 16.dp),
                         )
                         SwitchPreference(
                             checked = UiConfigState.autoCheckUpdate,
