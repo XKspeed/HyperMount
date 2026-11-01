@@ -308,7 +308,6 @@ fun SettingsPage(
                     SectionCard {
                         ArrowPreference(
                             title = "界面与主题",
-                            summary = "主题模式 · 莫奈取色 · 底栏模糊 · 悬浮底栏",
                             onClick = onOpenUiSettings,
                         )
                     }
@@ -318,11 +317,9 @@ fun SettingsPage(
                 item {
                     SectionCard {
                         // 顺序：应用日志等级 → 应用日志内容 → 模块调试日志 → 其预览
-                        // 全局日志的等级：和运行模式同一套下拉
-                        // 排查「改了没生效」这类问题时调高 平时留常规就够
+                        // 这两行不带副标题：下拉右侧已经写着当前档位 文件行点进去就是内容
                         LiquidSelectPreference(
                             title = "应用日志等级",
-                            summary = "当前 ${AppLog.level.label}",
                             items = LOG_LEVEL_LABELS,
                             selectedIndex = AppLog.level.ordinal,
                             onSelectedIndexChange = {
@@ -332,9 +329,6 @@ fun SettingsPage(
                         )
                         ArrowPreference(
                             title = "应用日志内容",
-                            summary = AppLog.file()?.length()?.takeIf { it > 0 }
-                                ?.let { "${it / 1024} KB · 点此查看运行流水" }
-                                ?: "还没有日志",
                             onClick = onOpenAppLog,
                         )
                         // 这两行不带副标题：开关本身就是说明
@@ -374,7 +368,6 @@ fun SettingsPage(
                     SectionCard {
                         ArrowPreference(
                             title = "关于",
-                            summary = "版本 · 开源许可",
                             onClick = onOpenAbout,
                         )
                         // 检查更新：普通基础组件 没有副标题 右边只留箭头

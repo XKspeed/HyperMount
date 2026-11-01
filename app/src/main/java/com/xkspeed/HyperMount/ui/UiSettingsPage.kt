@@ -202,7 +202,6 @@ fun UiSettingsPage(onBack: () -> Unit) {
                         // 一：明暗三档
                         LiquidSelectPreference(
                             title = "主题模式",
-                            summary = THEME_BRIGHTNESS_ITEMS[brightnessIndex],
                             items = THEME_BRIGHTNESS_ITEMS,
                             selectedIndex = brightnessIndex,
                             onSelectedIndexChange = {
@@ -215,7 +214,6 @@ fun UiSettingsPage(onBack: () -> Unit) {
                         // 二：莫奈取色
                         SwitchPreference(
                             title = "莫奈取色",
-                            summary = "按壁纸动态取色",
                             checked = monet,
                             onCheckedChange = { on ->
                                 saveMode(
@@ -233,10 +231,6 @@ fun UiSettingsPage(onBack: () -> Unit) {
                             Column {
                                 LiquidSelectPreference(
                                     title = "种子色",
-                                    summary = if (ThemeState.seedIndex == 0)
-                                        "按当前壁纸取色"
-                                    else
-                                        "固定 ${KeyColors[ThemeState.seedIndex - 1].first}色",
                                     items = seedItems,
                                     selectedIndex = ThemeState.seedIndex
                                         .coerceIn(0, seedItems.size - 1),
@@ -298,12 +292,26 @@ fun UiSettingsPage(onBack: () -> Unit) {
                     }
                 }
 
+                // 底栏紧跟主题：都是外观总开关 排在玻璃效果前面
+                item { SmallTitle("底栏") }
+                item {
+                    SectionCard {
+                        SwitchPreference(
+                            title = "底栏模糊",
+                            checked = UiConfigState.enableBlur,
+                            onCheckedChange = {
+                                UiConfigState.enableBlur = it
+                                UiConfigState.save(context)
+                            },
+                        )
+                    }
+                }
+
                 item { SmallTitle("玻璃效果") }
                 item {
                     SectionCard {
                         SliderInputPreference(
                             title = "模糊强度",
-                            summary = "调节玻璃控件的模糊程度 拖动即时生效",
                             value = GlassEffectState.blurScale,
                             onValueChange = {
                                 GlassEffectState.blurScale = it
@@ -318,7 +326,6 @@ fun UiSettingsPage(onBack: () -> Unit) {
                         )
                         BasicComponent(
                             title = "重置",
-                            summary = "恢复默认模糊强度（100%）",
                             onClick = {
                                 GlassEffectState.blurScale = 1f
                                 GlassEffectState.save(context)
@@ -336,21 +343,6 @@ fun UiSettingsPage(onBack: () -> Unit) {
                             checked = UiConfigState.predictiveBack,
                             onCheckedChange = {
                                 UiConfigState.predictiveBack = it
-                                UiConfigState.save(context)
-                            },
-                        )
-                    }
-                }
-
-                item { SmallTitle("底栏") }
-                item {
-                    SectionCard {
-                        SwitchPreference(
-                            title = "底栏模糊",
-                            summary = "关闭后底栏退化为磨砂胶囊 不做折射",
-                            checked = UiConfigState.enableBlur,
-                            onCheckedChange = {
-                                UiConfigState.enableBlur = it
                                 UiConfigState.save(context)
                             },
                         )
