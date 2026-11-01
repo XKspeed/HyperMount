@@ -559,6 +559,8 @@ fun App() {
 
         entry<Route.Guide> {
             OnboardingPage(
+                // 从设置里回看：随时能退 环境不过也不拦着出去
+                allowExit = true,
                 onDone = {
                     // 引导里可能重新校验了音量键 回来顺手刷一次状态
                     scope.launch { runCatching { refresh() } }

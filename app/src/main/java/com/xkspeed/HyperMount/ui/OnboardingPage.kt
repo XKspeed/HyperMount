@@ -112,6 +112,8 @@ fun OnboardingPage(
     startAtVolume: Boolean = false,
     /** 强制校验：忽略已校验标记 作废模块侧结果后重按一遍 */
     forceVolume: Boolean = false,
+    /** 从设置里回看：允许随时退出 首次引导不给退 */
+    allowExit: Boolean = false,
 ) {
     val context = LocalContext.current
 
@@ -220,21 +222,29 @@ fun OnboardingPage(
     }
 
     val volDone = upState is KeyState.Passed && downState is KeyState.Passed
+    // 环境这两项缺一不可：没有 ROOT 或不是 XKspeed 的模块 后面所有操作都会失败
+    // 与其放进去点一路报错 不如卡在这一页把话说清楚
+    val envReady = env.root && env.moduleOk
     val canNext = when (step) {
         1 -> agreed
-        // 环境还在检测时不让抢跑 否则音量页会拿到空的 root 结果
-        2 -> !envChecking
+        2 -> !envChecking && envReady
         else -> true
     }
     val buttonLabel = when (step) {
         0 -> "开始"
         1 -> "同意并继续"
-        2 -> "继续"
+        2 -> when {
+            envChecking -> "检测中…"
+            !envReady -> "等待环境检查通过"
+            else -> "继续"
+        }
         3 -> if (volDone) "继续" else "跳过校验"
         else -> "开始使用"
     }
 
     fun next() {
+        // 环境没过 后面几步都不该放行
+        if (step == 2 && (!envReady || envChecking)) return
         when (step) {
             3 -> if (!volDone) volSkip = true
             4 -> {
@@ -245,17 +255,24 @@ fun OnboardingPage(
         if (step < ONBOARD_STEPS - 1) step++
     }
 
-    BackHandler(enabled = step > 0) {
-        if (step == 3 && !volDone) volSkip = true
-        step--
+    // 首次引导只处理步骤回退 第 1 步之前不给退（退了也进不了主界面）
+    // 从设置进来时第 1 步按返回等同于退出引导
+    BackHandler(enabled = step > 0 || allowExit) {
+        when {
+            step > 0 -> {
+                if (step == 3 && !volDone) volSkip = true
+                step--
+            }
+            else -> onDone()
+        }
     }
 
     Box(Modifier.fillMaxSize().background(MiuixTheme.colorScheme.surface)) {
         Column(Modifier.fillMaxSize().statusBarsPadding()) {
-            // 顶部：步骤条 + 跳过
+            // 顶部：步骤条（首次引导没有「跳过」 只有从设置进来才给退出）
             Row(
                 Modifier.fillMaxWidth()
-                    .padding(start = 24.dp, end = 10.dp, top = 10.dp),
+                    .padding(start = 24.dp, end = if (allowExit) 10.dp else 24.dp, top = 10.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Row(
@@ -275,18 +292,20 @@ fun OnboardingPage(
                         )
                     }
                 }
-                Spacer(Modifier.width(14.dp))
-                Box(
-                    Modifier
-                        .clip(RoundedCornerShape(50))
-                        .clickable { onDone() }
-                        .padding(horizontal = 10.dp, vertical = 6.dp)
-                ) {
-                    Text(
-                        "跳过",
-                        style = MiuixTheme.textStyles.subtitle,
-                        color = MiuixTheme.colorScheme.onSurfaceVariantActions,
-                    )
+                if (allowExit) {
+                    Spacer(Modifier.width(14.dp))
+                    Box(
+                        Modifier
+                            .clip(RoundedCornerShape(50))
+                            .clickable { onDone() }
+                            .padding(horizontal = 10.dp, vertical = 6.dp)
+                    ) {
+                        Text(
+                            "退出",
+                            style = MiuixTheme.textStyles.subtitle,
+                            color = MiuixTheme.colorScheme.onSurfaceVariantActions,
+                        )
+                    }
                 }
             }
 
@@ -575,9 +594,37 @@ private fun EnvStep(env: EnvResult, checking: Boolean, onRetry: () -> Unit) {
         }
 
         Spacer(Modifier.height(8.dp))
+        if (!checking && !(env.root && env.moduleOk)) {
+            Spacer(Modifier.height(6.dp))
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(MiuixTheme.colorScheme.error.copy(alpha = 0.08f))
+                    .padding(horizontal = 14.dp, vertical = 12.dp),
+            ) {
+                Text(
+                    "两项都通过才能继续",
+                    style = MiuixTheme.textStyles.main,
+                    fontWeight = FontWeight.Medium,
+                    color = MiuixTheme.colorScheme.error,
+                )
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    when {
+                        !env.root -> "先在 ROOT 管理器里给 HyperMount 授权 然后点上面的「重新检测」。"
+                        env.moduleVersion.isBlank() -> "还没装救砖模块 去 Magisk / KernelSU 里刷入模块 重启后再回来检测。"
+                        else -> "当前模块不是 XKspeed 版 它的脚本对不上 请换成官方发布的那份。"
+                    },
+                    style = MiuixTheme.textStyles.subtitle,
+                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                )
+            }
+        }
+
+        Spacer(Modifier.height(12.dp))
         Text(
-            "模块作者必须是 XKspeed 用的才是这套脚本 别家挂载的调不了 sh。\n" +
-                "没有 ROOT 也能继续看界面 只是所有操作都会失败。授权框里选「允许」再回来重新检测。",
+            "模块作者必须是 XKspeed 用的才是这套脚本 别家挂载的调不了 sh。",
             style = MiuixTheme.textStyles.subtitle,
             color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
         )
