@@ -36,10 +36,12 @@ jobs:
       # 关掉 setup-gradle 自带的缓存：它的 key 里带 workflow 名，
       # 两条工作流（Release / Build Internal）永远不会命中同一份。
       # 缓存改由下一步 actions/cache 统一管，key 里只有 Gradle 版本，两边共用。
+      # 注意：v4 这个 tag 上没有 cache-provider 输入（只有 main 分支有），
+      # 写 cache-provider 会报 Unexpected input 并按默认 enhanced 继续跑。
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
-          cache-provider: external
+          cache-disabled: true
 
       - name: Cache Gradle
         uses: actions/cache@v4

@@ -35,11 +35,13 @@ jobs:
 
       # 与 Release 工作流共用同一份 Gradle 缓存：
       # setup-gradle 自带缓存的 key 里含 workflow 名，两条流永远对不上，
-      # 所以关掉它（external），改用下面 actions/cache 的固定 key。
+      # 这里直接关掉它，改用下面 actions/cache 的固定 key。
+      # 注意：v4 这个 tag 上没有 cache-provider 输入（只有 main 分支有），
+      # 写 cache-provider 会报 Unexpected input 并按默认 enhanced 继续跑。
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
-          cache-provider: external
+          cache-disabled: true
 
       - name: Cache Gradle
         uses: actions/cache@v4
