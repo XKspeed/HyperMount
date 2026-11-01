@@ -1,12 +1,25 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" fill="none">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 108 108" fill="none">
+  <!-- 与 app/src/main/res/drawable/ic_launcher_foreground.xml 同一套几何 -->
   <defs>
-    <linearGradient id="bg" x1="0" y1="0" x2="128" y2="128" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#5D9BFF"/>
-      <stop offset="1" stop-color="#2775F0"/>
+    <linearGradient id="bg" x1="0" y1="0" x2="72" y2="108" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#2F6BF0"/>
+      <stop offset="0.5" stop-color="#1E4FD8"/>
+      <stop offset="1" stop-color="#132468"/>
     </linearGradient>
+    <clipPath id="mask">
+      <rect width="108" height="108" rx="24" ry="24"/>
+    </clipPath>
   </defs>
-  <rect width="128" height="128" rx="28" fill="url(#bg)"/>
-  <path d="M64 28v42" stroke="#fff" stroke-width="12" stroke-linecap="round"/>
-  <path d="M45 55l19 19 19-19" stroke="#fff" stroke-width="12" stroke-linecap="round" stroke-linejoin="round"/>
-  <path d="M44 97h40" stroke="#fff" stroke-width="12" stroke-linecap="round" opacity="0.88"/>
+
+  <g clip-path="url(#mask)">
+    <rect width="108" height="108" fill="url(#bg)"/>
+
+    <!-- 图标内容按桌面显示比例略放大，避免小尺寸下环太细 -->
+    <g transform="translate(54 54) scale(1.16) translate(-54 -54)">
+      <path d="M54,32.7 A21.3,21.3 0 1,0 75.3,54"
+            stroke="#FFFFFF" stroke-width="8" stroke-linecap="round"/>
+      <path d="M69.1,34.2 a4.7,4.7 0 1,0 0,9.4 a4.7,4.7 0 1,0 0,-9.4 Z"
+            fill="#3DDC84"/>
+    </g>
+  </g>
 </svg>
