@@ -1,5 +1,10 @@
 package com.xkspeed.systemuimount.ui
 
+import android.app.Activity
+import android.content.Context
+import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
@@ -86,6 +91,42 @@ fun SettingsPage(
     // 日志目录：点开直接改 settings.conf 的 LOG_DIR
     var showLogDir by remember { mutableStateOf(false) }
     var logDirText by remember(state.logDir) { mutableStateOf(state.logDir) }
+
+    // MT 的文件夹选择器：选完直接落盘 不用再点保存
+    val folderPicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult(),
+    ) { result ->
+        val uri = result.data?.data
+        if (result.resultCode != Activity.RESULT_OK || uri == null) {
+            return@rememberLauncherForActivityResult
+        }
+        // MT root 模式下给的 scheme 不固定 记一条方便排查解析失败
+        CrashLog.log("设置", "选文件夹返回 $uri")
+        val path = folderPathOf(context, uri)
+        if (path == null) {
+            toast(context, "这个位置拿不到真实路径 换一个目录试试")
+            return@rememberLauncherForActivityResult
+        }
+        // MT 的通配选择器也能挑到文件 别把文件路径当目录写进去
+        if (runCatching { java.io.File(path).let { it.exists() && !it.isDirectory } }
+                .getOrDefault(false)) {
+            toast(context, "选的是文件 要选文件夹")
+            return@rememberLauncherForActivityResult
+        }
+        logDirText = path
+        onSetConf("LOG_DIR", path)
+        showLogDir = false
+    }
+
+    fun pickLogFolder() {
+        val intent = buildFolderPickIntent(context)
+        if (intent == null) {
+            toast(context, "未找到mt管理器 你连这个都没有吗")
+            return
+        }
+        runCatching { folderPicker.launch(intent) }
+            .onFailure { toast(context, "打不开文件选择器") }
+    }
 
     fun applyMode(value: Int) {
         logModeIndex = if (value >= 2) 2 else value
@@ -386,7 +427,7 @@ fun SettingsPage(
     WindowDialog(
         show = showLogDir,
         title = "日志目录",
-        summary = "目录不存在会自动创建 改完对下一次抓取生效",
+        summary = "目录不存在会自动创建 也可以直接用 MT 选 改完对下一次抓取生效",
         maxWidth = 560.dp,
         onDismissRequest = { showLogDir = false },
     ) {
@@ -398,7 +439,15 @@ fun SettingsPage(
             singleLine = true,
             modifier = Modifier.fillMaxWidth(),
         )
-        Spacer(Modifier.height(20.dp))
+        Spacer(Modifier.height(12.dp))
+        // 走 MT 自己的文件夹选择器 选完直接保存并关窗
+        TextButton(
+            text = "用 MT 选择文件夹",
+            onClick = { pickLogFolder() },
+            modifier = Modifier.fillMaxWidth(),
+            colors = ButtonDefaults.textButtonColorsPrimary(),
+        )
+        Spacer(Modifier.height(16.dp))
         Row(modifier = Modifier.fillMaxWidth()) {
             TextButton(
                 text = "取消",
@@ -453,4 +502,8 @@ fun SettingsPage(
             )
         }
     }
+}
+
+private fun toast(context: Context, msg: String) {
+    if (msg.isNotBlank()) Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
 }

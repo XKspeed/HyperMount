@@ -4,6 +4,7 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.provider.DocumentsContract
 import android.provider.OpenableColumns
 import com.xkspeed.systemuimount.core.CrashLog
 import java.io.File
@@ -81,6 +82,72 @@ fun buildSourcePickIntent(component: ComponentName): Intent =
         addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         this.component = component
     }
+
+/**
+ * 拉起 MT 的文件夹选择器
+ *
+ * 先看 MT 有没有实现 OPEN_DOCUMENT_TREE：实现了就是标准目录树，返回 tree uri；
+ * 没实现就退回 GET_CONTENT + 通配类型 —— MT 在通配类型下会进「选择当前文件夹」模式，
+ * 这条路能进 /data/adb 这类系统文档树不让看的位置（MT 自己是 root 浏览）。
+ * 两条路都只认 MT，不装就直接返回 null，由调用方提示。
+ */
+fun buildFolderPickIntent(context: Context): Intent? {
+    val source = queryMtPickers(context).firstOrNull() ?: return null
+    val tree = Intent(Intent.ACTION_OPEN_DOCUMENT_TREE).apply { component = source.component }
+    val supportsTree = runCatching {
+        context.packageManager.queryIntentActivities(tree, 0).isNotEmpty()
+    }.getOrDefault(false)
+    if (supportsTree) return tree
+    return Intent(Intent.ACTION_GET_CONTENT).apply {
+        addCategory(Intent.CATEGORY_OPENABLE)
+        // 这里必须给通配类型：给具体类型 MT 只会让你挑文件
+        type = "*/*"
+        component = source.component
+    }
+}
+
+/**
+ * 把选中的目录还原成 shell 能用的真实路径
+ *
+ * MT 在 root 模式下一般直接给 file:// 或 /storage/... 的 path；
+ * 系统文档树给的是 primary:Download/xxx 这种 document id 需要手动拼。
+ * 拼不出来就返回 null —— 别猜一个路径写进配置 抓日志时会发现根本没写到那。
+ */
+fun folderPathOf(context: Context, uri: Uri): String? {
+    if (uri.scheme.equals("file", true)) return uri.path?.takeIf { it.startsWith("/") }
+    // 有的 provider 直接把真实路径塞在 path 里
+    uri.path?.let { p ->
+        if (p.startsWith("/storage/") || p.startsWith("/data/") || p.startsWith("/mnt/")) return p
+    }
+    val docId = runCatching {
+        if (DocumentsContract.isTreeUri(uri)) DocumentsContract.getTreeDocumentId(uri)
+        else DocumentsContract.getDocumentId(uri)
+    }.getOrNull()
+    docId?.let { externalStoragePath(it) }?.let { return it }
+    // 最后一招：provider 自己可能认 _data 列
+    return runCatching {
+        context.contentResolver.query(uri, arrayOf("_data"), null, null, null)?.use { c ->
+            if (c.moveToFirst()) c.getString(0) else null
+        }
+    }.getOrNull()?.takeIf { it.startsWith("/") }
+}
+
+/** document id → 挂载路径：primary:Download/x → /storage/emulated/0/Download/x */
+private fun externalStoragePath(docId: String): String? {
+    val idx = docId.indexOf(':')
+    if (idx <= 0) return null
+    val volume = docId.substring(0, idx)
+    val rel = docId.substring(idx + 1).trim('/')
+    val root = when {
+        volume.equals("primary", true) -> "/storage/emulated/0"
+        // home 是「文档」入口 对应 Documents 目录
+        volume.equals("home", true) -> "/storage/emulated/0/Documents"
+        // 外置存储用卷 ID（XXXX-XXXX）
+        volume.length >= 4 -> "/storage/$volume"
+        else -> return null
+    }
+    return if (rel.isEmpty()) root else "$root/$rel"
+}
 
 /**
  * content:// 脚本读不了 先落成真实文件
