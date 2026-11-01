@@ -37,7 +37,7 @@ import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import com.xkspeed.systemuimount.KeyColors
 import com.xkspeed.systemuimount.ThemeState
-import com.xkspeed.systemuimount.core.CrashLog
+import com.xkspeed.systemuimount.core.AppLog
 import com.xkspeed.systemuimount.core.SystemVersion
 import com.xkspeed.systemuimount.ui.component.glass.GlassEffectState
 import com.xkspeed.systemuimount.ui.component.glass.ScrollPage
@@ -111,7 +111,7 @@ object UiConfigState {
                 }
             }
         }
-        safeMode = CrashLog.safeMode()
+        safeMode = AppLog.safeMode()
         GlassEffectState.load(context)
     }
 

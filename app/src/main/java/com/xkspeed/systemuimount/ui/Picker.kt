@@ -6,7 +6,7 @@ import android.content.Intent
 import android.net.Uri
 import android.provider.DocumentsContract
 import android.provider.OpenableColumns
-import com.xkspeed.systemuimount.core.CrashLog
+import com.xkspeed.systemuimount.core.AppLog
 import java.io.File
 
 /**
@@ -60,7 +60,7 @@ fun queryMtPickers(context: Context): List<PickSource> {
         out += PickSource(label, ComponentName(pkg, info.activityInfo.name))
     }
     // 排查用：这里返回 0 多半是被包可见性挡了 不是设备上真没装
-    CrashLog.log("选文件", "MT 来源 ${out.size} 个 " + out.joinToString(" ") { it.label })
+    AppLog.log("选文件", "MT 来源 ${out.size} 个 " + out.joinToString(" ") { it.label })
     return out
 }
 

@@ -263,7 +263,7 @@ object Logcat {
             append("sleep 0.4; cat $PID_FILE 2>/dev/null")
         }
         val pid = Root.exec(cmd).trim().lines().lastOrNull()?.trim().orEmpty()
-        CrashLog.log("测试", "启动 $pkg 等待${waitSeconds}s 抓${seconds}s -> $file pid=$pid")
+        AppLog.log("测试", "启动 $pkg 等待${waitSeconds}s 抓${seconds}s -> $file pid=$pid")
         if (pid.toIntOrNull() == null) return@withContext null
         Session(pkg = pkg, seconds = seconds, file = file)
     }
@@ -275,7 +275,7 @@ object Logcat {
         Root.exec(
             "kill $pid 2>/dev/null; sleep 0.4; kill -9 $pid 2>/dev/null; rm -f $PID_FILE",
         )
-        CrashLog.log("测试", "停止 pid=$pid")
+        AppLog.log("测试", "停止 pid=$pid")
         true
     }
 

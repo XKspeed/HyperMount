@@ -30,7 +30,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.xkspeed.systemuimount.core.CRASH_LIMIT_MANUAL
-import com.xkspeed.systemuimount.core.CrashLog
+import com.xkspeed.systemuimount.core.AppLog
+import com.xkspeed.systemuimount.core.LogLevel
 import com.xkspeed.systemuimount.core.ModuleState
 import com.xkspeed.systemuimount.ui.component.glass.ScrollPage
 import com.xkspeed.systemuimount.ui.components.InfoRow
@@ -69,7 +70,7 @@ fun SettingsPage(
     onSetCrashLimit: (Int) -> Unit,
     onOpenUiSettings: () -> Unit = {},
     onOpenDebugLog: () -> Unit = {},
-    onOpenCrashLog: () -> Unit = {},
+    onOpenAppLog: () -> Unit = {},
     onOpenVolumeCheck: () -> Unit = {},
     onOpenAbout: () -> Unit = {},
     onOpenGuide: () -> Unit = {},
@@ -94,12 +95,14 @@ fun SettingsPage(
         ActivityResultContracts.StartActivityForResult(),
     ) { result ->
         val uri = result.data?.data
+        // 这几条是排查「选了没生效」的关键：返回码、原始 uri、解析出的真实路径
+        AppLog.i("选目录", "返回 resultCode=${result.resultCode} uri=$uri")
         if (result.resultCode != Activity.RESULT_OK || uri == null) {
+            AppLog.w("选目录", "取消或未返回 uri")
             return@rememberLauncherForActivityResult
         }
-        // MT root 模式下给的 scheme 不固定 记一条方便排查解析失败
-        CrashLog.log("设置", "选文件夹返回 $uri")
         val path = folderPathOf(context, uri)
+        AppLog.i("选目录", "uri=$uri → path=$path")
         if (path == null) {
             toast(context, "这个位置拿不到真实路径 换一个目录试试")
             return@rememberLauncherForActivityResult
@@ -107,20 +110,30 @@ fun SettingsPage(
         // MT 的通配选择器也能挑到文件 别把文件路径当目录写进去
         if (runCatching { java.io.File(path).let { it.exists() && !it.isDirectory } }
                 .getOrDefault(false)) {
+            AppLog.w("选目录", "$path 是文件不是目录")
             toast(context, "选的是文件 要选文件夹")
             return@rememberLauncherForActivityResult
         }
+        AppLog.i("选目录", "提交 LOG_DIR=$path")
         onSetConf("LOG_DIR", path)
     }
 
     fun pickLogFolder() {
         val intent = buildFolderPickIntent(context)
         if (intent == null) {
+            AppLog.w("选目录", "没探测到 MT 管理器")
             toast(context, "未找到mt管理器 你连这个都没有吗")
             return
         }
+        AppLog.i(
+            "选目录",
+            "拉起 ${intent.action} component=${intent.component?.flattenToShortString()}",
+        )
         runCatching { folderPicker.launch(intent) }
-            .onFailure { toast(context, "打不开文件选择器") }
+            .onFailure {
+                AppLog.e("选目录", "启动选择器失败", it)
+                toast(context, "打不开文件选择器")
+            }
     }
 
     fun applyMode(value: Int) {
@@ -331,6 +344,22 @@ fun SettingsPage(
                 item { SmallTitle("调试") }
                 item {
                     SectionCard {
+                        // 全局日志的等级：和运行模式同一套下拉
+                        // 排查「改了没生效」这类问题时调高 平时留常规就够
+                        LiquidSelectPreference(
+                            title = "日志等级",
+                            summary = "当前 ${AppLog.level.label} · 记录到应用日志",
+                            items = LOG_LEVEL_LABELS,
+                            selectedIndex = AppLog.level.ordinal,
+                            onSelectedIndexChange = {
+                                AppLog.setLevel(context, LogLevel.entries[it])
+                            },
+                            state = select,
+                        )
+                        HorizontalDivider(
+                            color = MiuixTheme.colorScheme.dividerLine,
+                            modifier = Modifier.padding(horizontal = 16.dp),
+                        )
                         SwitchPreference(
                             checked = state.debug,
                             onCheckedChange = { onSetConf("DEBUG", if (it) "true" else "false") },
@@ -351,11 +380,11 @@ fun SettingsPage(
                             modifier = Modifier.padding(horizontal = 16.dp),
                         )
                         ArrowPreference(
-                            title = "崩溃日志",
-                            summary = if (CrashLog.lastCrashFile() != null)
-                                "有崩溃记录 · 点此查看堆栈"
-                            else "无崩溃记录",
-                            onClick = onOpenCrashLog,
+                            title = "应用日志",
+                            summary = AppLog.file()?.length()?.takeIf { it > 0 }
+                                ?.let { "${it / 1024} KB · 点此查看运行流水" }
+                                ?: "还没有日志",
+                            onClick = onOpenAppLog,
                         )
                     }
                 }

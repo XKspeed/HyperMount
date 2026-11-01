@@ -119,14 +119,14 @@ object Update {
             if (System.currentTimeMillis() >= deadline) break
             val info = fetchOne(url) ?: continue
             liveProxy = proxy
-            CrashLog.log(
+            AppLog.log(
                 "更新",
                 "命中镜像 ${proxy.ifEmpty { "直连/CDN" }} 远端 ${info.versionName}(${info.versionCode}) " +
                     "本地 ${currentName}($currentCode)",
             )
             return@withContext info
         }
-        CrashLog.log("更新", "所有镜像都没拿到 update.json")
+        AppLog.log("更新", "所有镜像都没拿到 update.json")
         null
     }
 

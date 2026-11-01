@@ -1,7 +1,7 @@
 package com.xkspeed.systemuimount
 
 import android.app.Application
-import com.xkspeed.systemuimount.core.CrashLog
+import com.xkspeed.systemuimount.core.AppLog
 import com.xkspeed.systemuimount.core.Root
 
 /**
@@ -14,7 +14,7 @@ import com.xkspeed.systemuimount.core.Root
 class MountApplication : Application() {
     override fun onCreate() {
         super.onCreate()
-        CrashLog.install(this)
+        AppLog.install(this)
         Root.init(this)
     }
 }

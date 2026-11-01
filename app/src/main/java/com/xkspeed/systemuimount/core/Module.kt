@@ -58,6 +58,10 @@ data class DirEntry(
 
 object Module {
 
+    /** 上一次记过日志的 LOG_DIR：值没变就不再写 防止守护每 2 秒刷新时刷屏 */
+    @Volatile
+    private var lastLogDirLogged: String? = null
+
     /** 读取完整状态：一次 boot + 一次 cat 配置 都在 root shell 里  */
     suspend fun readState(): ModuleState = withContext(Dispatchers.IO) {
         val boot = Root.webctl("boot")
@@ -71,6 +75,16 @@ object Module {
         val rs = sec["RESCUE"].orEmpty()
         val env = sec["ENV"].orEmpty()
         val keys = sec["KEYS"].orEmpty()
+
+        val logDir = c["LOG_DIR"].orEmpty().ifBlank { "/data/adb/systemui_mount_log" }
+        // 界面显示的就是这里读出来的值：只在值变化时记一条 避免守护刷新时刷屏
+        if (logDir != lastLogDirLogged) {
+            lastLogDirLogged = logDir
+            AppLog.i(
+                "状态",
+                "LOG_DIR 配置=${c["LOG_DIR"].orEmpty().ifBlank { "(未配置)" }} → 界面显示 $logDir",
+            )
+        }
 
         return@withContext ModuleState(
             version = sec["VERSION"]?.get("version").orEmpty(),
@@ -96,7 +110,7 @@ object Module {
             fatalThreshold = c["FATAL_THRESHOLD"].orEmpty().ifBlank { "3" },
             debug = c["DEBUG"] in listOf("true", "1", "TRUE", "yes"),
             protectCount = c["PROTECT_COUNT"].orEmpty().ifBlank { "0" },
-            logDir = c["LOG_DIR"].orEmpty().ifBlank { "/data/adb/systemui_mount_log" },
+            logDir = logDir,
         )
     }
 
@@ -116,7 +130,17 @@ object Module {
         Root.exec(cmd)
         // 读回确认 不假设 sed 一定成功
         val back = Root.exec("grep \"^$key=\" $f 2>/dev/null | tail -1").trim()
-        back == "$key=$value"
+        val ok = back == "$key=$value"
+        // 排查「改了没生效」：文件里实际是什么、命令是否报错 都留痕
+        if (ok) {
+            AppLog.d("配置", "setConf $key 写入成功 back=$back")
+        } else {
+            AppLog.w(
+                "配置",
+                "setConf $key 写入失败 期望=$key=$value 实际=${back.ifBlank { "(空)" }} 文件=$f",
+            )
+        }
+        ok
     }
 
     /** 把 APK 复制到模块根并统一命名为 MiuiSystemUI.apk */

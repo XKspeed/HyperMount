@@ -48,7 +48,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
-import com.xkspeed.systemuimount.core.CrashLog
+import com.xkspeed.systemuimount.core.AppLog
 import com.xkspeed.systemuimount.core.DaemonService
 import com.xkspeed.systemuimount.core.Module
 import com.xkspeed.systemuimount.core.ModuleState
@@ -113,7 +113,7 @@ sealed interface Route : NavKey {
     data object VolumeCheck : Route
 
     @Serializable
-    data object CrashLogs : Route
+    data object AppLogs : Route
 
     @Serializable
     data object ThirdPartyLicenses : Route
@@ -226,20 +226,20 @@ fun App() {
         crashText = null
         val f = crashFile
         crashFile = null
-        if (f != null) CrashLog.markCrashShown(f)
+        if (f != null) AppLog.markCrashShown(f)
     }
 
     // 启动时先看上次有没有崩：把堆栈直接摊给用户看
     // 不用去抓 logcat（没 root 抓不到） 同一份崩溃只弹一次
     LaunchedEffect(Unit) {
-        val file = CrashLog.pendingCrash()
+        val file = AppLog.pendingCrash()
         if (file != null) {
-            CrashLog.log("启动", "检测到上次崩溃记录 长度 ${file.length()}")
+            AppLog.log("启动", "检测到上次崩溃记录 长度 ${file.length()}")
             crashText = file.readText()
             crashFile = file
         } else {
             // 能走到这里说明这次启动没崩（或崩溃已展示过） 清掉连续计数
-            CrashLog.markAlive()
+            AppLog.markAlive()
         }
     }
 
@@ -480,7 +480,7 @@ fun App() {
                 onOpenLogs = { push(Route.Logs) },
                 onOpenUiSettings = { push(Route.UiSettings) },
                 onOpenVolumeCheck = { push(Route.VolumeCheck) },
-                onOpenCrashLog = { push(Route.CrashLogs) },
+                onOpenAppLog = { push(Route.AppLogs) },
                 onOpenThirdPartyLicenses = { push(Route.ThirdPartyLicenses) },
                 onOpenAbout = { push(Route.About) },
                 onOpenGuide = { push(Route.Guide) },
@@ -494,8 +494,12 @@ fun App() {
                 checkingUpdate = checkingUpdate,
                 onSetConf = { k, v ->
                     scope.launch {
-                        Module.setConf(k, v)
+                        AppLog.i("配置", "写入 $k=$v")
+                        val ok = Module.setConf(k, v)
+                        AppLog.i("配置", "写入 $k 回读${if (ok) "一致" else "不一致"}")
+                        if (!ok) toast(context, "写入 $k 失败 检查 root 与模块目录")
                         runCatching { refresh() }
+                            .onFailure { AppLog.e("配置", "写入后刷新状态失败", it) }
                     }
                 },
                 onRescueToggle = { off ->
@@ -535,8 +539,8 @@ fun App() {
             )
         }
 
-        entry<Route.CrashLogs> {
-            CrashLogPage(onBack = { backStack.removeLastOrNull() })
+        entry<Route.AppLogs> {
+            AppLogPage(onBack = { backStack.removeLastOrNull() })
         }
 
         entry<Route.ThirdPartyLicenses> {
@@ -638,8 +642,8 @@ fun App() {
             )
             Spacer(Modifier.height(14.dp))
             Text(
-                "文件位置：" + (CrashLog.externalCrashFile()?.absolutePath
-                    ?: CrashLog.lastCrashFile()?.absolutePath ?: "未知"),
+                "文件位置：" + (AppLog.externalCrashFile()?.absolutePath
+                    ?: AppLog.lastCrashFile()?.absolutePath ?: "未知"),
                 color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                 style = MiuixTheme.textStyles.subtitle,
                 fontSize = 10.sp,
@@ -755,7 +759,7 @@ private fun MainScaffold(
     onOpenLogs: () -> Unit,
     onOpenUiSettings: () -> Unit,
     onOpenVolumeCheck: () -> Unit,
-    onOpenCrashLog: () -> Unit,
+    onOpenAppLog: () -> Unit,
     onOpenThirdPartyLicenses: () -> Unit,
     onOpenAbout: () -> Unit,
     onOpenGuide: () -> Unit,
@@ -781,7 +785,7 @@ private fun MainScaffold(
 
     // 渲染阶段埋点：崩了能知道是第几个 tab / 哪一层出的问题
     LaunchedEffect(selected) {
-        CrashLog.stage("主界面 tab=${listOf("界面", "主页", "设置").getOrElse(selected) { "?" }}")
+        AppLog.stage("主界面 tab=${listOf("界面", "主页", "设置").getOrElse(selected) { "?" }}")
     }
 
     // 用 settledPage（动画结束后的落点）而不是 currentPage：
@@ -872,7 +876,7 @@ private fun MainScaffold(
                             onSetCrashLimit = onSetCrashLimit,
                             onOpenUiSettings = onOpenUiSettings,
                             onOpenDebugLog = onOpenLogs,
-                            onOpenCrashLog = onOpenCrashLog,
+                            onOpenAppLog = onOpenAppLog,
                             onOpenVolumeCheck = onOpenVolumeCheck,
                             onOpenAbout = onOpenAbout,
                             onOpenGuide = onOpenGuide,
