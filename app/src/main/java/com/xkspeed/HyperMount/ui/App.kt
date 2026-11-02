@@ -372,28 +372,25 @@ fun App() {
                     sysUiBlock = if (isRescue) SysUiBlock.Rescue else SysUiBlock.Target
                     return@launch
                 }
-                // 收进私有目录 只有重新选才会覆盖旧的
-                val dst = withContext(Dispatchers.IO) {
-                    ApkStore.import(
-                        context,
-                        file,
-                        if (isRescue) ApkStore.RESCUE else ApkStore.TARGET,
-                    ).also { file.delete() }
-                }
-                if (dst == null) {
-                    toast(context, "保存失败 存储空间可能不够")
-                    return@launch
-                }
+                // 先判重再动文件：救砖是「搬进」rescueapk/，搬完源路径就没了，
+                // 那时再拿待测路径去比只会得到「文件不存在」，校验等于失效
                 val other = if (isRescue) LogConfig.targetPath else LogConfig.rescuePath
                 val same = withContext(Dispatchers.IO) {
-                    ApkStore.sameContent(dst.absolutePath, other)
+                    ApkStore.sameContent(file.absolutePath, other)
                 }
                 if (same) {
                     // 两份一样 崩了装回去等于什么都没换
-                    withContext(Dispatchers.IO) { dst.delete() }
+                    val srcPath = file.absolutePath
+                    withContext(Dispatchers.IO) { file.delete() }
                     if (isRescue) {
                         LogConfig.rescuePath = ""
                         LogConfig.rescueSize = 0L
+                        // 删掉的正好是待测那份时 待测槽位也得清 —— 否则配置指向一个
+                        // 已经不存在的路径，界面却还显示「已选」
+                        if (LogConfig.targetPath == srcPath) {
+                            LogConfig.targetPath = ""
+                            LogConfig.targetSize = 0L
+                        }
                     } else {
                         LogConfig.targetPath = ""
                         LogConfig.targetSize = 0L
@@ -402,13 +399,30 @@ fun App() {
                     toast(context, "待测apk不能和救砖apk是同一个文件")
                     return@launch
                 }
+
                 if (isRescue) {
+                    // 救砖包搬进 files/rescueapk/，保留原文件名；换一份就把上一份清掉
+                    // 上一份万一和待测是同一路径就别删了，那是待测要用的文件
+                    val previous = LogConfig.rescuePath
+                        .takeIf { it.isNotBlank() && it != LogConfig.targetPath }
+                        .orEmpty()
+                    val dst = withContext(Dispatchers.IO) {
+                        ApkStore.installRescue(context, file, previous)
+                    }
+                    if (dst == null) {
+                        toast(context, "保存失败 存储空间可能不够")
+                        return@launch
+                    }
                     LogConfig.rescuePath = dst.absolutePath
                     LogConfig.rescueSize = dst.length()
                     toast(context, "已选择救砖apk")
                 } else {
-                    LogConfig.targetPath = dst.absolutePath
-                    LogConfig.targetSize = dst.length()
+                    // 待测只记路径：文件留在 files/picked/，开跑时才 stage 到 tmp
+                    val previous = LogConfig.targetPath
+                    val keep = file.absolutePath
+                    withContext(Dispatchers.IO) { ApkStore.purgeTarget(context, previous, keep) }
+                    LogConfig.targetPath = keep
+                    LogConfig.targetSize = file.length()
                     toast(context, "已选择待测apk")
                 }
                 LogConfig.save(context)

@@ -207,8 +207,11 @@ object Logcat {
      */
     suspend fun stage(src: String, tmp: String): Boolean = withContext(Dispatchers.IO) {
         if (src.isBlank()) return@withContext false
+        // 先删目标：cp 失败时若上一轮的旧文件还在，[ -f ] 会误判成成功，
+        // 结果拿一个旧包去测（待测现在只是记路径，源文件被删时更容易撞上）
         val out = Root.exec(
-            "cp ${Root.q(src)} ${Root.q(tmp)} 2>/dev/null; " +
+            "rm -f ${Root.q(tmp)}; " +
+                "cp ${Root.q(src)} ${Root.q(tmp)} 2>/dev/null; " +
                 "chmod 644 ${Root.q(tmp)} 2>/dev/null; " +
                 "[ -f ${Root.q(tmp)} ] && echo OK",
         )
@@ -376,31 +379,98 @@ object LogConfig {
 }
 
 /**
- * 主页两份 apk 的私有副本
+ * 主页两份 apk 的存放策略（和「界面」页对齐）
  *
- * 复制到 files/apk 之后 MT 那边的临时文件就可以删了
- * 需要 root 的目录（/data/local/tmp）只在开跑时由 [Logcat.stage] 拷一次
+ * 救砖：搬进 files/rescueapk/，**保留原文件名**；每次换包先把这个目录清空，
+ *       保证随时只有一份「当前的救砖包」，反复选不会越存越多。
+ * 待测：不复制。只记下 files/picked/ 那份的路径，开跑时才由 [Logcat.stage]
+ *       拷到 /data/local/tmp —— 跟界面页写 TARGET_APK_PATH 是一样的思路。
  */
 object ApkStore {
 
-    /** 固定文件名 同一个槽位反复选只覆盖不堆文件 */
-    const val RESCUE = "rescue.apk"
-    const val TARGET = "target.apk"
+    /** 救砖 apk 的私有目录 */
+    const val RESCUE_DIR = "rescueapk"
 
-    fun file(context: Context, name: String): java.io.File {
-        val dir = java.io.File(context.filesDir, "apk").apply { mkdirs() }
-        return java.io.File(dir, name)
+    /** 老版本放副本的地方（files/apk/rescue.apk）换了新目录后要顺手清掉 */
+    private const val LEGACY_DIR = "apk"
+
+    fun rescueDir(context: Context): java.io.File =
+        java.io.File(context.filesDir, RESCUE_DIR).apply { mkdirs() }
+
+    /**
+     * 收下一个救砖 apk
+     *
+     * 先落位新的、再清旧的：搬移失败时上一份还在，配置不会指向一个空槽。
+     * 源文件在 files/picked/ 下，和 files/rescueapk/ 同分区，rename 基本是瞬时的；
+     * 万一跨了挂载点才退回复制。
+     *
+     * @param previousPath 上一份救砖包的路径，若还留在应用私有目录里一并删掉
+     *                     （老版本那份在 files/apk/，不清会一直占着几百兆）
+     */
+    fun installRescue(
+        context: Context,
+        src: java.io.File,
+        previousPath: String,
+    ): java.io.File? = runCatching {
+        val dir = rescueDir(context)
+        val size = src.length()
+        if (size <= 0L) return@runCatching null
+
+        val dst = java.io.File(dir, src.name)
+        // 同名旧包必须先让位，rename / 复制才能落下去
+        if (dst.exists()) dst.delete()
+
+        val moved = src.renameTo(dst)
+        if (!moved) {
+            src.inputStream().use { input ->
+                dst.outputStream().use { output -> input.copyTo(output) }
+            }
+            src.delete()
+        }
+        // 落地后再核一次大小：空间不足时复制可能「看起来成功」
+        if (dst.length() != size) {
+            dst.delete()
+            return@runCatching null
+        }
+
+        // 新包已经就位，把同目录里别的旧包清掉
+        dir.listFiles()?.forEach { f -> if (f.absolutePath != dst.absolutePath) f.delete() }
+
+        val prev = java.io.File(previousPath)
+        if (previousPath.isNotBlank() && previousPath != dst.absolutePath &&
+            prev.isFile && isPrivate(context, prev)
+        ) {
+            prev.delete()
+        }
+
+        // 老目录空了就一起收掉 免得留个空文件夹
+        java.io.File(context.filesDir, LEGACY_DIR)
+            .takeIf { it.isDirectory && it.listFiles().isNullOrEmpty() }
+            ?.delete()
+
+        dst
+    }.getOrNull()
+
+    /** 只删自己地盘里的文件 用户手选的路径一律不动 */
+    private fun isPrivate(context: Context, f: java.io.File): Boolean {
+        val path = f.absolutePath
+        return listOfNotNull(
+            context.filesDir?.absolutePath,
+            context.getExternalFilesDir(null)?.absolutePath,
+        ).any { path.startsWith("$it/") }
     }
 
-    /** 把选中的 apk 收进私有目录 覆盖旧的 失败返回 null */
-    fun import(context: Context, src: java.io.File, name: String): java.io.File? =
-        runCatching {
-            val out = file(context, name)
-            src.inputStream().use { input ->
-                out.outputStream().use { output -> input.copyTo(output) }
-            }
-            out
-        }.getOrNull()
+    /**
+     * 待测换人时清掉上一份
+     *
+     * 待测现在只记路径，上一份若还躺在 files/picked/ 或老目录里，删掉不心疼 ——
+     * 源文件在用户自己的目录里，我们删的只是当初的落地副本。
+     */
+    fun purgeTarget(context: Context, previousPath: String, keepPath: String) {
+        if (previousPath.isBlank() || previousPath == keepPath) return
+        val prev = java.io.File(previousPath)
+        if (prev.isFile && isPrivate(context, prev)) prev.delete()
+    }
 
     /** 比对两份副本是不是同一个文件（按内容算 不看文件名） */
     fun sameContent(a: String, b: String): Boolean = runCatching {
