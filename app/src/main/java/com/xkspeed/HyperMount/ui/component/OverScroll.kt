@@ -15,6 +15,7 @@ import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScrollModifierNode
 import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.input.pointer.SuspendingPointerInputModifierNode
+import androidx.compose.ui.input.pointer.positionChanged
 import androidx.compose.ui.layout.Measurable
 import androidx.compose.ui.layout.MeasureResult
 import androidx.compose.ui.layout.MeasureScope
@@ -51,8 +52,8 @@ import androidx.compose.runtime.withFrameNanos
  * 提成一个全局参数，供调试页实时调整。
  */
 object OverScrollTuning {
-    /** 现在手感的默认值：屏高的 1/3，与 miuix 原实现一致 */
-    const val DEFAULT_MAX_FRACTION = 1f / 3f
+    /** 现在手感的默认值：屏高的 10% */
+    const val DEFAULT_MAX_FRACTION = 0.10f
 
     const val MIN_MAX_FRACTION = 0.10f
     const val MAX_MAX_FRACTION = 1.00f
@@ -168,6 +169,16 @@ private class MountOverScrollNode(
                             animationJob?.isActive != true && abs(offset) > offsetThreshold
                         ) {
                             startSpringAnimation()
+                        }
+                        // 已经进入过滚动（列表到边、只剩拉伸）时，把余下的位移
+                        // 从事件流里吃掉：列表自身这时不再 consume，外层页面／外层
+                        // 列表就会把同一批 move 事件当成自己的拖动，表现为"整页跟着滚"。
+                        // 本节点在 modifier 链上比内层 scrollable 靠外、比外层页面靠内，
+                        // 所以这里 consume 只挡外层，不影响内层正常滚动。
+                        if (gestureActive && abs(offset) > offsetThreshold) {
+                            event.changes.forEach { change ->
+                                if (change.positionChanged()) change.consume()
+                            }
                         }
                         gestureActive = active
                     }
@@ -337,6 +348,8 @@ private class MountOverScrollNode(
         }
 
         if (source != NestedScrollSource.UserInput || !gestureActive) {
+            // 独立滚动区且已经在拉伸态：惯性尾巴全吃掉，不允许漏给外层页面
+            if (!nestedScrollToParent && abs(offset) > offsetThreshold) return available
             return parentConsumed
         }
 
@@ -387,6 +400,8 @@ private class MountOverScrollNode(
             if (animationJob?.isActive != true) {
                 unwindStaleOffset(if (isVertical) consumed.y else consumed.x)
             }
+            // 同上：拉伸态下的惯性余量由自己兜住
+            if (!nestedScrollToParent && abs(offset) > offsetThreshold) return available
             return parentConsumed
         }
 

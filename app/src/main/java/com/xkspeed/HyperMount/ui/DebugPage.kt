@@ -56,7 +56,7 @@ fun DebugPage(onBack: () -> Unit) {
                 )
                 BasicComponent(
                     title = "恢复默认",
-                    summary = "回到 33%（与改动前的手感一致）",
+                    summary = "回到 10%（正式版的默认手感）",
                     onClick = {
                         OverScrollTuning.reset()
                         OverScrollTuning.save(context)
