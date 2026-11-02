@@ -61,6 +61,8 @@ import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.blur.layerBackdrop
 import top.yukonga.miuix.kmp.preference.ArrowPreference
 import top.yukonga.miuix.kmp.theme.MiuixTheme
+import top.yukonga.miuix.kmp.utils.overScrollVertical
+import top.yukonga.miuix.kmp.utils.scrollEndHaptic
 
 @Composable
 fun HomePage(
@@ -162,7 +164,14 @@ fun HomePage(
                                             style = MiuixTheme.textStyles.subtitle,
                                         )
                                     } else {
-                                        LazyColumn(state = logListState) {
+                                        // 和主页一致：日志区自己吃掉滚动 到边只回弹不带走页面
+                                        LazyColumn(
+                                            state = logListState,
+                                            modifier = Modifier
+                                                .fillMaxSize()
+                                                .scrollEndHaptic()
+                                                .overScrollVertical(nestedScrollToParent = false),
+                                        ) {
                                             itemsIndexed(logLines) { _, line ->
                                                 Text(
                                                     line.ifEmpty { " " },

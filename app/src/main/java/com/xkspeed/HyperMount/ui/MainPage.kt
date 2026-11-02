@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -72,6 +73,8 @@ import top.yukonga.miuix.kmp.icon.extended.Update
 import top.yukonga.miuix.kmp.preference.ArrowPreference
 import top.yukonga.miuix.kmp.preference.SwitchPreference
 import top.yukonga.miuix.kmp.theme.MiuixTheme
+import top.yukonga.miuix.kmp.utils.overScrollVertical
+import top.yukonga.miuix.kmp.utils.scrollEndHaptic
 import top.yukonga.miuix.kmp.window.WindowDialog
 import kotlin.math.roundToInt
 
@@ -298,7 +301,15 @@ fun MainPage(
                                     style = MiuixTheme.textStyles.subtitle,
                                 )
                             } else {
-                                LazyColumn(state = logListState) {
+                                // 日志区自己吃下滚动：到边也不再把页面带着走
+                                // nestedScrollToParent = false 时不往父级派发 只留自己的阻尼回弹
+                                LazyColumn(
+                                    state = logListState,
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .scrollEndHaptic()
+                                        .overScrollVertical(nestedScrollToParent = false),
+                                ) {
                                     itemsIndexed(logLines) { _, line ->
                                         Text(
                                             line.ifEmpty { " " },
