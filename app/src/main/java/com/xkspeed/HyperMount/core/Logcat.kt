@@ -19,12 +19,38 @@ import java.util.Locale
  * 1. 后台先 pm install 待测 apk（装 SystemUI 要几秒 不能卡住主流程）
  * 2. 前台等用户设定的等待时长
  * 3. 抓 crash 缓冲区 同时盯着文件大小 超过阈值就执行救砖
- * 4. 救砖把救砖 apk 拷到 /data/local/tmp 再 pm install -r -d -t 最后重启 SystemUI
+ * 4. 救砖直接用私有目录里的救砖包 pm install -r -d -t 最后重启 SystemUI
  *
- * 和模块守护完全解耦：脚本自己跑在 /data/local/tmp 里 App 挂了也不影响
- * 两份 apk 平时躺在 App 私有目录 真正开跑时才拷到 /data/local/tmp（不受限目录）
+ * 和模块守护完全解耦：脚本、pid、运行日志、抓到的日志、两份 apk 的临时副本
+ * 全部落在 App 私有目录 files/test/ 下，不碰系统临时目录，卸载即清干净。
+ * 复制前先按内容比对上一轮留下的副本，一致就复用，省掉一次上百兆的读写。
  */
 object Logcat {
+
+    private var app: Context? = null
+
+    /** Application.onCreate 里调一次 之后所有路径都基于私有目录 */
+    fun install(context: Context) {
+        app = context.applicationContext
+    }
+
+    /** 测试工作目录 files/test/ 脚本 / pid / 日志 / apk 副本都在这儿 */
+    fun workDir(): String {
+        val ctx = app ?: return ""
+        val dir = java.io.File(ctx.filesDir, "test").apply { mkdirs() }
+        return dir.absolutePath
+    }
+
+    private fun path(name: String): String {
+        val dir = workDir()
+        return if (dir.isBlank()) "" else "$dir/$name"
+    }
+
+    private fun scriptFile(): String = path("sui_test.sh")
+    private fun pidFile(): String = path("sui_test.pid")
+    fun runLog(): String = path("sui_test.log")
+    private fun tmpTarget(): String = path("sui_target.apk")
+    private fun tmpRescue(): String = path("sui_rescue.apk")
 
     const val DEFAULT_PKG = "com.android.systemui"
     const val DEFAULT_SECONDS = 30
@@ -42,18 +68,13 @@ object Logcat {
     /** 发现崩溃后等几秒再救 给系统把日志写完 */
     const val DELAY_AFTER_CRASH = 2
 
-    private const val SCRIPT = "/data/local/tmp/sui_test.sh"
-    private const val PID_FILE = "/data/local/tmp/sui_test.pid"
-    private const val RUN_LOG = "/data/local/tmp/sui_test.log"
-    private const val TMP_TARGET = "/data/local/tmp/sui_target.apk"
-    private const val TMP_RESCUE = "/data/local/tmp/sui_rescue.apk"
-
     /** @ 代表 $ 写脚本时不用一路转义 落盘前统一换回来 */
     private val SCRIPT_BODY: String = """
         #!/system/bin/sh
         # 抓 crash 日志 + 崩溃自动救砖
         # $1 日志输出 $2 运行日志 $3 pid 文件 $4 目标包名 $5 等待秒 $6 抓取秒
-        # $7 待测 apk（可空） $8 救砖 apk（可空 空则只抓日志）
+        # $7 待测 apk（私有目录副本） $8 救砖 apk（私有目录副本）
+        # $9 待测 apk 真实路径 $10 救砖 apk 真实路径 —— 只用于日志展示
         OUT="@1"
         RUN="@2"
         PIDF="@3"
@@ -62,6 +83,10 @@ object Logcat {
         DUR="@6"
         TARGET_APK="@7"
         RESCUE_APK="@8"
+        TARGET_SHOW="@9"
+        RESCUE_SHOW="@10"
+        [ -z "@TARGET_SHOW" ] && TARGET_SHOW="@TARGET_APK"
+        [ -z "@RESCUE_SHOW" ] && RESCUE_SHOW="@RESCUE_APK"
         THRESHOLD=5120
         DELAY=2
 
@@ -78,22 +103,17 @@ object Logcat {
                 log "救砖apk不存在 跳过救砖"
                 return 1
             fi
-            cp "@RESCUE_APK" /data/local/tmp/sui_temp.apk 2>/dev/null
-            chmod 644 /data/local/tmp/sui_temp.apk 2>/dev/null
-            if [ -f /data/local/tmp/sui_temp.apk ]; then
-                R=$(pm install -r -d -t /data/local/tmp/sui_temp.apk 2>&1)
-                RC=@?
-                log "pm install 结果 (exit=@RC): @R"
-                if [ "@RC" -eq 0 ]; then
-                    log "救砖成功 重启 SystemUI"
-                    (sleep 3; killall com.android.systemui 2>/dev/null) &
-                else
-                    log "救砖失败 详见上方输出"
-                fi
+            # pm install 由 root shell 自己读文件 路径在私有目录也能装
+            # 不再中转一份临时副本 少一次上百兆的复制
+            R=$(pm install -r -d -t "@RESCUE_APK" 2>&1)
+            RC=@?
+            log "pm install 结果 (exit=@RC): @R"
+            if [ "@RC" -eq 0 ]; then
+                log "救砖成功 重启 SystemUI"
+                (sleep 3; killall com.android.systemui 2>/dev/null) &
             else
-                log "临时apk复制失败 救砖中止"
+                log "救砖失败 详见上方输出"
             fi
-            rm -f /data/local/tmp/sui_temp.apk
         }
 
         watch_crash() {
@@ -121,9 +141,9 @@ object Logcat {
         mkdir -p "@(dirname "@OUT")"
         LOG_FILE="@OUT"
         log "目标应用: @PKG"
-        log "待测apk: @TARGET_APK"
+        log "待测apk: @TARGET_SHOW"
         if [ -n "@RESCUE_APK" ]; then
-            log "救砖apk: @RESCUE_APK"
+            log "救砖apk: @RESCUE_SHOW"
         else
             log "未开启自动替换 只抓日志"
         fi
@@ -171,7 +191,6 @@ object Logcat {
         sleep 1
         kill -9 "@LPID" 2>/dev/null
         if [ -n "@MON" ]; then kill -9 "@MON" 2>/dev/null; fi
-        rm -f "/data/local/tmp/sui_temp.apk"
 
         NEW=@(pidof "@PKG" 2>/dev/null)
         if [ -n "@NEW" ]; then
@@ -195,42 +214,59 @@ object Logcat {
         val pkg: String,
         val seconds: Int,
         val file: String,
-        val runFile: String = RUN_LOG,
+        val runFile: String = Logcat.runLog(),
         val startedAt: Long = System.currentTimeMillis(),
     )
 
     /**
-     * 把 App 私有目录里的 apk 拷到 /data/local/tmp
+     * 把 apk 拷到私有目录里的固定副本
      *
-     * 私有目录 root 也能读 但 pm install 直接吃私有目录不稳（SELinux 标签不对）
-     * 所以只在真正要用的时候拷一次
+     * 复制前先比一次：上一轮留下的副本如果大小和内容都一致就直接复用。
+     * cp 是读 + 写，cmp 只读，命中时省掉一半 IO，一百多兆的包能省下可观的等待。
      */
     suspend fun stage(src: String, tmp: String): Boolean = withContext(Dispatchers.IO) {
-        if (src.isBlank()) return@withContext false
-        // 先删目标：cp 失败时若上一轮的旧文件还在，[ -f ] 会误判成成功，
-        // 结果拿一个旧包去测（待测现在只是记路径，源文件被删时更容易撞上）
+        if (src.isBlank() || tmp.isBlank()) return@withContext false
+        val s = Root.q(src)
+        val t = Root.q(tmp)
+        // 目标内容与源一致 → HIT；否则先删目标再拷，
+        // 免得 cp 失败时 [ -f ] 把上一轮的旧包误判成成功
         val out = Root.exec(
-            "rm -f ${Root.q(tmp)}; " +
-                "cp ${Root.q(src)} ${Root.q(tmp)} 2>/dev/null; " +
-                "chmod 644 ${Root.q(tmp)} 2>/dev/null; " +
-                "[ -f ${Root.q(tmp)} ] && echo OK",
+            "if [ -f $t ] && [ -f $s ] && " +
+                "[ \"\$(stat -c%s $s)\" = \"\$(stat -c%s $t)\" ] && cmp -s $s $t; then " +
+                "echo HIT; " +
+                "else " +
+                "rm -f $t; cp $s $t 2>/dev/null; chmod 644 $t 2>/dev/null; " +
+                "[ -f $t ] && echo COPY; " +
+                "fi",
         )
-        out.contains("OK")
+        val hit = out.contains("HIT")
+        val ok = hit || out.contains("COPY")
+        AppLog.log(
+            "测试",
+            if (hit) {
+                "复用上次的 ${java.io.File(tmp).name} 内容一致 跳过复制"
+            } else {
+                "复制 ${java.io.File(src).name} -> ${java.io.File(tmp).name} ${if (ok) "成功" else "失败"}"
+            },
+        )
+        ok
     }
 
-    /** 把待测 apk 拷到临时目录 失败返回 null */
+    /** 把待测 apk 拷到私有目录 失败返回 null */
     suspend fun stageTarget(src: String): String? =
-        if (stage(src, TMP_TARGET)) TMP_TARGET else null
+        tmpTarget().takeIf { it.isNotBlank() && stage(src, it) }
 
-    /** 把救砖 apk 拷到临时目录 失败返回 null */
+    /** 把救砖 apk 拷到私有目录 失败返回 null */
     suspend fun stageRescue(src: String): String? =
-        if (stage(src, TMP_RESCUE)) TMP_RESCUE else null
+        tmpRescue().takeIf { it.isNotBlank() && stage(src, it) }
 
     /**
      * 起一次测试
      *
-     * @param targetTmp /data/local/tmp 里的待测 apk 空则跳过安装
-     * @param rescueTmp /data/local/tmp 里的救砖 apk 空则只抓日志不救砖
+     * @param targetTmp 私有目录里的待测 apk 副本 空则跳过安装
+     * @param rescueTmp 私有目录里的救砖 apk 副本 空则只抓日志不救砖
+     * @param targetSrc 待测 apk 的真实路径 只用于运行日志展示
+     * @param rescueSrc 救砖 apk 的真实路径 只用于运行日志展示
      * @return 起不来（脚本没写出 pid）返回 null
      */
     suspend fun start(
@@ -239,9 +275,14 @@ object Logcat {
         seconds: Int,
         targetTmp: String,
         rescueTmp: String,
-        dir: String,
+        targetSrc: String = "",
+        rescueSrc: String = "",
     ): Session? = withContext(Dispatchers.IO) {
-        val target = dir.ifBlank { "/data/adb/systemui_mount_log" }
+        val target = workDir()
+        if (target.isBlank()) return@withContext null
+        val SCRIPT = scriptFile()
+        val PID_FILE = pidFile()
+        val RUN_LOG = runLog()
         val file = "$target/logcat_${safeName(pkg)}_${stamp()}.log"
         val b64 = Base64.encodeToString(SCRIPT_BODY.toByteArray(), Base64.NO_WRAP)
         val cmd = buildString {
@@ -255,12 +296,14 @@ object Logcat {
             append("if command -v setsid >/dev/null 2>&1; then ")
             append("(setsid sh $SCRIPT ${Root.q(file)} ${Root.q(RUN_LOG)} $PID_FILE ")
             append("${Root.q(pkg)} $waitSeconds $seconds ")
-            append("${Root.q(targetTmp)} ${Root.q(rescueTmp)}")
+            append("${Root.q(targetTmp)} ${Root.q(rescueTmp)} ")
+            append("${Root.q(targetSrc)} ${Root.q(rescueSrc)}")
             append(" >/dev/null 2>&1 &); ")
             append("else ")
             append("(nohup sh $SCRIPT ${Root.q(file)} ${Root.q(RUN_LOG)} $PID_FILE ")
             append("${Root.q(pkg)} $waitSeconds $seconds ")
-            append("${Root.q(targetTmp)} ${Root.q(rescueTmp)}")
+            append("${Root.q(targetTmp)} ${Root.q(rescueTmp)} ")
+            append("${Root.q(targetSrc)} ${Root.q(rescueSrc)}")
             append(" >/dev/null 2>&1 &); ")
             append("fi; ")
             append("sleep 0.4; cat $PID_FILE 2>/dev/null")
@@ -273,6 +316,7 @@ object Logcat {
 
     /** 结束当前测试：先 TERM 让脚本自己收掉 logcat 子进程 不行再 -9 */
     suspend fun stop(): Boolean = withContext(Dispatchers.IO) {
+        val PID_FILE = pidFile()
         val pid = Root.exec("cat $PID_FILE 2>/dev/null").trim()
         if (pid.isBlank()) return@withContext false
         Root.exec(
@@ -284,6 +328,7 @@ object Logcat {
 
     /** 还活着就返回 pid */
     suspend fun runningPid(): String? = withContext(Dispatchers.IO) {
+        val PID_FILE = pidFile()
         val out = Root.exec(
             "p=\$(cat $PID_FILE 2>/dev/null); " +
                 "[ -n \"\$p\" ] && kill -0 \"\$p\" 2>/dev/null && echo \"\$p\"",
@@ -296,6 +341,8 @@ object Logcat {
 
     suspend fun poll(file: String, lines: Int = 300): Poll = withContext(Dispatchers.IO) {
         if (file.isBlank()) return@withContext Poll(false, 0L, "")
+        val PID_FILE = pidFile()
+        val RUN_LOG = runLog()
         val cmd = "p=\$(cat $PID_FILE 2>/dev/null); " +
             "if [ -n \"\$p\" ] && kill -0 \"\$p\" 2>/dev/null; " +
             "then echo RUN; else echo STOP; fi; " +
@@ -339,7 +386,7 @@ object LogConfig {
 
     /**
      * 两份 apk 的私有副本 选完就落在 files/apk 下
-     * 只有重新选的时候才覆盖 平时不动 开跑时才拷到 /data/local/tmp
+     * 只有重新选的时候才覆盖 平时不动 开跑时才拷到 files/test/ 的固定副本
      */
     var rescuePath by mutableStateOf("")
     var rescueSize by mutableStateOf(0L)
@@ -384,7 +431,7 @@ object LogConfig {
  * 救砖：搬进 files/rescueapk/，**保留原文件名**；每次换包先把这个目录清空，
  *       保证随时只有一份「当前的救砖包」，反复选不会越存越多。
  * 待测：不复制。只记下 files/picked/ 那份的路径，开跑时才由 [Logcat.stage]
- *       拷到 /data/local/tmp —— 跟界面页写 TARGET_APK_PATH 是一样的思路。
+ *       拷到 files/test/ 的固定副本 —— 跟界面页写 TARGET_APK_PATH 是一样的思路。
  */
 object ApkStore {
 

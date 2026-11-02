@@ -52,7 +52,6 @@ import com.xkspeed.HyperMount.core.AppVersion
 import com.xkspeed.HyperMount.core.LogConfig
 import com.xkspeed.HyperMount.core.Logcat
 import com.xkspeed.HyperMount.core.Module
-import com.xkspeed.HyperMount.core.ModuleState
 import com.xkspeed.HyperMount.core.UpdateInfo
 import com.xkspeed.HyperMount.ui.component.glass.ScrollPage
 import com.xkspeed.HyperMount.ui.components.SectionCard
@@ -88,13 +87,12 @@ private val UpdateGreen = Color(0xFF2E7D32)
  * 后台 pm install 待测 apk → 等用户设定的时长 → 抓 crash 日志
  * 自动替换打开时再盯日志大小 超阈值就把救砖 apk 装回去
  *
- * 和「界面」页完全独立：apk 选完落在 App 私有目录 开跑时才拷到 /data/local/tmp
+ * 和「界面」页完全独立：apk 选完落在 App 私有目录 开跑时拷到 files/test/ 做固定副本
  * 也不依赖模块守护 自动替换关掉也能单独抓日志
  */
 @Composable
 fun MainPage(
     padding: PaddingValues,
-    state: ModuleState,
     rootOk: Boolean?,
     latest: UpdateInfo?,
     onOpenRelease: () -> Unit,
@@ -169,7 +167,7 @@ fun MainPage(
         }
         scope.launch {
             starting = true
-            // 用到才拷：平时躺在私有目录 这里才进 /data/local/tmp
+            // 用到才拷：平时躺在私有目录 这里才落到 files/test/ 的固定副本上
             val targetTmp = Logcat.stageTarget(LogConfig.targetPath)
             if (targetTmp == null) {
                 starting = false
@@ -191,7 +189,9 @@ fun MainPage(
                 seconds = LogConfig.seconds,
                 targetTmp = targetTmp,
                 rescueTmp = rescueTmp,
-                dir = state.logDir,
+                // 运行日志里显示用户真正选的那份 别暴露内部副本路径
+                targetSrc = LogConfig.targetPath,
+                rescueSrc = if (autoReplace) LogConfig.rescuePath else "",
             )
             starting = false
             if (s == null) {

@@ -931,7 +931,6 @@ private fun MainScaffold(
                         // 主页：自己的测试脚本 自带开抓与救砖 不碰模块守护
                         1 -> MainPage(
                             padding = pagePadding,
-                            state = state,
                             rootOk = rootOk,
                             latest = latest,
                             onOpenRelease = onOpenRelease,
