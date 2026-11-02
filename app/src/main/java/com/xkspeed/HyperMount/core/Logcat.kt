@@ -23,7 +23,9 @@ import java.util.Locale
  *
  * 和模块守护完全解耦：脚本、pid、运行日志、抓到的日志、两份 apk 的临时副本
  * 全部落在 App 私有目录 files/test/ 下，不碰系统临时目录，卸载即清干净。
- * 复制前先按内容比对上一轮留下的副本，一致就复用，省掉一次上百兆的读写。
+ * 脚本和 pid 放在应用缓存里 跑完即删 用户目录里不会留下 .sh
+ * 抓到的 crash 日志写进设置里的日志目录 和模块日志放在一起
+ * 待测 / 救砖 apk 一律不复制 脚本直接用原路径安装
  */
 object Logcat {
 
@@ -32,25 +34,47 @@ object Logcat {
     /** Application.onCreate 里调一次 之后所有路径都基于私有目录 */
     fun install(context: Context) {
         app = context.applicationContext
+        // 上一版会在 files/test 里留 apk 副本与脚本 这里顺手清掉
+        // 现在的流程一个副本都不放 目录里只该剩运行流水
+        runCatching {
+            listOf(
+                java.io.File(context.filesDir, "test"),
+                java.io.File(context.cacheDir, "test"),
+            ).forEach { dir ->
+                dir.listFiles()?.forEach { f ->
+                    val n = f.name
+                    if (f.isFile && (n.endsWith(".apk") || n.endsWith(".sh"))) f.delete()
+                }
+            }
+        }
     }
 
-    /** 测试工作目录 files/test/ 脚本 / pid / 日志 / apk 副本都在这儿 */
+    /** 测试工作目录 files/test/ 只放运行流水 用户可见性低 */
     fun workDir(): String {
         val ctx = app ?: return ""
         val dir = java.io.File(ctx.filesDir, "test").apply { mkdirs() }
         return dir.absolutePath
     }
 
-    private fun path(name: String): String {
-        val dir = workDir()
+    /** 脚本与 pid 走缓存目录 跑完删掉 不留在任何用户能翻到的目录里 */
+    private fun cacheDir(): String {
+        val ctx = app ?: return ""
+        val dir = java.io.File(ctx.cacheDir, "test").apply { mkdirs() }
+        return dir.absolutePath
+    }
+
+    private fun cachePath(name: String): String {
+        val dir = cacheDir()
         return if (dir.isBlank()) "" else "$dir/$name"
     }
 
-    private fun scriptFile(): String = path("sui_test.sh")
-    private fun pidFile(): String = path("sui_test.pid")
-    fun runLog(): String = path("sui_test.log")
-    private fun tmpTarget(): String = path("sui_target.apk")
-    private fun tmpRescue(): String = path("sui_rescue.apk")
+    private fun scriptFile(): String = cachePath("sui_test.sh")
+    private fun pidFile(): String = cachePath("sui_test.pid")
+
+    fun runLog(): String {
+        val dir = workDir()
+        return if (dir.isBlank()) "" else "$dir/sui_test.log"
+    }
 
     const val DEFAULT_PKG = "com.android.systemui"
     const val DEFAULT_SECONDS = 30
@@ -73,8 +97,7 @@ object Logcat {
         #!/system/bin/sh
         # 抓 crash 日志 + 崩溃自动救砖
         # $1 日志输出 $2 运行日志 $3 pid 文件 $4 目标包名 $5 等待秒 $6 抓取秒
-        # $7 待测 apk（私有目录副本） $8 救砖 apk（私有目录副本）
-        # $9 待测 apk 真实路径 $10 救砖 apk 真实路径 —— 只用于日志展示
+        # $7 待测 apk 原路径（空则只抓日志） $8 救砖 apk 原路径
         OUT="@1"
         RUN="@2"
         PIDF="@3"
@@ -83,10 +106,9 @@ object Logcat {
         DUR="@6"
         TARGET_APK="@7"
         RESCUE_APK="@8"
-        TARGET_SHOW="@9"
-        RESCUE_SHOW="@10"
-        [ -z "@TARGET_SHOW" ] && TARGET_SHOW="@TARGET_APK"
-        [ -z "@RESCUE_SHOW" ] && RESCUE_SHOW="@RESCUE_APK"
+        # 脚本自己收尸：缓存目录里不留 .sh 下一轮再写新的
+        SELF="@0"
+        trap 'rm -f "@SELF"' EXIT
         THRESHOLD=5120
         DELAY=2
 
@@ -141,9 +163,9 @@ object Logcat {
         mkdir -p "@(dirname "@OUT")"
         LOG_FILE="@OUT"
         log "目标应用: @PKG"
-        log "待测apk: @TARGET_SHOW"
+        log "待测apk: @TARGET_APK"
         if [ -n "@RESCUE_APK" ]; then
-            log "救砖apk: @RESCUE_SHOW"
+            log "救砖apk: @RESCUE_APK"
         else
             log "未开启自动替换 只抓日志"
         fi
@@ -207,6 +229,7 @@ object Logcat {
             log "日志为0字节 已删除"
         fi
         rm -f "@PIDF"
+        rm -f "@SELF"
         exit 0
     """.trimIndent().replace("@", "$")
 
@@ -219,70 +242,26 @@ object Logcat {
     )
 
     /**
-     * 把 apk 拷到私有目录里的固定副本
-     *
-     * 复制前先比一次：上一轮留下的副本如果大小和内容都一致就直接复用。
-     * cp 是读 + 写，cmp 只读，命中时省掉一半 IO，一百多兆的包能省下可观的等待。
-     */
-    suspend fun stage(src: String, tmp: String): Boolean = withContext(Dispatchers.IO) {
-        if (src.isBlank() || tmp.isBlank()) return@withContext false
-        val s = Root.q(src)
-        val t = Root.q(tmp)
-        // 目标内容与源一致 → HIT；否则先删目标再拷，
-        // 免得 cp 失败时 [ -f ] 把上一轮的旧包误判成成功
-        val out = Root.exec(
-            "if [ -f $t ] && [ -f $s ] && " +
-                "[ \"\$(stat -c%s $s)\" = \"\$(stat -c%s $t)\" ] && cmp -s $s $t; then " +
-                "echo HIT; " +
-                "else " +
-                "rm -f $t; cp $s $t 2>/dev/null; chmod 644 $t 2>/dev/null; " +
-                "[ -f $t ] && echo COPY; " +
-                "fi",
-        )
-        val hit = out.contains("HIT")
-        val ok = hit || out.contains("COPY")
-        AppLog.log(
-            "测试",
-            if (hit) {
-                "复用上次的 ${java.io.File(tmp).name} 内容一致 跳过复制"
-            } else {
-                "复制 ${java.io.File(src).name} -> ${java.io.File(tmp).name} ${if (ok) "成功" else "失败"}"
-            },
-        )
-        ok
-    }
-
-    /** 把待测 apk 拷到私有目录 失败返回 null */
-    suspend fun stageTarget(src: String): String? =
-        tmpTarget().takeIf { it.isNotBlank() && stage(src, it) }
-
-    /** 把救砖 apk 拷到私有目录 失败返回 null */
-    suspend fun stageRescue(src: String): String? =
-        tmpRescue().takeIf { it.isNotBlank() && stage(src, it) }
-
-    /**
      * 起一次测试
      *
-     * @param targetTmp 私有目录里的待测 apk 副本 空则跳过安装
-     * @param rescueTmp 私有目录里的救砖 apk 副本 空则只抓日志不救砖
-     * @param targetSrc 待测 apk 的真实路径 只用于运行日志展示
-     * @param rescueSrc 救砖 apk 的真实路径 只用于运行日志展示
+     * @param targetApk 待测 apk 的原路径 空则跳过安装
+     * @param rescueApk 救砖 apk 的原路径 空则只抓日志不救砖
+     * @param dir 设置里的日志目录 抓到的 crash 日志写这里
      * @return 起不来（脚本没写出 pid）返回 null
      */
     suspend fun start(
         pkg: String,
         waitSeconds: Int,
         seconds: Int,
-        targetTmp: String,
-        rescueTmp: String,
-        targetSrc: String = "",
-        rescueSrc: String = "",
+        targetApk: String,
+        rescueApk: String,
+        dir: String,
     ): Session? = withContext(Dispatchers.IO) {
-        val target = workDir()
-        if (target.isBlank()) return@withContext null
+        val target = dir.ifBlank { "/data/adb/systemui_mount_log" }
         val SCRIPT = scriptFile()
         val PID_FILE = pidFile()
         val RUN_LOG = runLog()
+        if (SCRIPT.isBlank() || PID_FILE.isBlank()) return@withContext null
         val file = "$target/logcat_${safeName(pkg)}_${stamp()}.log"
         val b64 = Base64.encodeToString(SCRIPT_BODY.toByteArray(), Base64.NO_WRAP)
         val cmd = buildString {
@@ -296,14 +275,12 @@ object Logcat {
             append("if command -v setsid >/dev/null 2>&1; then ")
             append("(setsid sh $SCRIPT ${Root.q(file)} ${Root.q(RUN_LOG)} $PID_FILE ")
             append("${Root.q(pkg)} $waitSeconds $seconds ")
-            append("${Root.q(targetTmp)} ${Root.q(rescueTmp)} ")
-            append("${Root.q(targetSrc)} ${Root.q(rescueSrc)}")
+            append("${Root.q(targetApk)} ${Root.q(rescueApk)}")
             append(" >/dev/null 2>&1 &); ")
             append("else ")
             append("(nohup sh $SCRIPT ${Root.q(file)} ${Root.q(RUN_LOG)} $PID_FILE ")
             append("${Root.q(pkg)} $waitSeconds $seconds ")
-            append("${Root.q(targetTmp)} ${Root.q(rescueTmp)} ")
-            append("${Root.q(targetSrc)} ${Root.q(rescueSrc)}")
+            append("${Root.q(targetApk)} ${Root.q(rescueApk)}")
             append(" >/dev/null 2>&1 &); ")
             append("fi; ")
             append("sleep 0.4; cat $PID_FILE 2>/dev/null")
@@ -324,6 +301,12 @@ object Logcat {
         )
         AppLog.log("测试", "停止 pid=$pid")
         true
+    }
+
+    /** 文件在不在 —— 走 root 判断，应用自己没存储权限时也能看外部路径 */
+    suspend fun exists(path: String): Boolean = withContext(Dispatchers.IO) {
+        if (path.isBlank()) return@withContext false
+        Root.exec("[ -f ${Root.q(path)} ] && echo 1").contains("1")
     }
 
     /** 还活着就返回 pid */
@@ -385,8 +368,10 @@ object LogConfig {
     var autoReplace by mutableStateOf(false)
 
     /**
-     * 两份 apk 的私有副本 选完就落在 files/apk 下
-     * 只有重新选的时候才覆盖 平时不动 开跑时才拷到 files/test/ 的固定副本
+     * 两份 apk 的路径
+     *
+     * 待测：用户选的那份原文件，一个字节都不复制
+     * 救砖：files/rescueapk/ 下那份，选完即就位，开跑直接用
      */
     var rescuePath by mutableStateOf("")
     var rescueSize by mutableStateOf(0L)
@@ -426,12 +411,11 @@ object LogConfig {
 }
 
 /**
- * 主页两份 apk 的存放策略（和「界面」页对齐）
+ * 主页两份 apk 的存放策略
  *
- * 救砖：搬进 files/rescueapk/，**保留原文件名**；每次换包先把这个目录清空，
- *       保证随时只有一份「当前的救砖包」，反复选不会越存越多。
- * 待测：不复制。只记下 files/picked/ 那份的路径，开跑时才由 [Logcat.stage]
- *       拷到 files/test/ 的固定副本 —— 跟界面页写 TARGET_APK_PATH 是一样的思路。
+ * 救砖：从选择器的流直接写进 files/rescueapk/，**保留原文件名**；
+ *       每次换包把目录里其它文件清掉，随时只有一份「当前的救砖包」。
+ * 待测：一个字节都不复制。只记下选择器给出的真实路径，开跑时脚本直接装它。
  */
 object ApkStore {
 
@@ -445,42 +429,43 @@ object ApkStore {
         java.io.File(context.filesDir, RESCUE_DIR).apply { mkdirs() }
 
     /**
-     * 收下一个救砖 apk
+     * 从选择器返回的 uri 直接写进 files/rescueapk/
      *
-     * 先落位新的、再清旧的：搬移失败时上一份还在，配置不会指向一个空槽。
-     * 源文件在 files/picked/ 下，和 files/rescueapk/ 同分区，rename 基本是瞬时的；
-     * 万一跨了挂载点才退回复制。
+     * 不再经 files/picked 中转：选择器给的是 content:// 流，读一次直接落到目标目录，
+     * 保留原文件名。写临时名再改名，中途失败不会把上一份好的救砖包弄没。
      *
-     * @param previousPath 上一份救砖包的路径，若还留在应用私有目录里一并删掉
-     *                     （老版本那份在 files/apk/，不清会一直占着几百兆）
+     * @param previousPath 上一份救砖包路径，新包就位后一并清掉
      */
-    fun installRescue(
+    fun installRescueFromUri(
         context: Context,
-        src: java.io.File,
+        uri: android.net.Uri,
         previousPath: String,
     ): java.io.File? = runCatching {
         val dir = rescueDir(context)
-        val size = src.length()
-        if (size <= 0L) return@runCatching null
+        val raw = runCatching {
+            context.contentResolver
+                .query(uri, arrayOf(android.provider.OpenableColumns.DISPLAY_NAME), null, null, null)
+                ?.use { c -> if (c.moveToFirst()) c.getString(0) else null }
+        }.getOrNull().orEmpty()
+        val name = sanitizeName(raw.ifBlank { "rescue.apk" })
+        val dst = java.io.File(dir, name)
+        val tmp = java.io.File(dir, "$name.part")
 
-        val dst = java.io.File(dir, src.name)
-        // 同名旧包必须先让位，rename / 复制才能落下去
-        if (dst.exists()) dst.delete()
-
-        val moved = src.renameTo(dst)
-        if (!moved) {
-            src.inputStream().use { input ->
-                dst.outputStream().use { output -> input.copyTo(output) }
-            }
-            src.delete()
-        }
-        // 落地后再核一次大小：空间不足时复制可能「看起来成功」
-        if (dst.length() != size) {
-            dst.delete()
+        tmp.delete()
+        val input = context.contentResolver.openInputStream(uri) ?: return@runCatching null
+        input.use { src -> tmp.outputStream().use { src.copyTo(it) } }
+        if (tmp.length() <= 0L) {
+            tmp.delete()
             return@runCatching null
         }
 
-        // 新包已经就位，把同目录里别的旧包清掉
+        if (dst.exists()) dst.delete()
+        if (!tmp.renameTo(dst)) {
+            tmp.inputStream().use { i -> dst.outputStream().use { o -> i.copyTo(o) } }
+            tmp.delete()
+        }
+
+        // 新包就位，同目录里的旧包全清，保证只剩当前这一份
         dir.listFiles()?.forEach { f -> if (f.absolutePath != dst.absolutePath) f.delete() }
 
         val prev = java.io.File(previousPath)
@@ -489,14 +474,16 @@ object ApkStore {
         ) {
             prev.delete()
         }
-
-        // 老目录空了就一起收掉 免得留个空文件夹
-        java.io.File(context.filesDir, LEGACY_DIR)
-            .takeIf { it.isDirectory && it.listFiles().isNullOrEmpty() }
-            ?.delete()
-
         dst
     }.getOrNull()
+
+    /** 文件名里的分隔符换掉 别让配置里那行被截断 */
+    private fun sanitizeName(raw: String): String {
+        val cleaned = raw.replace('/', '_').replace('\\', '_').replace(' ', '_')
+        val tail = Regex("""\.apk\.\d+$""", RegexOption.IGNORE_CASE)
+        val base = if (tail.containsMatchIn(cleaned)) tail.replace(cleaned, ".apk") else cleaned
+        return if (base.endsWith(".apk", ignoreCase = true)) base else "$base.apk"
+    }
 
     /** 只删自己地盘里的文件 用户手选的路径一律不动 */
     private fun isPrivate(context: Context, f: java.io.File): Boolean {
@@ -505,18 +492,6 @@ object ApkStore {
             context.filesDir?.absolutePath,
             context.getExternalFilesDir(null)?.absolutePath,
         ).any { path.startsWith("$it/") }
-    }
-
-    /**
-     * 待测换人时清掉上一份
-     *
-     * 待测现在只记路径，上一份若还躺在 files/picked/ 或老目录里，删掉不心疼 ——
-     * 源文件在用户自己的目录里，我们删的只是当初的落地副本。
-     */
-    fun purgeTarget(context: Context, previousPath: String, keepPath: String) {
-        if (previousPath.isBlank() || previousPath == keepPath) return
-        val prev = java.io.File(previousPath)
-        if (prev.isFile && isPrivate(context, prev)) prev.delete()
     }
 
     /** 比对两份副本是不是同一个文件（按内容算 不看文件名） */

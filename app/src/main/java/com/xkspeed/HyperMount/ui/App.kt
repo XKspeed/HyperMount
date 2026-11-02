@@ -54,6 +54,7 @@ import com.xkspeed.HyperMount.core.Module
 import com.xkspeed.HyperMount.core.ModuleState
 import com.xkspeed.HyperMount.core.ApkStore
 import com.xkspeed.HyperMount.core.LogConfig
+import com.xkspeed.HyperMount.core.Logcat
 import com.xkspeed.HyperMount.core.Root
 import com.xkspeed.HyperMount.core.Update
 import com.xkspeed.HyperMount.core.UpdateInfo
@@ -349,6 +350,81 @@ fun App() {
     fun handlePicked(target: PickerTarget, uri: Uri) {
         // 复制动辄上百兆 不能压在主线线程上 否则选择器刚回来就 ANR
         scope.launch {
+            // 主页：待测一个字节都不复制，救砖直接落到 files/rescueapk/
+            if (target == PickerTarget.MAIN_RESCUE || target == PickerTarget.MAIN_TARGET) {
+                if (target == PickerTarget.MAIN_TARGET) {
+                    // 只记真实路径 —— 开跑时由 root 直接装这个文件
+                    val real = withContext(Dispatchers.IO) { folderPathOf(context, uri) }
+                    if (real.isNullOrBlank()) {
+                        toast(context, "这个管理器没给出真实路径 换 MT 的 root 模式再选一次")
+                        return@launch
+                    }
+                    // 只读一次做校验，不留副本
+                    val pkg = withContext(Dispatchers.IO) { packageOfUri(context, uri, real) }
+                    if (pkg == SYSTEMUI_PACKAGE) {
+                        sysUiBlock = SysUiBlock.Target
+                        return@launch
+                    }
+                    if (pkg == null) {
+                        toast(context, "这个文件不是有效的 apk")
+                        return@launch
+                    }
+                    if (real == LogConfig.rescuePath) {
+                        toast(context, "待测apk不能和救砖apk是同一个文件")
+                        return@launch
+                    }
+                    LogConfig.targetPath = real
+                    LogConfig.targetSize = Logcat.sizeOf(real)
+                    LogConfig.save(context)
+                    toast(context, "已选择待测apk")
+                    return@launch
+                }
+
+                // 救砖：选择器的流直接写进 files/rescueapk/，不经任何中转目录
+                val previous = LogConfig.rescuePath
+                    .takeIf { it.isNotBlank() && it != LogConfig.targetPath }
+                    .orEmpty()
+                val dst = withContext(Dispatchers.IO) {
+                    ApkStore.installRescueFromUri(context, uri, previous)
+                }
+                if (dst == null) {
+                    toast(context, "保存失败 存储空间可能不够")
+                    return@launch
+                }
+                val pkg = withContext(Dispatchers.IO) { packageNameOf(context, dst) }
+                // 系统界面本体装错一次就是黑砖 这里必须拉黑
+                if (pkg == SYSTEMUI_PACKAGE || pkg == null) {
+                    withContext(Dispatchers.IO) { dst.delete() }
+                    LogConfig.rescuePath = ""
+                    LogConfig.rescueSize = 0L
+                    LogConfig.save(context)
+                    if (pkg == SYSTEMUI_PACKAGE) {
+                        sysUiBlock = SysUiBlock.Rescue
+                    } else {
+                        toast(context, "这个文件不是有效的 apk")
+                    }
+                    return@launch
+                }
+                // 和待测是同一份内容 崩了装回去等于什么都没换
+                val same = withContext(Dispatchers.IO) {
+                    ApkStore.sameContent(dst.absolutePath, LogConfig.targetPath)
+                }
+                if (same) {
+                    withContext(Dispatchers.IO) { dst.delete() }
+                    LogConfig.rescuePath = ""
+                    LogConfig.rescueSize = 0L
+                    LogConfig.save(context)
+                    toast(context, "待测apk不能和救砖apk是同一个文件")
+                    return@launch
+                }
+                LogConfig.rescuePath = dst.absolutePath
+                LogConfig.rescueSize = dst.length()
+                LogConfig.save(context)
+                toast(context, "已选择救砖apk")
+                return@launch
+            }
+
+            // 界面页：两份 apk 要交给模块脚本 这里仍落一份到私有目录
             val file = withContext(Dispatchers.IO) { copyPickedFile(context, uri) }
             if (file == null) {
                 toast(context, "读取失败 这个文件管理器给的地址打不开 换一个再试")
@@ -360,76 +436,7 @@ fun App() {
                 return@launch
             }
 
-            // 主页：不校验包名（测的可能根本不是 SystemUI）
-            // 只拦两件事 —— 待测 apk 和救砖 apk 是同一个文件、待测 apk 是系统界面本体
-            if (target == PickerTarget.MAIN_RESCUE || target == PickerTarget.MAIN_TARGET) {
-                val isRescue = target == PickerTarget.MAIN_RESCUE
-                // 主页的两份 apk 都是直接 pm install 装进系统的
-                // 系统界面本体装错一次就是黑砖 这里必须拉黑 只放行界面专区的模块流程
-                val pkg = withContext(Dispatchers.IO) { packageNameOf(context, file) }
-                if (pkg == SYSTEMUI_PACKAGE) {
-                    withContext(Dispatchers.IO) { file.delete() }
-                    sysUiBlock = if (isRescue) SysUiBlock.Rescue else SysUiBlock.Target
-                    return@launch
-                }
-                // 先判重再动文件：救砖是「搬进」rescueapk/，搬完源路径就没了，
-                // 那时再拿待测路径去比只会得到「文件不存在」，校验等于失效
-                val other = if (isRescue) LogConfig.targetPath else LogConfig.rescuePath
-                val same = withContext(Dispatchers.IO) {
-                    ApkStore.sameContent(file.absolutePath, other)
-                }
-                if (same) {
-                    // 两份一样 崩了装回去等于什么都没换
-                    val srcPath = file.absolutePath
-                    withContext(Dispatchers.IO) { file.delete() }
-                    if (isRescue) {
-                        LogConfig.rescuePath = ""
-                        LogConfig.rescueSize = 0L
-                        // 删掉的正好是待测那份时 待测槽位也得清 —— 否则配置指向一个
-                        // 已经不存在的路径，界面却还显示「已选」
-                        if (LogConfig.targetPath == srcPath) {
-                            LogConfig.targetPath = ""
-                            LogConfig.targetSize = 0L
-                        }
-                    } else {
-                        LogConfig.targetPath = ""
-                        LogConfig.targetSize = 0L
-                    }
-                    LogConfig.save(context)
-                    toast(context, "待测apk不能和救砖apk是同一个文件")
-                    return@launch
-                }
-
-                if (isRescue) {
-                    // 救砖包搬进 files/rescueapk/，保留原文件名；换一份就把上一份清掉
-                    // 上一份万一和待测是同一路径就别删了，那是待测要用的文件
-                    val previous = LogConfig.rescuePath
-                        .takeIf { it.isNotBlank() && it != LogConfig.targetPath }
-                        .orEmpty()
-                    val dst = withContext(Dispatchers.IO) {
-                        ApkStore.installRescue(context, file, previous)
-                    }
-                    if (dst == null) {
-                        toast(context, "保存失败 存储空间可能不够")
-                        return@launch
-                    }
-                    LogConfig.rescuePath = dst.absolutePath
-                    LogConfig.rescueSize = dst.length()
-                    toast(context, "已选择救砖apk")
-                } else {
-                    // 待测只记路径：文件留在 files/picked/，开跑时才 stage 到 tmp
-                    val previous = LogConfig.targetPath
-                    val keep = file.absolutePath
-                    withContext(Dispatchers.IO) { ApkStore.purgeTarget(context, previous, keep) }
-                    LogConfig.targetPath = keep
-                    LogConfig.targetSize = file.length()
-                    toast(context, "已选择待测apk")
-                }
-                LogConfig.save(context)
-                return@launch
-            }
-
-            // 界面页：装错界面救砖流程直接废掉 这里必须拦住
+            // 装错界面救砖流程直接废掉 这里必须拦住
             val pkg = withContext(Dispatchers.IO) { packageNameOf(context, file) }
             if (pkg != SYSTEMUI_PACKAGE) {
                 withContext(Dispatchers.IO) { file.delete() }
@@ -931,6 +938,7 @@ private fun MainScaffold(
                         // 主页：自己的测试脚本 自带开抓与救砖 不碰模块守护
                         1 -> MainPage(
                             padding = pagePadding,
+                            state = state,
                             rootOk = rootOk,
                             latest = latest,
                             onOpenRelease = onOpenRelease,

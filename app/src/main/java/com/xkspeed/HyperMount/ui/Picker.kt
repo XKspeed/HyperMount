@@ -235,6 +235,28 @@ fun copyPickedFile(context: Context, uri: Uri): File? = runCatching {
     out
 }.getOrNull()
 
+/**
+ * 只读一次包名，不留下任何副本
+ *
+ * 应用没申请存储权限，/storage 下的原文件自己打不开；先试直读，
+ * 不行就用选择器给的 uri 流落一份到缓存里解析，解析完立刻删。
+ */
+fun packageOfUri(context: Context, uri: Uri, realPath: String?): String? = runCatching {
+    val direct = realPath?.let { File(it) }?.takeIf { it.canRead() && it.isFile }
+    if (direct != null) return@runCatching packageNameOf(context, direct)
+
+    val tmp = File(context.cacheDir, "verify.apk")
+    tmp.delete()
+    val ok = runCatching {
+        context.contentResolver.openInputStream(uri)?.use { input ->
+            tmp.outputStream().use { input.copyTo(it) }
+        } != null
+    }.getOrDefault(false)
+    val pkg = if (ok && tmp.length() > 0L) packageNameOf(context, tmp) else null
+    tmp.delete()
+    pkg
+}.getOrNull()
+
 /** 空格与分隔符换下划线 apk.1 / apk.2 这类尾巴去掉 只留 .apk */
 private fun normalizeName(raw: String): String {
     val cleaned = raw.replace('/', '_').replace('\\', '_').replace(' ', '_')
