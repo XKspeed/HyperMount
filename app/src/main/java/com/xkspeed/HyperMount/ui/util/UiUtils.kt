@@ -30,7 +30,7 @@ import top.yukonga.miuix.kmp.blur.progressiveTextureBlur
 import top.yukonga.miuix.kmp.blur.rememberLayerBackdrop
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.utils.scrollEndHaptic
-import com.xkspeed.HyperMount.ui.component.mountOverScrollVertical
+import top.yukonga.miuix.kmp.utils.overScrollVertical
 
 /** 宽屏（平板 / 折叠展开）标记 由 App 根部提供 */
 val LocalIsWideScreen: ProvidableCompositionLocal<Boolean> = staticCompositionLocalOf { false }
@@ -105,7 +105,7 @@ fun Modifier.pageScrollModifiers(
     topAppBarScrollBehavior: ScrollBehavior,
 ): Modifier = this
     .scrollEndHaptic()
-    .mountOverScrollVertical()
+    .overScrollVertical()
     .then(
         if (showTopAppBar) {
             Modifier.nestedScroll(topAppBarScrollBehavior.nestedScrollConnection)

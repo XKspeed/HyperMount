@@ -88,13 +88,25 @@ fun HomePage(
     val screenHeight = LocalConfiguration.current.screenHeightDp.dp
     val logListState = rememberLazyListState()
     var logLines by remember { mutableStateOf<List<String>>(emptyList()) }
+    // 本次进来跑过没有：只有跑过才在结束后把最后一份日志留在原地，
+    // 首次打开页面不读磁盘上的旧文件（那是上一次会话的残留）
+    var hasRun by remember { mutableStateOf(false) }
 
     LaunchedEffect(state.daemonRunning) {
-        if (!state.daemonRunning) return@LaunchedEffect
-        while (true) {
+        if (state.daemonRunning) {
+            // 新的一轮：先把上一轮留下的输出清掉，避免开场闪一下旧日志
+            if (hasRun) logLines = emptyList()
+            hasRun = true
+            while (true) {
+                val text = Module.tailLog(300)
+                logLines = if (text.isBlank()) emptyList() else text.lines()
+                delay(1500)
+            }
+        } else if (hasRun) {
+            // 流程结束（走完页面 / 音量键）时再补读一次：
+            // 轮询协程刚被取消，最后几行不能因此丢掉
             val text = Module.tailLog(300)
-            logLines = if (text.isBlank()) emptyList() else text.lines()
-            delay(1500)
+            if (text.isNotBlank()) logLines = text.lines()
         }
     }
 
@@ -105,7 +117,8 @@ fun HomePage(
     }
 
     val logAreaHeight by animateDpAsState(
-        targetValue = if (state.daemonRunning) {
+        // 跑完不收起：把上一次的输出留在原地，直到下次开始或退出页面
+        targetValue = if (state.daemonRunning || logLines.isNotEmpty()) {
             (screenHeight * 0.3f - 96.dp).coerceAtLeast(120.dp)
         } else {
             0.dp

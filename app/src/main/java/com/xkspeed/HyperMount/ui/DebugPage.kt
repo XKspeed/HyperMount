@@ -56,7 +56,7 @@ fun DebugPage(onBack: () -> Unit) {
                 )
                 BasicComponent(
                     title = "恢复默认",
-                    summary = "回到 10%（正式版的默认手感）",
+                    summary = "回到 15%（正式版的默认手感）",
                     onClick = {
                         OverScrollTuning.reset()
                         OverScrollTuning.save(context)
@@ -73,7 +73,7 @@ fun DebugPage(onBack: () -> Unit) {
                 )
                 BasicComponent(
                     title = "生效范围",
-                    summary = "页面滚动与主页 / 界面页的日志区共用",
+                    summary = "只作用于主页 / 界面页的日志块",
                 )
             }
         }

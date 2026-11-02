@@ -50,10 +50,13 @@ import androidx.compose.runtime.withFrameNanos
  * 原来的曲线写在 miuix 的 `SpringMath` 里，是 `internal` 且没有任何入参，
  * 只能拉出窗口高度的 1/3。这里把同一套实现搬进项目，只把"最大拉伸距离"
  * 提成一个全局参数，供调试页实时调整。
+ *
+ * 只有日志块（主页 / 界面页「运行状态」下面那块）走这套实现；
+ * 页面本身的滚动仍旧用 miuix 的 `overScrollVertical`，保持原手感。
  */
 object OverScrollTuning {
-    /** 现在手感的默认值：屏高的 10% */
-    const val DEFAULT_MAX_FRACTION = 0.10f
+    /** 默认值：屏高的 15%，只作用于日志块 */
+    const val DEFAULT_MAX_FRACTION = 0.15f
 
     const val MIN_MAX_FRACTION = 0.10f
     const val MAX_MAX_FRACTION = 1.00f
