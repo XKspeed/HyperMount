@@ -167,11 +167,12 @@ fun MainPage(
         }
         scope.launch {
             starting = true
-            // 用到才拷：平时躺在私有目录 这里才落到 files/test/ 的固定副本上
-            val targetTmp = Logcat.stageTarget(LogConfig.targetPath)
-            if (targetTmp == null) {
+            // 待测不复制：直接把用户选的那份路径交给脚本
+            // pm install 由 root shell 自己读文件 路径在私有目录也能装
+            val target = LogConfig.targetPath
+            if (!java.io.File(target).isFile) {
                 starting = false
-                toast(context, "待测apk复制失败 重新选一次")
+                toast(context, "待测apk不见了 重新选一次")
                 return@launch
             }
             val rescueTmp = if (autoReplace) {
@@ -187,10 +188,10 @@ fun MainPage(
                 pkg = LogConfig.pkg.trim(),
                 waitSeconds = LogConfig.waitSeconds,
                 seconds = LogConfig.seconds,
-                targetTmp = targetTmp,
+                targetTmp = target,
                 rescueTmp = rescueTmp,
                 // 运行日志里显示用户真正选的那份 别暴露内部副本路径
-                targetSrc = LogConfig.targetPath,
+                targetSrc = target,
                 rescueSrc = if (autoReplace) LogConfig.rescuePath else "",
             )
             starting = false
@@ -209,8 +210,14 @@ fun MainPage(
         scope.launch {
             Logcat.stop()
             running = false
-            session = null
-            logLines = emptyList()
+            // 手动停止后保留这一轮的输出 方便回看跑到哪一步
+            // session 不清空 日志区就不会收起来 下次开始时会自动重置
+            val s = session
+            if (s != null) {
+                val p = Logcat.poll(s.file)
+                if (p.text.isNotBlank()) logLines = p.text.lines()
+                logSize = p.size
+            }
         }
     }
 
