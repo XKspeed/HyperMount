@@ -31,6 +31,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.xkspeed.HyperMount.core.CRASH_LIMIT_MANUAL
 import com.xkspeed.HyperMount.core.AppLog
+import com.xkspeed.HyperMount.core.BuildVariant
 import com.xkspeed.HyperMount.core.LogLevel
 import com.xkspeed.HyperMount.core.ModuleState
 import com.xkspeed.HyperMount.ui.component.glass.ScrollPage
@@ -69,6 +70,7 @@ fun SettingsPage(
     onSetCrashLimit: (Int) -> Unit,
     onOpenUiSettings: () -> Unit = {},
     onOpenDebugLog: () -> Unit = {},
+    onOpenDebug: () -> Unit = {},
     onOpenAppLog: () -> Unit = {},
     onOpenVolumeCheck: () -> Unit = {},
     onOpenAbout: () -> Unit = {},
@@ -358,6 +360,14 @@ fun SettingsPage(
                                     onClick = onOpenDebugLog,
                                 )
                             }
+                        }
+                        // 只有非正式签名（debug / MT 重签的测试包）才给这个入口：
+                        // 正式包走 release 私钥 指纹对不上 这一行根本不会渲染
+                        if (BuildVariant.isDebuggable) {
+                            ArrowPreference(
+                                title = "调试选项",
+                                onClick = onOpenDebug,
+                            )
                         }
                     }
                 }

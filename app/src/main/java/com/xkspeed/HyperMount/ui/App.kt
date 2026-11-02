@@ -114,6 +114,9 @@ sealed interface Route : NavKey {
     data object VolumeCheck : Route
 
     @Serializable
+    data object Debug : Route
+
+    @Serializable
     data object AppLogs : Route
 
     @Serializable
@@ -513,6 +516,7 @@ fun App() {
                 onOpenLogs = { push(Route.Logs) },
                 onOpenUiSettings = { push(Route.UiSettings) },
                 onOpenVolumeCheck = { push(Route.VolumeCheck) },
+                onOpenDebug = { push(Route.Debug) },
                 onOpenAppLog = { push(Route.AppLogs) },
                 onOpenThirdPartyLicenses = { push(Route.ThirdPartyLicenses) },
                 onOpenAbout = { push(Route.About) },
@@ -577,6 +581,10 @@ fun App() {
 
         entry<Route.UiSettings> {
             UiSettingsPage(onBack = { backStack.removeLastOrNull() })
+        }
+
+        entry<Route.Debug> {
+            DebugPage(onBack = { backStack.removeLastOrNull() })
         }
 
         entry<Route.VolumeCheck> {
@@ -809,6 +817,7 @@ private fun MainScaffold(
     onOpenLogs: () -> Unit,
     onOpenUiSettings: () -> Unit,
     onOpenVolumeCheck: () -> Unit,
+    onOpenDebug: () -> Unit,
     onOpenAppLog: () -> Unit,
     onOpenThirdPartyLicenses: () -> Unit,
     onOpenAbout: () -> Unit,
@@ -925,6 +934,7 @@ private fun MainScaffold(
                             onSetCrashLimit = onSetCrashLimit,
                             onOpenUiSettings = onOpenUiSettings,
                             onOpenDebugLog = onOpenLogs,
+                            onOpenDebug = onOpenDebug,
                             onOpenAppLog = onOpenAppLog,
                             onOpenVolumeCheck = onOpenVolumeCheck,
                             onOpenAbout = onOpenAbout,

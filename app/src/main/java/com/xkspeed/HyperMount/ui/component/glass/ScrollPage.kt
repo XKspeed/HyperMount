@@ -61,8 +61,8 @@ import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.extended.Back
 import top.yukonga.miuix.kmp.icon.extended.Close
 import top.yukonga.miuix.kmp.theme.MiuixTheme
-import top.yukonga.miuix.kmp.utils.overScrollVertical
 import top.yukonga.miuix.kmp.utils.scrollEndHaptic
+import com.xkspeed.HyperMount.ui.component.mountOverScrollVertical
 
 /** 顶栏（小标题那一条）的高度 与列表顶部留白同源 */
 private val BarHeight = 54.dp
@@ -146,7 +146,7 @@ fun ScrollPage(
                 modifier = Modifier
                     .fillMaxSize()
                     .scrollEndHaptic()
-                    .overScrollVertical(),
+                    .mountOverScrollVertical(),
                 contentPadding = PaddingValues(top = BarHeight),
             ) {
             item(key = "large-title") {

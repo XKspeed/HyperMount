@@ -73,10 +73,10 @@ import top.yukonga.miuix.kmp.icon.extended.Update
 import top.yukonga.miuix.kmp.preference.ArrowPreference
 import top.yukonga.miuix.kmp.preference.SwitchPreference
 import top.yukonga.miuix.kmp.theme.MiuixTheme
-import top.yukonga.miuix.kmp.utils.overScrollVertical
 import top.yukonga.miuix.kmp.utils.scrollEndHaptic
 import top.yukonga.miuix.kmp.window.WindowDialog
 import kotlin.math.roundToInt
+import com.xkspeed.HyperMount.ui.component.mountOverScrollVertical
 
 /** 有新版本时的绿色胶囊 */
 private val UpdateGreen = Color(0xFF2E7D32)
@@ -308,7 +308,7 @@ fun MainPage(
                                     modifier = Modifier
                                         .fillMaxSize()
                                         .scrollEndHaptic()
-                                        .overScrollVertical(nestedScrollToParent = false),
+                                        .mountOverScrollVertical(nestedScrollToParent = false),
                                 ) {
                                     itemsIndexed(logLines) { _, line ->
                                         Text(
