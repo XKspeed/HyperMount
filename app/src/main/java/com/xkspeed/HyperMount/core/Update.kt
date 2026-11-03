@@ -18,6 +18,12 @@ data class UpdateInfo(
     val versionName: String = "",
     val url: String = "",
     val changelog: String = "",
+    // 模块跟着同一个 Release 发 清单里一起带这三项
+    // 老清单没有这些字段 默认空 此时不能判定成"模块有更新"
+    val moduleVersionCode: Int = 0,
+    val moduleVersionName: String = "",
+    val moduleUrl: String = "",
+    val moduleChangelog: String = "",
 )
 
 /**
@@ -86,6 +92,66 @@ object Update {
     /** 显示用的版本号：清单里没写 name 就退回 code */
     fun label(info: UpdateInfo): String =
         info.versionName.ifBlank { info.versionCode.toString() }
+
+    // ---------------- 模块 ----------------
+    // 模块和应用同仓库、同 Release、同一份清单 判定逻辑也照上面那套搬
+
+    /** 清单里带不带模块信息：老清单没有这一项 不能凭空提示"模块更新" */
+    fun hasModule(info: UpdateInfo?): Boolean =
+        info != null && (info.moduleVersionCode > 0 || info.moduleVersionName.isNotBlank())
+
+    /**
+     * 模块有没有新版。
+     *
+     * 优先比 versionCode（模块 versionCode 会随发版自动 +1）；
+     * 清单里只写了名字时才退回版本名比较，比如 1.5.4 → 1.5.10。
+     */
+    fun isModuleNewer(info: UpdateInfo?, localCode: Int, localName: String): Boolean {
+        if (!hasModule(info) || info == null) return false
+        if (info.moduleVersionCode > 0 && localCode > 0) return info.moduleVersionCode > localCode
+        return compareVersion(info.moduleVersionName, localName) > 0
+    }
+
+    /** 模块版本号显示：没写 name 就退回 code */
+    fun moduleLabel(info: UpdateInfo): String =
+        info.moduleVersionName.ifBlank { info.moduleVersionCode.toString() }
+
+    /**
+     * 模块 zip 的下载地址：同样跟着本次扫通的镜像走。
+     * 老清单没给 moduleUrl 就退回 Release 页（不只是给死链）。
+     */
+    fun moduleDownloadUrl(info: UpdateInfo?): String {
+        val raw = info?.moduleUrl.orEmpty().ifBlank { "https://github.com/$REPO/releases" }
+        return downloadUrl(raw)
+    }
+
+    /** 清单里有没有模块 zip 的直链：没有时只能打开 Release 页 文案要区分 */
+    fun hasModuleFile(info: UpdateInfo?): Boolean = !info?.moduleUrl.isNullOrBlank()
+
+    /** 模块更新说明按行拆开 与 App 的 changelog 同样处理 */
+    fun moduleChangelogLines(info: UpdateInfo): List<String> =
+        info.moduleChangelog.lines()
+            .map { it.trim().removePrefix("-").trim() }
+            .filter { it.isNotEmpty() }
+
+    /**
+     * 版本名比较：1.5.4 < 1.5.10（按数字段比，不是字符串比）。
+     * 解析不出数字时退回字符串比较。
+     */
+    fun compareVersion(a: String, b: String): Int {
+        val x = numbers(a)
+        val y = numbers(b)
+        if (x.isEmpty() && y.isEmpty()) return a.compareTo(b)
+        for (i in 0 until maxOf(x.size, y.size)) {
+            val l = x.getOrElse(i) { 0 }
+            val r = y.getOrElse(i) { 0 }
+            if (l != r) return if (l > r) 1 else -1
+        }
+        return 0
+    }
+
+    private fun numbers(s: String): List<Int> =
+        Regex("""\d+""").findAll(s).map { it.value.toIntOrNull() ?: 0 }.toList()
 
     /** 仓库地址的 releases 页（清单里没给下载地址时的兜底） */
     fun releasesPage(): String = downloadUrl("")

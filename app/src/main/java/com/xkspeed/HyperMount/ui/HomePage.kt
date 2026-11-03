@@ -1,8 +1,13 @@
 package com.xkspeed.HyperMount.ui
 
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -19,11 +24,13 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBars
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
@@ -33,6 +40,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalConfiguration
@@ -44,6 +52,7 @@ import androidx.compose.ui.unit.sp
 import com.xkspeed.HyperMount.core.Module
 import com.xkspeed.HyperMount.core.ModuleState
 import com.xkspeed.HyperMount.core.SystemVersion
+import com.xkspeed.HyperMount.core.UpdateInfo
 import kotlinx.coroutines.delay
 import com.xkspeed.HyperMount.ui.component.glass.ScrollPage
 import com.xkspeed.HyperMount.ui.components.InfoRow
@@ -56,17 +65,23 @@ import com.xkspeed.HyperMount.ui.util.rememberBlurBackdrop
 import top.yukonga.miuix.kmp.basic.Button
 import top.yukonga.miuix.kmp.basic.ButtonDefaults
 import top.yukonga.miuix.kmp.basic.Card
+import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.MiuixScrollBehavior
 import top.yukonga.miuix.kmp.basic.Scaffold
 import top.yukonga.miuix.kmp.basic.SmallTitle
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.blur.layerBackdrop
+import top.yukonga.miuix.kmp.icon.MiuixIcons
+import top.yukonga.miuix.kmp.icon.extended.Update
 import top.yukonga.miuix.kmp.preference.ArrowPreference
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.utils.scrollEndHaptic
 import top.yukonga.miuix.kmp.window.WindowDialog
 import com.xkspeed.HyperMount.ui.component.mountOverScrollVertical
+
+/** 有新版本时的绿色胶囊 与主页那颗同色 */
+private val UpdateGreen = Color(0xFF2E7D32)
 
 @Composable
 fun HomePage(
@@ -74,6 +89,8 @@ fun HomePage(
     state: ModuleState,
     rootOk: Boolean?,
     busy: Boolean,
+    moduleLatest: UpdateInfo?,
+    onOpenAbout: () -> Unit,
     onPickRescue: () -> Unit,
     onPickTarget: () -> Unit,
     onStart: () -> Unit,
@@ -137,6 +154,38 @@ fun HomePage(
     ScrollPage(
         title = "界面",
         subtitle = if (state.version.isNotBlank()) "救砖与界面替换 · 模块 v${state.version}" else "救砖与界面替换",
+        // 和主页同款：版本号右边冒一颗绿色胶囊 只有清单里的模块版本比本地新才出现
+        subtitleExtra = {
+            AnimatedVisibility(
+                visible = moduleLatest != null,
+                enter = fadeIn(),
+                exit = fadeOut(),
+            ) {
+                Row(
+                    modifier = Modifier
+                        .padding(start = 8.dp)
+                        .clip(RoundedCornerShape(50))
+                        .background(UpdateGreen)
+                        .clickable(onClick = onOpenAbout)
+                        .padding(horizontal = 9.dp, vertical = 3.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(
+                        imageVector = MiuixIcons.Update,
+                        contentDescription = null,
+                        tint = Color.White,
+                        modifier = Modifier.size(12.dp),
+                    )
+                    Spacer(Modifier.width(3.dp))
+                    Text(
+                        "模块有新版本",
+                        color = Color.White,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Medium,
+                    )
+                }
+            }
+        },
         // 底栏高度由外层 Scaffold 给出 再加一点呼吸
         bottomPadding = padding.calculateBottomPadding() + 16.dp,
     ) {

@@ -102,7 +102,7 @@ fun MainPage(
     state: ModuleState,
     rootOk: Boolean?,
     latest: UpdateInfo?,
-    onOpenRelease: () -> Unit,
+    onOpenAbout: () -> Unit,
     onPickRescue: () -> Unit,
     onPickTarget: () -> Unit,
 ) {
@@ -292,7 +292,7 @@ fun MainPage(
                         .padding(start = 8.dp)
                         .clip(RoundedCornerShape(50))
                         .background(UpdateGreen)
-                        .clickable(onClick = onOpenRelease)
+                        .clickable(onClick = onOpenAbout)
                         .padding(horizontal = 9.dp, vertical = 3.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {

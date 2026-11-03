@@ -200,13 +200,48 @@ fun App() {
 
     // 更新：启动时后台查一次 10 秒超时 查不到就当没更新
     var latest by remember { mutableStateOf<UpdateInfo?>(null) }
+    // 清单原样留着：模块版本要等 state 读回来才比得了 判定放在渲染时做
+    // （检查更新可能比首屏状态先回来 那时 state 还是空的）
+    var manifest by remember { mutableStateOf<UpdateInfo?>(null) }
+    // 本地模块版本：state 还没拉回来时先用 module.prop 顶上
+    var moduleVer by remember { mutableStateOf("" to 0) }
     var checkingUpdate by remember { mutableStateOf(false) }
     val uriHandler = LocalUriHandler.current
+
+    // root 读到的 state 优先；还没读到就用 propVersion 那次的结果
+    val localModuleName = state.version.ifBlank { moduleVer.first }
+    val localModuleCode = state.versionCode.toIntOrNull()?.takeIf { it > 0 } ?: moduleVer.second
+    // 有模块新版时这里才非空 与 latest（App 新版）各自独立
+    // 本地模块版本读不到（没装模块 / 还没授 root）时不判定 免得在不知道装了什么的情况下弹提示
+    val moduleLatest = remember(manifest, localModuleName, localModuleCode) {
+        val hasLocal = localModuleName.isNotBlank() || localModuleCode > 0
+        if (hasLocal && Update.isModuleNewer(manifest, localModuleCode, localModuleName)) {
+            manifest
+        } else {
+            null
+        }
+    }
 
     fun openRelease() {
         // 下载地址跟着本次扫通的镜像走：查更新时 GitHub 直连不通 这里就不能还给直连链接
         val url = Update.downloadUrl(latest?.url.orEmpty())
         runCatching { uriHandler.openUri(url) }
+    }
+
+    /**
+     * 模块只给下载，不代装。
+     *
+     * 刷模块要重启手机、要用户在 Root 管理器里确认，App 这边直接装上去风险太大；
+     * 给个 zip 链接交给浏览器下载就够了，装不装、什么时候装由用户自己决定。
+     */
+    fun downloadModule() {
+        val url = Update.moduleDownloadUrl(manifest)
+        val hasFile = Update.hasModuleFile(manifest)
+        val ok = runCatching { uriHandler.openUri(url) }.isSuccess
+        when {
+            !ok -> toast(context, "打开下载链接失败")
+            hasFile -> toast(context, "开始下载模块 zip 刷入后重启手机")
+        }
     }
 
     fun checkUpdate(manual: Boolean) {
@@ -221,12 +256,34 @@ fun App() {
                 if (manual) toast(context, "检查更新失败 网络不通")
                 return@launch
             }
-            if (Update.isNewer(info)) {
-                latest = info
-                toast(context, "发现 v${Update.label(info)} 更新")
-            } else {
-                latest = null
-                if (manual) toast(context, "已是最新版本 v${Update.currentName}")
+            manifest = info
+            // 状态还没读回来时自己读一眼 module.prop 否则模块判定会漏
+            if (rootOk == true && state.version.isBlank() && moduleVer.first.isBlank()) {
+                moduleVer = runCatching { Module.propVersion() }.getOrElse { "" to 0 }
+            }
+            val name = state.version.ifBlank { moduleVer.first }
+            val code = state.versionCode.toIntOrNull()?.takeIf { it > 0 } ?: moduleVer.second
+            val appNew = Update.isNewer(info)
+            // 本地模块版本读不到就不判 与界面那边同一个口径
+            val hasLocalModule = name.isNotBlank() || code > 0
+            val moduleNew = hasLocalModule && Update.isModuleNewer(info, code, name)
+            latest = if (appNew) info else null
+
+            // App 和模块一起报：两个都有新版就一条 toast 说完 不连着弹两次
+            val parts = buildList {
+                if (appNew) add("App v${Update.label(info)}")
+                if (moduleNew) add("模块 v${Update.moduleLabel(info)}")
+            }
+            if (parts.isNotEmpty()) {
+                toast(context, "发现 ${parts.joinToString(" · ")} 更新")
+            } else if (manual) {
+                toast(
+                    context,
+                    buildString {
+                        append("已是最新 App v${Update.currentName}")
+                        if (name.isNotBlank()) append(" · 模块 v$name")
+                    },
+                )
             }
         }
     }
@@ -555,7 +612,7 @@ fun App() {
                 onOpenThirdPartyLicenses = { push(Route.ThirdPartyLicenses) },
                 onOpenAbout = { push(Route.About) },
                 latest = latest,
-                onOpenRelease = { openRelease() },
+                moduleLatest = moduleLatest,
                 onCheckUpdate = {
                     // 点了至少要有反应 否则像没按到
                     toast(context, "正在检查更新…")
@@ -642,9 +699,11 @@ fun App() {
 
         entry<Route.About> {
             AboutPage(
-                state = uiState,
+                moduleVersion = localModuleName,
                 latest = latest,
+                moduleLatest = moduleLatest,
                 onOpenRelease = { openRelease() },
+                onDownloadModule = { downloadModule() },
                 onOpenThirdPartyLicenses = { push(Route.ThirdPartyLicenses) },
                 onBack = { backStack.removeLastOrNull() },
             )
@@ -909,7 +968,7 @@ private fun MainScaffold(
     onOpenThirdPartyLicenses: () -> Unit,
     onOpenAbout: () -> Unit,
     latest: UpdateInfo?,
-    onOpenRelease: () -> Unit,
+    moduleLatest: UpdateInfo?,
     onCheckUpdate: () -> Unit,
     checkingUpdate: Boolean,
     onSetConf: (String, String) -> Unit,
@@ -995,6 +1054,8 @@ private fun MainScaffold(
                             state = state,
                             rootOk = rootOk,
                             busy = busy,
+                            moduleLatest = moduleLatest,
+                            onOpenAbout = onOpenAbout,
                             onPickRescue = onPickRescue,
                             onPickTarget = onPickTarget,
                             onStart = onStart,
@@ -1007,7 +1068,7 @@ private fun MainScaffold(
                             state = state,
                             rootOk = rootOk,
                             latest = latest,
-                            onOpenRelease = onOpenRelease,
+                            onOpenAbout = onOpenAbout,
                             onPickRescue = onPickMainRescue,
                             onPickTarget = onPickMainTarget,
                         )

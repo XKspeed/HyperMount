@@ -43,7 +43,6 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.core.graphics.drawable.toBitmap
 import com.xkspeed.HyperMount.R
 import com.xkspeed.HyperMount.core.AppVersion
-import com.xkspeed.HyperMount.core.ModuleState
 import com.xkspeed.HyperMount.core.Update
 import com.xkspeed.HyperMount.core.UpdateInfo
 import com.xkspeed.HyperMount.ui.component.effect.BgEffectBackground
@@ -82,9 +81,12 @@ import top.yukonga.miuix.kmp.window.WindowDialog
  */
 @Composable
 fun AboutPage(
-    state: ModuleState,
+    // 已安装的模块版本：state 还没读回来时调用方会用 module.prop 里的值顶上
+    moduleVersion: String,
     latest: UpdateInfo?,
+    moduleLatest: UpdateInfo?,
     onOpenRelease: () -> Unit,
+    onDownloadModule: () -> Unit,
     onOpenThirdPartyLicenses: () -> Unit,
     onBack: () -> Unit,
 ) {
@@ -164,7 +166,12 @@ fun AboutPage(
                 )
                 BasicComponent(
                     title = "模块版本",
-                    summary = if (state.version.isNotBlank()) "v${state.version}" else "未读到",
+                    summary = when {
+                        moduleVersion.isBlank() -> "未读到"
+                        moduleLatest != null ->
+                            "v$moduleVersion → v${Update.moduleLabel(moduleLatest)}"
+                        else -> "v$moduleVersion"
+                    },
                 )
             }
         }
@@ -207,6 +214,55 @@ fun AboutPage(
                         ) {
                             MiuixText("前往下载")
                         }
+                    }
+                }
+            }
+        }
+
+        // ---- 模块有新版：和 App 更新卡同款 但只给 zip 下载 不代装 ----
+        if (moduleLatest != null) {
+            item {
+                FrostedCard(backdrop = backdrop) {
+                    Column(Modifier.padding(horizontal = 16.dp, vertical = 14.dp)) {
+                        MiuixText(
+                            "模块 v${Update.moduleLabel(moduleLatest)} 更新内容",
+                            color = colorScheme.onSurface,
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = 15.sp,
+                        )
+                        Spacer(Modifier.height(8.dp))
+                        val notes = Update.moduleChangelogLines(moduleLatest)
+                        if (notes.isEmpty()) {
+                            MiuixText(
+                                "模块 zip 与 App 同一个 Release 发布 详细说明见 Release 页面",
+                                color = colorScheme.onSurfaceVariantSummary,
+                                fontSize = 13.sp,
+                            )
+                        } else {
+                            notes.forEach { line ->
+                                MiuixText(
+                                    "· $line",
+                                    color = colorScheme.onSurfaceVariantSummary,
+                                    fontSize = 13.sp,
+                                    lineHeight = 19.sp,
+                                    modifier = Modifier.padding(bottom = 3.dp),
+                                )
+                            }
+                        }
+                        Spacer(Modifier.height(12.dp))
+                        Button(
+                            onClick = onDownloadModule,
+                            colors = ButtonDefaults.buttonColorsPrimary(),
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            MiuixText("下载模块压缩包")
+                        }
+                        Spacer(Modifier.height(6.dp))
+                        MiuixText(
+                            "只下载 zip 不自动安装 到 Root 管理器刷入后重启手机",
+                            color = colorScheme.onSurfaceVariantSummary,
+                            fontSize = 12.sp,
+                        )
                     }
                 }
             }

@@ -10,6 +10,8 @@ const val CRASH_LIMIT_MANUAL = 30
 data class ModuleState(
     // ##VERSION
     val version: String = "",
+    // module.prop 的 versionCode：更新检查靠它和清单里的模块版本比大小
+    val versionCode: String = "",
     // module.prop 的 author：不是 XKspeed 就不是这套脚本 调不了 sh
     val moduleAuthor: String = "",
     // ##PID
@@ -120,6 +122,7 @@ object Module {
 
         return@withContext ModuleState(
             version = sec["VERSION"]?.get("version").orEmpty(),
+            versionCode = p["versionCode"].orEmpty(),
             moduleAuthor = p["author"].orEmpty(),
             pid = sec["PID"]?.get("pid").orEmpty(),
             running = st["running"].orEmpty(),
@@ -144,6 +147,21 @@ object Module {
             protectCount = c["PROTECT_COUNT"].orEmpty().ifBlank { "0" },
             logDir = logDir,
         )
+    }
+
+    /**
+     * 只读模块版本（名 + versionCode）。
+     *
+     * 检查更新可能在首屏状态拉回来之前就完成，那时 [ModuleState.version] 还是空的；
+     * 单独读一次 module.prop 比为了比版本号去跑整个 boot 便宜得多。
+     * 没装模块 / 没 root 时返回空串与 0，调用方据此跳过模块判定。
+     */
+    suspend fun propVersion(): Pair<String, Int> = withContext(Dispatchers.IO) {
+        val prop = Root.exec("cat ${Root.q(Root.MODULE_PROP)} 2>/dev/null")
+        val p = parseConf(prop)
+        val name = p["version"].orEmpty()
+        val code = p["versionCode"]?.toIntOrNull() ?: 0
+        name to code
     }
 
     /** 写一个配置项 值里的 sed 元字符先转义 避免路径带 & # 时把文件写坏  */
