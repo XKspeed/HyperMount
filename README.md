@@ -22,7 +22,7 @@
 
 | 项目 | 说明 |
 | :--- | :--- |
-| **当前版本** | `1.2.0`（`versionCode 4`） |
+| **当前版本** | `1.4.0`（`versionCode 10`） |
 | **最低系统** | **Android 15（API 35）** 及以上 |
 | **运行环境** | 需 **Root** 与同名的 Magisk / APatch / KernelSU 模块配套使用 |
 
@@ -129,96 +129,17 @@ export ANDROID_HOME=<sdk 路径>
 
 ### 云编译
 
-仓库内置两条 GitHub Actions 工作流：
+仓库内置 `build.yml`（手动出 debug 包）和 `release.yml`（一键发版）两条 GitHub Actions，都只在 Actions 页面手动触发，不挂 push 或 tag
 
-| 工作流 | 触发 | 产物 |
-| :--- | :--- | :--- |
-| `build.yml` | 手动触发 | debug APK |
-| `release.yml` | 手动一键发布 | Release APK（R8 混淆 + 固定密钥 V2 签名） |
-
-两条工作流**都只在 Actions 页面手动触发** 不挂 push / tag 触发 —— 免得每次提交都产一版包或发一个 Release
-
-Release 工作流从仓库 Secrets 读取签名密钥 密钥不进入代码库 流程为：
-
-1. 解析版本号：填 `1.0.1` 即自动把 `versionName` 改成它、`versionCode` 递增 1；留空则沿用现有版本不动
-2. 从 Secrets 解出密钥并校验（内容/密码/别名分别校验 出错直接指出是哪一项）
-3. R8 构建并签名
-4. 校验产物确实签上了名（没签上直接失败 不会发布）
-5. 归档日志（`## latest` → `## v<版本> 更新` 并插入新的空 latest）连同版本号一起提交、打标签并推送
-6. 发布 GitHub Release 附带 APK 与模块 zip 说明里同时放**应用段**和**模块段**
-7. **自动改写仓库根的 `update.json`**：版本号取构建产物、下载地址拼本次 tag 的资产、应用日志与模块日志分别写进 `changelog` 和 `moduleChangelog` 然后提交回 `main`
+具体流程与签名配置见 [`开发说明.md`](开发说明.md)
 
 ---
 
-## 🔐 签名与升级
+## ✍️ 改代码之前
 
-- 正式版使用固定密钥签名 因此后续版本可以直接覆盖安装升级
-- 升级前提：`versionCode` 必须递增、`applicationId` 不可变更
-- ⚠️ 更换签名密钥会导致已安装用户无法覆盖升级（需卸载重装） 请勿随意更换
+功能层与 UI 层的每一处改动 都要写进 `update.md` 顶部的 `## latest` 打包时它会自动变成这个版本的 Release 说明
 
----
-
-## 📝 发版与更新日志
-
-> **动手改代码之前先读 [`改之前先看.md`](改之前先看.md)** —— 功能层与 UI 层的每一处改动都要写进 `## latest` 打包时会自动变成这个版本的 Release 说明
-
-更新日志有两个文件 规则完全一样：
-
-| 文件 | 内容 |
-| :--- | :--- |
-| [`update.md`](update.md) | App 的更新日志 |
-| [`module/main/update.md`](module/main/update.md) | 模块的更新日志 |
-
-**平时只往 `## latest` 里加。** 文件顶部永远是一个 `## latest` 段 每改一处就往这段下面加一条 不用管版本号 也不用改标题：
-
-```markdown
-## latest
-
-- 这次改了什么
-- 又改了什么
-
-## v1.4.0 更新          ← 已发布的历史 自动往下沉
-```
-
-**发版时工作流自动归档**：把 `## latest` 就地改名成 `## v<你填的版本号> 更新` 再在最顶上插入一个新的空 `## latest` 留给下一轮。带来的效果：
-
-- 不用手动改标题 也就不会再出现「发的是 1.4.0 说明却还是 1.3.0」这种事故
-- `## latest` 空着会直接让工作流失败 逼你先写日志（重发同一版本除外 会自动复用已归档的段落）
-- 模块这版没改动时 `module/main/update.md` 的 latest 可以空着 工作流跳过模块段 不阻断 App 发版
-
-Release 说明会拼成两段：
-
-```markdown
-### 应用 · v1.5.0
-- ...
-
-### 模块 · v1.5.5
-- ...
-```
-
-写进 `update.json` 时也分开：应用段进 `changelog` 模块段进 `moduleChangelog`（关于页的模块更新卡读的就是后者）。
-
-发版两步：① 确认两个 `update.md` 的 latest 写好了；② Actions 里点 Release 填 **App 版本号**和**模块版本号**（都可以留空 = 沿用现有版本）。剩下交给工作流：归档日志 → 改两处版本号 → 构建签名 APK + 打模块 zip → 发**一个** Release（两个文件放一起）→ 把版本号 / 下载地址 / 应用日志 / 模块日志写进仓库根的 [`update.json`](update.json) 并提交回 `main`。
-
-本地手动归档（不走 Actions 时）：
-
-```sh
-sh scripts/changelog.sh finalize update.md 1.5.0            # ## latest → ## v1.5.0 更新
-sh scripts/changelog.sh finalize module/main/update.md 1.5.5
-sh scripts/changelog.sh extract update.md 1.5.0             # 看归档后的段落
-sh scripts/changelog.sh has update.md latest                # latest 有没有内容
-```
-
-版本代号不用手填：新版本号比现有**高**就 +1 比现有**低或完全一样**就不动 数字段相同但名字不同（`1.3.0` → `1.3.0-hotfix1`）也算新版本 同样 +1
-
-模块包由 [`module/打包.sh`](module/打包.sh) 打 工作流和本地跑的是同一条命令：
-
-```sh
-sh module/打包.sh 1.6.0     # 本地发版 写回 module/main/module.prop
-sh module/打包.sh --keep    # 只打包当前版本 不改源码（CI 用）
-```
-
-版本号支持带后缀 例如 `1.2.0-hotfix1` 会打出 tag `v1.2.0-hotfix1` 并把 `versionName` 原样写进 `build.gradle.kts`（`versionCode` 按上面的规则走）`update.md` 顶部照样写 `## latest` 就行 归档后标题会自动变成 `## v1.2.0-hotfix1 更新` App 端只比 `versionCode` 所以 hotfix 能正常推送
+完整约定（怎么写 什么该写 漏写会怎样）见 [`改之前先看.md`](改之前先看.md)
 
 ---
 
