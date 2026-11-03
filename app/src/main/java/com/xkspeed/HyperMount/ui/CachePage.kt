@@ -31,11 +31,15 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.state.ToggleableState
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.xkspeed.HyperMount.core.CacheConfig
 import com.xkspeed.HyperMount.core.Logcat
 import com.xkspeed.HyperMount.core.Module
@@ -59,20 +63,23 @@ import kotlin.math.roundToInt
 private const val MB = 1024L * 1024L
 
 /**
- * 缓存上限的四个关键点（MB）
+ * 缓存上限的五个档位（MB）
  *
- * 滑条靠 keyPoints 吸附 拖动只会停在 100 MB / 200 MB / 500 MB / 1 GB 这四个点上
+ * 0 表示不限制 滑条上这五个点等距排开 下标是 0..4 值再换算成实际容量
  * 1 GB 按 1024 MB 存 显示时再换算 免得滑条上出现 1024 MB 这种别扭的数
  */
-private val LIMIT_STEPS_MB = listOf(100L, 200L, 500L, 1024L)
+private val LIMIT_OPTIONS_MB = listOf(0L, 100L, 200L, 500L, 1024L)
 
-/** 老配置里可能存着 300 MB 这种中间值 进来时落到最近的一个关键点 */
-private fun nearestLimitMb(mb: Float): Long =
-    LIMIT_STEPS_MB.minByOrNull { abs(it - mb) } ?: LIMIT_STEPS_MB.first()
+/** 老配置里可能存着 300 MB 这种中间值 进来时落到最近的一档 */
+private fun nearestOptionIndex(limitMb: Long): Int =
+    LIMIT_OPTIONS_MB.indices.minByOrNull { abs(LIMIT_OPTIONS_MB[it] - limitMb) } ?: 0
 
 /** 档位文字：单位全大写 1024 MB 写成 1 GB */
-private fun limitLabel(mb: Long): String =
-    if (mb >= 1024L) "${mb / 1024L} GB" else "$mb MB"
+private fun optionLabel(mb: Long): String = when {
+    mb <= 0L -> "无限制"
+    mb >= 1024L -> "${mb / 1024L} GB"
+    else -> "$mb MB"
+}
 
 /**
  * 缓存管理
@@ -86,10 +93,10 @@ fun CachePage(onBack: () -> Unit) {
     var files by remember { mutableStateOf<List<File>>(emptyList()) }
     var total by remember { mutableStateOf(0L) }
     var marked by remember { mutableStateOf<Set<String>>(emptySet()) }
-    // 滑条值就是 MB 本身 只是被四个关键点吸住：100 200 500 1024
-    // 老配置不在点上时先对齐到最近的 用户拖过一次才落盘
-    var limitMb by remember {
-        mutableFloatStateOf(nearestLimitMb((CacheConfig.limit / MB).toFloat()).toFloat())
+    // 滑条值是档位下标 0..4：无限制 / 100 MB / 200 MB / 500 MB / 1 GB 点与点等距
+    // 老配置不在档位上时先对齐到最近的一档 用户动过一次才落盘
+    var limitIndex by remember {
+        mutableFloatStateOf(nearestOptionIndex(CacheConfig.limit / MB).toFloat())
     }
     var askDelete by remember { mutableStateOf(false) }
 
@@ -101,11 +108,19 @@ fun CachePage(onBack: () -> Unit) {
         marked = marked.filter { p -> list.any { it.absolutePath == p } }.toSet()
     }
 
+    /** 把当前档位写进去 顺便按新上限收一次 */
+    fun persistLimit() {
+        val idx = limitIndex.roundToInt().coerceIn(0, LIMIT_OPTIONS_MB.lastIndex)
+        CacheConfig.set(context, LIMIT_OPTIONS_MB[idx] * MB)
+        Logcat.pruneStage()
+        reload()
+    }
+
     LaunchedEffect(Unit) { reload() }
 
-    val limitMbInt = limitMb.roundToInt().toLong()
-    val limitBytes = limitMbInt * MB
-    // 已用可能比上限还大 进度条画满为止
+    val limitMb = LIMIT_OPTIONS_MB[limitIndex.roundToInt().coerceIn(0, LIMIT_OPTIONS_MB.lastIndex)]
+    val limitBytes = limitMb * MB
+    // 已用可能比上限还大 进度条画满为止；无限制没有分母 留空
     val ratio = if (limitBytes <= 0L) 0f else (total.toFloat() / limitBytes).coerceIn(0f, 1f)
     val picked = files.filter { it.absolutePath in marked }
     val pickedSize = picked.sumOf { it.length() }
@@ -199,30 +214,33 @@ fun CachePage(onBack: () -> Unit) {
                         )
                         Spacer(Modifier.weight(1f))
                         Text(
-                            "上限 " + limitLabel(limitMbInt),
+                            "上限 " + optionLabel(limitMb),
                             color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                             style = MiuixTheme.textStyles.subtitle,
                         )
                     }
                     SliderInputPreference(
                         title = "缓存上限",
-                        value = limitMb,
-                        onValueChange = { limitMb = it },
-                        onValueChangeFinished = {
-                            CacheConfig.set(context, limitMb.roundToInt().toLong() * MB)
-                            Logcat.pruneStage()
-                            reload()
-                        },
-                        valueRange = LIMIT_STEPS_MB.first().toFloat()..LIMIT_STEPS_MB.last().toFloat(),
-                        // 只给四档 手敲数字没意义 点了也不弹输入框
+                        value = limitIndex,
+                        onValueChange = { limitIndex = it },
+                        onValueChangeFinished = { persistLimit() },
+                        valueRange = 0f..LIMIT_OPTIONS_MB.lastIndex.toFloat(),
+                        // 五个点之间夹三个刻度 间距完全相等 拖动只会停在整档上
+                        steps = LIMIT_OPTIONS_MB.size - 2,
+                        // 只有五档 手敲数字没意义 点了也不弹输入框
                         inputEnabled = false,
                         showKeyPoints = true,
-                        keyPoints = LIMIT_STEPS_MB.map { it.toFloat() },
-                        // 阈值是轨道比例：0.5 等于整条轨道都归最近的关键点 中间停不住
-                        magnetThreshold = 0.5f,
                         hapticEffect = SliderDefaults.SliderHapticEffect.Step,
-                        valueText = limitLabel(limitMbInt),
+                        valueText = optionLabel(limitMb),
                         insideMargin = PaddingValues(horizontal = 0.dp, vertical = 10.dp),
+                    )
+                    // 档位文字直接可点：点哪档就跳哪档 不用非得拖过去
+                    LimitTicks(
+                        selected = limitIndex.roundToInt(),
+                        onSelect = { i ->
+                            limitIndex = i.toFloat()
+                            persistLimit()
+                        },
                     )
                 }
             }
@@ -315,6 +333,53 @@ fun CachePage(onBack: () -> Unit) {
                 modifier = Modifier.weight(1f),
                 colors = ButtonDefaults.textButtonColorsPrimary(),
             )
+        }
+    }
+}
+
+/**
+ * 滑条下面的五个档位文字
+ *
+ * 位置按滑轨来算：滑轨两端各让出半个 thumb 才能放圆钮 所以文字中心也照这个内缩
+ * 摆出来正好对着上面的关键点 点哪段就跳到哪档 不用非得把圆钮拖过去
+ */
+@Composable
+private fun LimitTicks(
+    selected: Int,
+    onSelect: (Int) -> Unit,
+) {
+    val density = LocalDensity.current
+    val inset = with(density) { SliderDefaults.MinHeight.toPx() / 2f }
+    val active = MiuixTheme.colorScheme.primary
+    val idle = MiuixTheme.colorScheme.onSurfaceVariantSummary
+
+    Layout(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 2.dp),
+        content = {
+            LIMIT_OPTIONS_MB.forEachIndexed { i, mb ->
+                Text(
+                    text = optionLabel(mb),
+                    color = if (i == selected) active else idle,
+                    fontSize = 11.sp,
+                    modifier = Modifier
+                        .clickable { onSelect(i) }
+                        .padding(horizontal = 4.dp, vertical = 4.dp),
+                )
+            }
+        },
+    ) { measurables, constraints ->
+        val width = constraints.maxWidth
+        val placeables = measurables.map { it.measure(Constraints()) }
+        val height = placeables.maxOfOrNull { it.height } ?: 0
+        layout(width, height) {
+            val last = placeables.lastIndex
+            placeables.forEachIndexed { i, p ->
+                val center = if (last <= 0) width / 2f else inset + (width - 2 * inset) * i / last
+                val x = (center - p.width / 2f).roundToInt().coerceIn(0, (width - p.width).coerceAtLeast(0))
+                p.place(x, 0)
+            }
         }
     }
 }

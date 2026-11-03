@@ -618,7 +618,8 @@ object Logcat {
                 ?: return
             if (files.isEmpty()) return
             val total = files.sumOf { it.length() }
-            if (total <= CacheConfig.limit) return
+            // 0 = 无限制 不用修剪
+            if (CacheConfig.limit <= 0L || total <= CacheConfig.limit) return
             val newest = keep?.takeIf { it.isFile } ?: files.first()
             AppLog.i(
                 "测试",
@@ -823,21 +824,30 @@ object CacheConfig {
     const val MIN = 50L * 1024 * 1024
     const val MAX = 2L * 1024 * 1024 * 1024
     const val DEFAULT = 100L * 1024 * 1024
+
+    /** 0 = 不限制：修剪时直接放行 目录里的副本一直留着 */
+    const val UNLIMITED = 0L
+
     private const val PREFS = "cache_config"
 
     var limit by mutableStateOf(DEFAULT)
         private set
 
     fun load(context: Context) {
-        limit = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-            .getLong("limit", DEFAULT).coerceIn(MIN, MAX)
+        val raw = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .getLong("limit", DEFAULT)
+        limit = normalize(raw)
     }
 
     fun set(context: Context, value: Long) {
-        limit = value.coerceIn(MIN, MAX)
+        limit = normalize(value)
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             .edit().putLong("limit", limit).apply()
     }
+
+    /** 0 原样保留成「无限制」 其余钳到可用区间 */
+    private fun normalize(value: Long): Long =
+        if (value <= 0L) UNLIMITED else value.coerceIn(MIN, MAX)
 }
 
 /**
