@@ -45,7 +45,8 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.painter.Painter
-import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.graphics.vector.rememberVectorPainter
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
@@ -55,10 +56,10 @@ import androidx.compose.ui.unit.sp
 import com.kyant.backdrop.Backdrop
 import com.kyant.backdrop.backdrops.layerBackdrop
 import com.kyant.backdrop.backdrops.rememberLayerBackdrop
+import com.xkspeed.HyperMount.R
 import kotlinx.coroutines.flow.distinctUntilChanged
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.icon.MiuixIcons
-import top.yukonga.miuix.kmp.icon.extended.Back
 import top.yukonga.miuix.kmp.icon.extended.Close
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.utils.scrollEndHaptic
@@ -83,7 +84,8 @@ private val LargeTitleSize = 35.sp
  * 3. 大标题完全没入 → 顶栏实心模糊 小标题淡入
  *
  * @param onBack 传 null 表示这是一级页（底栏 tab） 不画返回键
- * @param backIcon 返回键图标：默认返回箭头；文件选择器在根目录时用「关闭」更符合语义
+ * @param backIcon 返回键图标 默认是 Sonify 同款的实心箭头（res/drawable/ic_back.xml）
+ *   不再用 Miuix 的细线箭头 传 null 或省略都走这个默认
  * @param smallTitle 折叠后顶栏小标题的文案 默认同 [title]；文件选择器用它显示当前路径
  * @param onTitleClick 顶栏小标题的点击回调（文件选择器：返回上一级目录）
  * @param onTitleLongClick 顶栏小标题的长按回调（文件选择器：输入路径跳转）
@@ -94,7 +96,8 @@ fun ScrollPage(
     modifier: Modifier = Modifier,
     subtitle: String? = null,
     onBack: (() -> Unit)? = null,
-    backIcon: ImageVector = MiuixIcons.Back,
+    /** 返回键图标 传 null 用 Sonify 同款实心箭头 */
+    backIcon: Painter? = null,
     /** 右上角关闭键：与左上角返回键同款玻璃圆钮 点击直接退出本页（不再是一级目录） 传 null 不画 */
     onClose: (() -> Unit)? = null,
     smallTitle: String? = null,
@@ -234,7 +237,7 @@ private fun GlassTopBar(
     onTitleClick: (() -> Unit)?,
     onTitleLongClick: (() -> Unit)?,
     onBack: (() -> Unit)?,
-    backIcon: ImageVector,
+    backIcon: Painter?,
     onClose: (() -> Unit)?,
     actions: @Composable RowScope.() -> Unit,
     backdrop: Backdrop,
@@ -290,7 +293,7 @@ private fun GlassTopBar(
                             GlassBackButton(
                                 onClick = onBack,
                                 backdrop = backdrop,
-                                icon = backIcon,
+                                icon = backIcon ?: painterResource(R.drawable.ic_back),
                                 glassAlpha = { barGlassAlpha.value },
                             )
                         }
@@ -313,7 +316,7 @@ private fun GlassTopBar(
                                 GlassBackButton(
                                     onClick = onClose,
                                     backdrop = backdrop,
-                                    icon = MiuixIcons.Close,
+                                    icon = rememberVectorPainter(MiuixIcons.Close),
                                     contentDescription = "关闭",
                                     glassAlpha = { barGlassAlpha.value },
                                 )
@@ -395,6 +398,10 @@ private fun SmallTitle(
 /**
  * 返回键：42dp 玻璃圆钮 按住可拖动 高光跟手
  *
+ * 图标换成 Sonify 同款：`res/drawable/ic_back.xml` 那个实心厚箭头
+ * （宽高比约 1:1.74 18dp 的框里 Fit 成高 18dp、宽约 10dp）
+ * 不再用 Miuix 的细线箭头 两者放在玻璃圆钮里观感差别很明显
+ *
  * [glassAlpha] 是玻璃材质的整体透明度：
  * 参照原版的行为 —— **只有小顶栏出现时 顶栏图标才带圆玻璃背景**；
  * 大标题还没折叠时（顶栏透明）退化为纯图标 不画圆底和投影
@@ -415,17 +422,16 @@ private fun SmallTitle(
 private fun GlassBackButton(
     onClick: () -> Unit,
     backdrop: Backdrop,
-    icon: ImageVector = MiuixIcons.Back,
+    icon: Painter,
     contentDescription: String = "返回",
     glassAlpha: () -> Float = { 1f },
 ) {
-    val painter: Painter = androidx.compose.ui.graphics.vector.rememberVectorPainter(icon)
     // 主题前景色：与页面标题文字同色 任何背景下都读得清
     val iconTint = MiuixTheme.colorScheme.onBackground.copy(alpha = 0.85f)
     LiquidTopBarButton(
         onClick = onClick,
         backdrop = backdrop,
-        icon = painter,
+        icon = icon,
         contentDescription = contentDescription,
         iconSize = 18.dp,
         // 图标几何居中于 42dp 圆钮即可 不再额外偏移（之前左移 -2dp 导致视觉偏左）
