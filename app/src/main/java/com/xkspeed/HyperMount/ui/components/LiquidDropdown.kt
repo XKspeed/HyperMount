@@ -34,6 +34,7 @@ import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
@@ -69,6 +70,7 @@ import androidx.compose.ui.layout.MeasureScope
 import androidx.compose.ui.layout.Placeable
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
@@ -85,6 +87,7 @@ import com.kyant.backdrop.Backdrop
 import com.kyant.backdrop.drawBackdrop
 import com.kyant.backdrop.effects.blur
 import com.kyant.backdrop.effects.vibrancy
+import com.xkspeed.HyperMount.ui.component.glass.InteractiveHighlight
 import com.xkspeed.HyperMount.ui.component.glass.glassBlurScale
 import com.xkspeed.HyperMount.ui.util.isInDarkTheme
 import kotlin.math.ceil
@@ -129,8 +132,6 @@ private val PopupMinHeight = 50.dp
 private val PopupCornerRadius = 25.dp
 private val PopupShadowPadding = 24.dp
 private val DropdownButtonDiameter = 42.dp
-
-private const val ScaleBase = 0.24f
 
 /** 弹层动画进度：fraction 是揭示进度（弹簧会过冲），position 是实际朝向 */
 data class LiquidDropdownProgress(
@@ -207,6 +208,10 @@ fun LiquidDropdownLayout(
     onDismissRequest: () -> Unit,
     onDismissFinished: () -> Unit = {},
     backdrop: Backdrop? = null,
+    /** 触发区「当前值 + 箭头」的窗口坐标：弹窗从这块内容原位长成面板 */
+    collapseBounds: IntRect = IntRect.Zero,
+    /** 收起态显示的内容（触发区副本） 随容器长大淡出 */
+    collapseContent: (@Composable () -> Unit)? = null,
     onFractionProgress: ((LiquidDropdownProgress) -> Unit)? = null,
     content: @Composable () -> Unit,
 ) {
@@ -216,6 +221,8 @@ fun LiquidDropdownLayout(
     var internalVisible by remember { mutableStateOf(false) }
     var layoutPosition by remember { mutableStateOf(LiquidDropdownLayoutPosition()) }
     var anchorOrigin by remember { mutableStateOf(TransformOrigin(1f, 0f)) }
+    // 面板左上角在窗口里的位置：收起态矩形要按它换算到画布坐标
+    var panelWindowPos by remember { mutableStateOf(IntOffset.Zero) }
     val currentOnDismissRequest by rememberUpdatedState(onDismissRequest)
     val currentOnDismissFinished by rememberUpdatedState(onDismissFinished)
     val currentOnFractionProgress by rememberUpdatedState(onFractionProgress)
@@ -309,6 +316,10 @@ fun LiquidDropdownLayout(
                     if (origin != anchorOrigin) {
                         anchorOrigin = origin
                     }
+                    // 窗口坐标（不是相对 scrim 的坐标）：收起态矩形用同一套坐标系换算
+                    if (result.offset != panelWindowPos) {
+                        panelWindowPos = result.offset
+                    }
                     layout(constraints.maxWidth, constraints.maxHeight) {
                         placeable.place(
                             IntOffset(
@@ -324,8 +335,10 @@ fun LiquidDropdownLayout(
                 originProgress = { originProgress.value },
                 alphaProgress = { alphaProgress.value },
                 layoutPosition = layoutPosition,
-                originAnchor = anchorOrigin,
                 backdrop = backdrop,
+                collapseBounds = collapseBounds,
+                panelWindowPos = panelWindowPos,
+                collapseContent = collapseContent,
                 content = content,
             )
         }
@@ -338,8 +351,10 @@ private fun LiquidDropdownContent(
     originProgress: () -> Float,
     alphaProgress: () -> Float,
     layoutPosition: LiquidDropdownLayoutPosition,
-    originAnchor: TransformOrigin,
     backdrop: Backdrop?,
+    collapseBounds: IntRect,
+    panelWindowPos: IntOffset,
+    collapseContent: (@Composable () -> Unit)?,
     content: @Composable () -> Unit,
 ) {
     val isDark = isInDarkTheme()
@@ -349,6 +364,51 @@ private fun LiquidDropdownContent(
     val edgeLightColor =
         if (!isDark) Color.White.copy(alpha = 0.7f) else Color.White.copy(alpha = 0.4f)
     val density = LocalDensity.current
+    val padPx = with(density) { PopupShadowPadding.toPx() }
+    val extraW = with(density) { 14.dp.toPx() }
+    val extraH = with(density) { 10.dp.toPx() }
+
+    // 内容自然尺寸（px）：内层测量后回填。首帧为 0 时面板还完全透明 看不到错位
+    var natural by remember { mutableStateOf(IntSize.Zero) }
+    val natW = natural.width.toFloat()
+    val natH = natural.height.toFloat()
+
+    // 收起态矩形 = 触发区「当前值 + 箭头」的实测尺寸四周各补 7dp / 5dp
+    // 于是 f = 0 时这块矩形正好盖在触发内容上 面板看起来就是从这行文字里长出来的
+    val hasCollapse = collapseBounds.width > 0 && collapseBounds.height > 0
+    val collapseW = if (hasCollapse) collapseBounds.width + extraW
+    else with(density) { DropdownButtonDiameter.toPx() }
+    val collapseH = if (hasCollapse) collapseBounds.height + extraH
+    else with(density) { DropdownButtonDiameter.toPx() }
+    val collapseCx = if (hasCollapse) (collapseBounds.left - panelWindowPos.x) + collapseW / 2f
+    else padPx + natW / 2f
+    val collapseCy = if (hasCollapse) (collapseBounds.top - panelWindowPos.y) + collapseH / 2f
+    else padPx + natH / 2f
+
+    // 面板矩形（画布坐标）：两条边各自插值 不是整体 scale 所以圆角不会被拉成椭圆
+    // 中心从触发内容中心迁到面板中心 迁移进度 originProgress 比 fraction 更早到 1
+    fun rectOf(f: Float, p: Float): FloatArray {
+        val w = collapseW + (natW - collapseW) * f
+        val h = collapseH + (natH - collapseH) * f
+        val pp = p.coerceIn(0f, 1f)
+        val cx = collapseCx + (padPx + natW / 2f - collapseCx) * pp
+        val cy = collapseCy + (padPx + natH / 2f - collapseCy) * pp
+        return floatArrayOf(cx - w / 2f, cy - h / 2f, w, h)
+    }
+
+    // 每帧换一个 shape 实例：drawBackdrop / clip / 边缘光都按引用缓存 shape
+    // 复用同一个实例会让描边和身影冻结在第一帧的小矩形上
+    val frame = (fractionProgress() * 400f).toInt()
+    val panelShape = remember(frame, natW, natH, collapseCx, collapseCy) {
+        PanelRectShape(PopupCornerRadius) { rectOf(fractionProgress(), originProgress()) }
+    }
+    // 内容层在 24dp 内缩里 坐标系整体比画布小一圈
+    val contentShape = remember(frame, natW, natH, collapseCx, collapseCy) {
+        PanelRectShape(PopupCornerRadius) {
+            val r = rectOf(fractionProgress(), originProgress())
+            floatArrayOf(r[0] - padPx, r[1] - padPx, r[2], r[3])
+        }
+    }
 
     // 阴影：进入 fraction≥0.78 渐显（tween 200），退出 ≥0.99 消失（tween 50）
     val shadowAlpha = remember { Animatable(0f) }
@@ -392,158 +452,194 @@ private fun LiquidDropdownContent(
             }
     }
 
+    // 按压光晕：按住不放时从手指位置绽开一团弥散白光 跟手移动
+    // 半径随展开进度收小（收起态面板小 固定 150dp 的光会漫出圆角）
+    // 用 pressOnly 版本：只观察按下 不消费事件 行内点击照常
+    val glowScope = rememberCoroutineScope()
+    val glow = remember(glowScope) {
+        InteractiveHighlight(
+            animationScope = glowScope,
+            radiusScale = { 1f - 0.6f * fractionProgress().coerceIn(0f, 1f) },
+            radiusBaseDp = 150.dp,
+        )
+    }
+
     Box(
-        modifier = Modifier
-            .padding(PopupShadowPadding)
-            .drawBehind {
-                val alpha = shadowAlpha.value
-                if (alpha <= 0f) return@drawBehind
-                val baseAlpha = (32 * alpha).toInt().coerceIn(0, 255)
-                val blurRadius = 16f * this.density
-                val nativePath = android.graphics.Path().apply {
-                    addRoundRect(
-                        0f, 0f, size.width, size.height,
-                        PopupCornerRadius.toPx(), PopupCornerRadius.toPx(),
-                        android.graphics.Path.Direction.CW,
-                    )
-                }
-                val paint = android.graphics.Paint().apply {
-                    color = android.graphics.Color.argb(baseAlpha, 0, 0, 0)
-                    maskFilter = BlurMaskFilter(
-                        blurRadius.coerceAtLeast(0.1f),
-                        BlurMaskFilter.Blur.NORMAL,
-                    )
-                }
-                drawIntoCanvas { canvas ->
-                    canvas.nativeCanvas.drawPath(nativePath, paint)
-                }
-            },
+        modifier = Modifier.drawBehind {
+            val alpha = shadowAlpha.value
+            if (alpha <= 0f) return@drawBehind
+            val r = rectOf(fractionProgress(), originProgress())
+            val w = r[2].coerceAtLeast(0f)
+            val h = r[3].coerceAtLeast(0f)
+            if (w <= 0f || h <= 0f) return@drawBehind
+            val baseAlpha = (32 * alpha).toInt().coerceIn(0, 255)
+            val blurRadius = 16f * this.density
+            val radius = PopupCornerRadius.toPx().coerceAtMost(min(w, h) / 2f)
+            val nativePath = android.graphics.Path().apply {
+                addRoundRect(
+                    r[0], r[1], r[0] + w, r[1] + h,
+                    radius, radius,
+                    android.graphics.Path.Direction.CW,
+                )
+            }
+            val paint = android.graphics.Paint().apply {
+                color = android.graphics.Color.argb(baseAlpha, 0, 0, 0)
+                maskFilter = BlurMaskFilter(
+                    blurRadius.coerceAtLeast(0.1f),
+                    BlurMaskFilter.Blur.NORMAL,
+                )
+            }
+            drawIntoCanvas { canvas ->
+                canvas.nativeCanvas.drawPath(nativePath, paint)
+            }
+        },
     ) {
+        // 玻璃层铺满整个画布（含 24dp 阴影留白） 面板矩形在画布内由 shape 决定
         Box(
             modifier = Modifier
-                .graphicsLayer {
-                    val fraction = fractionProgress()
-                    val scale = ScaleBase + (1f - ScaleBase) * fraction
-                    scaleX = scale
-                    scaleY = scale
-                    alpha = alphaProgress()
-                    // 锚点从角插值到中心，走独立的 origin 曲线
-                    transformOrigin = TransformOrigin(
-                        pivotFractionX = originAnchor.pivotFractionX +
-                                (0.5f - originAnchor.pivotFractionX) * originProgress(),
-                        pivotFractionY = originAnchor.pivotFractionY +
-                                (0.5f - originAnchor.pivotFractionY) * originProgress(),
-                    )
-                }
-                .dropdownClipReveal(
-                    fractionProgress = fractionProgress,
-                    pivotX = originAnchor.pivotFractionX,
-                    showBelow = layoutPosition.showBelow,
-                    showAbove = layoutPosition.showAbove,
-                )
-                .contentBlur(radius = (8f * (1f - fractionProgress())).dp)
-                .then(
-                    if (backdrop != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                        Modifier.drawBackdrop(
-                            backdrop = backdrop,
-                            shape = {
-                                // 圆角随缩放反向放大，视觉圆角保持不变
-                                val avgScale = ScaleBase + (1f - ScaleBase) * fractionProgress()
-                                RoundedCornerShape(
-                                    CornerSize(
-                                        with(density) {
-                                            (PopupCornerRadius.toPx() / avgScale).toDp()
-                                        },
+                .matchParentSize()
+                .graphicsLayer { alpha = alphaProgress() },
+        ) {
+            Box(
+                modifier = Modifier
+                    .matchParentSize()
+                    .then(
+                        if (backdrop != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                            Modifier.drawBackdrop(
+                                backdrop = backdrop,
+                                shape = { panelShape },
+                                effects = {
+                                    vibrancy()
+                                    blur(24.dp.toPx() * glassBlurScale)
+                                },
+                                highlight = { null },
+                                shadow = { null },
+                                onDrawSurface = {
+                                    drawRect(containerColor.copy(alpha = glassSurfaceAlpha))
+                                },
+                            )
+                        } else {
+                            Modifier.drawBehind {
+                                val r = rectOf(fractionProgress(), originProgress())
+                                val w = r[2].coerceAtLeast(0f)
+                                val h = r[3].coerceAtLeast(0f)
+                                if (w <= 0f || h <= 0f) return@drawBehind
+                                drawRoundRect(
+                                    color = containerColor.copy(alpha = fallbackSurfaceAlpha),
+                                    topLeft = androidx.compose.ui.geometry.Offset(r[0], r[1]),
+                                    size = Size(w, h),
+                                    cornerRadius = androidx.compose.ui.geometry.CornerRadius(
+                                        PopupCornerRadius.toPx().coerceAtMost(min(w, h) / 2f),
                                     ),
                                 )
-                            },
-                            effects = {
-                                vibrancy()
-                                blur(24.dp.toPx() * glassBlurScale)
-                            },
-                            highlight = { null },
-                            shadow = { null },
-                            onDrawSurface = {
-                                drawRect(containerColor.copy(alpha = glassSurfaceAlpha))
-                            },
-                        )
-                    } else {
-                        Modifier.background(
-                            containerColor.copy(alpha = fallbackSurfaceAlpha),
-                            shape = RoundedCornerShape(PopupCornerRadius),
-                        )
-                    },
-                )
-                .rectEdgeLight(
-                    shapeProvider = {
-                        val avgScale = ScaleBase + (1f - ScaleBase) * fractionProgress()
-                        RoundedCornerShape((PopupCornerRadius.toPx() / avgScale).toDp())
-                    },
-                    color = edgeLightColor,
-                    strokeWidth = 0.28f.dp,
-                    blurRadius = 0.8f.dp,
-                ),
+                            }
+                        },
+                    ),
+            )
+
+            // 内容层：等比缩放（按宽度）并移到矩形中心 圆心/圆角都不跟着变形
+            Box(
+                modifier = Modifier
+                    .matchParentSize()
+                    .rectEdgeLight(
+                        shapeProvider = { panelShape },
+                        color = edgeLightColor,
+                        strokeWidth = 0.28f.dp,
+                        blurRadius = 0.8f.dp,
+                    ),
+            )
+        }
+
+        // 按压光晕：夹在材质之上、内容之下（放内容上面会把行文字刷白）
+        Box(
+            modifier = Modifier
+                .matchParentSize()
+                .clip(panelShape)
+                .then(glow.pressOnlyModifier)
+                .then(glow.modifier),
+        )
+
+        Box(
+            modifier = Modifier
+                .padding(PopupShadowPadding)
+                .onSizeChanged { natural = it },
         ) {
-            Box(modifier = Modifier.graphicsLayer { alpha = contentAlpha.value }) {
+            Box(
+                modifier = Modifier
+                    .clip(contentShape)
+                    .graphicsLayer {
+                        val f = fractionProgress()
+                        val p = originProgress()
+                        val r = rectOf(f, p)
+                        val s = if (natW > 0f) r[2] / natW else 1f
+                        scaleX = s
+                        scaleY = s
+                        alpha = alphaProgress() * contentAlpha.value
+                        // 内容自然中心在画布 (pad + natW/2, pad + natH/2)
+                        translationX = (r[0] + r[2] / 2f) - (padPx + natW / 2f)
+                        translationY = (r[1] + r[3] / 2f) - (padPx + natH / 2f)
+                    }
+                    .contentBlur(
+                        radius = (8f * (1f - fractionProgress())).dp,
+                    ),
+            ) {
                 content()
+            }
+        }
+
+        // 收起态内容（当前值 + 箭头）：锁在矩形正中心 随容器长大淡出
+        // 触发区自己那份用 rememberRowContentAlpha 同时淡出 两处同内容同位置 不会看出重影
+        if (collapseContent != null) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .graphicsLayer {
+                        alpha = (alphaProgress() * (1f - fractionProgress() * CollapseIconK))
+                            .coerceIn(0f, 1f)
+                        val r = rectOf(fractionProgress(), originProgress())
+                        translationX = r[0] + r[2] / 2f - size.width / 2f
+                        translationY = r[1] + r[3] / 2f - size.height / 2f
+                    },
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    collapseContent()
+                }
             }
         }
     }
 }
 
 /**
- * 裁剪揭示：可见区域从「被按控件大小」的方块沿锚点角双向长成完整面板。
+ * 面板矩形形状：每次 createOutline 现算一遍 宽高与位置都由 fraction 决定
+ * 圆角恒定 25dp 不随矩形缩放变化（这正是「不是整体 scale」的意义）
  */
-private fun Modifier.dropdownClipReveal(
-    fractionProgress: () -> Float,
-    pivotX: Float,
-    showBelow: Boolean,
-    showAbove: Boolean,
-): Modifier = drawWithCache {
-    val path = Path()
-    onDrawWithContent {
-        val progress = fractionProgress().coerceIn(0f, 1f)
-        if (progress <= 0f) return@onDrawWithContent
-
-        val scale = ScaleBase + (1f - ScaleBase) * progress
-        val buttonPx = DropdownButtonDiameter.toPx()
-        val targetWidth = buttonPx + (size.width - buttonPx) * progress
-        val targetHeight = buttonPx + (size.height - buttonPx) * progress
-        val clipWidth = (targetWidth / scale).coerceAtMost(size.width)
-        val clipHeight = (targetHeight / scale).coerceAtMost(size.height)
-
-        val left = when {
-            pivotX >= 0.99f -> size.width - clipWidth
-            pivotX <= 0.01f -> 0f
-            else -> (size.width - clipWidth) / 2f
-        }
-        val top = when {
-            showBelow -> 0f
-            showAbove -> size.height - clipHeight
-            else -> (size.height - clipHeight) / 2f
-        }
-
-        val outline = RoundedCornerShape(PopupCornerRadius.toPx() / scale)
-            .createOutline(
-                size = Size(clipWidth, clipHeight),
-                layoutDirection = layoutDirection,
-                density = this@drawWithCache,
-            )
-        path.rewind()
-        when (outline) {
-            is Outline.Rounded -> path.addRoundRect(outline.roundRect)
-            is Outline.Generic -> path.addPath(outline.path)
-            is Outline.Rectangle -> path.addRect(outline.rect)
-        }
-        translate(left = left, top = top) {
-            clipPath(path) {
-                translate(left = -left, top = -top) {
-                    this@onDrawWithContent.drawContent()
-                }
-            }
-        }
+private class PanelRectShape(
+    private val cornerRadius: Dp,
+    private val rectProvider: () -> FloatArray,
+) : Shape {
+    override fun createOutline(
+        size: Size,
+        layoutDirection: androidx.compose.ui.unit.LayoutDirection,
+        density: Density,
+    ): Outline {
+        val r = rectProvider()
+        val w = r[2].coerceAtLeast(0f)
+        val h = r[3].coerceAtLeast(0f)
+        val radius = with(density) { cornerRadius.toPx().coerceAtMost(min(w, h) / 2f) }
+        return Outline.Rounded(
+            androidx.compose.ui.geometry.RoundRect(
+                left = r[0],
+                top = r[1],
+                right = r[0] + w,
+                bottom = r[1] + h,
+                cornerRadius = androidx.compose.ui.geometry.CornerRadius(radius),
+            ),
+        )
     }
 }
+
+/** 收起态内容随 fraction 淡出的系数：f = 1/3.2 ≈ 0.31 时刚好消失 */
+private const val CollapseIconK = 3.2f
 
 /** 圆角矩形边缘光：描边画在形状边界上再裁进形状内，NORMAL 模糊 + ADD 混合 */
 private fun Modifier.rectEdgeLight(
@@ -769,6 +865,8 @@ private fun rememberRowContentAlpha(fraction: () -> Float): Float {
 class LiquidSelectState {
     internal var expanded by mutableStateOf(false)
     internal var anchorBounds by mutableStateOf(IntRect.Zero)
+    /** 行尾「当前值 + 箭头」的窗口坐标：弹窗从这块内容长出来 */
+    internal var contentBounds by mutableStateOf(IntRect.Zero)
     internal var items by mutableStateOf<List<String>>(emptyList())
     internal var selected by mutableStateOf(0)
     internal var onSelect: (Int) -> Unit = {}
@@ -801,6 +899,8 @@ fun LiquidSelectPreference(
     val haptics = androidx.compose.ui.platform.LocalHapticFeedback.current
     val rowKey = remember { Any() }
     var rect by remember { mutableStateOf(IntRect.Zero) }
+    // 行尾「当前值 + 箭头」自己的窗口矩形：展开时弹窗从这块文字长出来
+    var contentRect by remember { mutableStateOf(IntRect.Zero) }
     val isOpen = state.expanded && state.owner === rowKey
     val rowAlpha = rememberRowContentAlpha { if (state.owner === rowKey) state.fraction else 0f }
     // 行尾「当前值 + 箭头」用 Miuix 的语义色：SliderPreference 的数值就是这个口径
@@ -826,7 +926,18 @@ fun LiquidSelectPreference(
         endActions = {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.graphicsLayer { alpha = rowAlpha },
+                modifier = Modifier
+                    .onGloballyPositioned { coords ->
+                        val pos = coords.positionInWindow()
+                        val size = coords.size
+                        contentRect = IntRect(
+                            left = pos.x.toInt(),
+                            top = pos.y.toInt(),
+                            right = pos.x.toInt() + size.width,
+                            bottom = pos.y.toInt() + size.height,
+                        )
+                    }
+                    .graphicsLayer { alpha = rowAlpha },
             ) {
                 if (valueText.isNotBlank()) {
                     top.yukonga.miuix.kmp.basic.Text(
@@ -852,6 +963,7 @@ fun LiquidSelectPreference(
             } else {
                 state.owner = rowKey
                 state.anchorBounds = rect
+                state.contentBounds = contentRect
                 state.items = items
                 state.selected = selectedIndex
                 state.onSelect = onSelectedIndexChange
@@ -883,6 +995,25 @@ fun LiquidSelectHost(
         anchorBounds = state.anchorBounds,
         onDismissRequest = { state.close() },
         backdrop = backdrop,
+        collapseBounds = state.contentBounds,
+        collapseContent = {
+            // 与行尾那份「当前值 + 箭头」同字号同颜色：展开瞬间两处像素重合
+            val text = state.items.getOrNull(state.selected).orEmpty()
+            if (text.isNotBlank()) {
+                top.yukonga.miuix.kmp.basic.Text(
+                    text = text,
+                    fontSize = MiuixTheme.textStyles.body2.fontSize,
+                    color = colorScheme.onSurfaceVariantActions,
+                )
+                Spacer(Modifier.width(8.dp))
+            }
+            Image(
+                imageVector = MiuixIcons.Basic.ArrowUpDown,
+                contentDescription = null,
+                colorFilter = ColorFilter.tint(colorScheme.onSurfaceVariantActions),
+                modifier = Modifier.size(width = 10.dp, height = 16.dp),
+            )
+        },
         onFractionProgress = { state.fraction = it.fraction },
     ) {
         LiquidDropdownColumn {

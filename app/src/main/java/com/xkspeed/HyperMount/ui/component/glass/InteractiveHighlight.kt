@@ -20,6 +20,7 @@ import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChange
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.util.fastCoerceIn
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
@@ -27,6 +28,10 @@ import kotlinx.coroutines.launch
 class InteractiveHighlight(
     private val animationScope: CoroutineScope,
     private val position: (Size, Offset) -> Offset = { _, offset -> offset },
+    /** 光晕半径倍率：下拉面板展开过程中要收小 否则收起态的光会漫出小圆 */
+    private val radiusScale: () -> Float = { 1f },
+    /** 固定的半径基数（dp） 0 = 按节点短边算；面板用固定值 避免选项越多光晕越大 */
+    private val radiusBaseDp: androidx.compose.ui.unit.Dp = 0.dp,
     // 手势层叠在被选中 Tab 上方 普通点击不会穿透到底下的 Tab 按钮；
     // "按下后未拖动即抬起"视为点按当前选中 Tab（iOS 再点回根部语义）
     private val onTap: () -> Unit = {}
@@ -65,6 +70,13 @@ half4 main(float2 coord) {
         val progress = press.value
         if (progress > 0f) {
             val center = position(size, location.value)
+            // 半径：给了固定基数就用它 否则按节点短边 1.5 倍
+            val baseRadius = if (radiusBaseDp > 0.dp) {
+                radiusBaseDp.toPx()
+            } else {
+                size.minDimension * 1.5f
+            }
+            val glowRadius = baseRadius * radiusScale()
             if (shader != null) {
                 drawRect(
                     Color.White.copy(0.08f * progress),
@@ -73,7 +85,7 @@ half4 main(float2 coord) {
                 shader.apply {
                     setFloatUniform("size", size.width, size.height)
                     setColorUniform("color", Color.White.copy(0.15f * progress).toArgb())
-                    setFloatUniform("radius", size.minDimension * 1.5f)
+                    setFloatUniform("radius", glowRadius)
                     setFloatUniform(
                         "position",
                         center.x.fastCoerceIn(0f, size.width),
@@ -86,7 +98,7 @@ half4 main(float2 coord) {
                 )
             } else {
                 // API < 33 无 AGSL：径向渐变模拟弥散 避免纯色圆的遮罩感
-                val radius = size.minDimension * 1.2f
+                val radius = glowRadius
                 drawCircle(
                     Brush.radialGradient(
                         listOf(Color.White.copy(0.15f * progress), Color.Transparent),

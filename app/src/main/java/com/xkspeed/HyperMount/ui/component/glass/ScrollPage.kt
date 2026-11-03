@@ -409,14 +409,11 @@ private fun SmallTitle(
  * 玻璃与纯图标用的是同一个组件（不靠 if 切换） 否则 alpha 动画过程中
  * 节点会被销毁重建 按钮在动画中闪一下
  *
- * 颜色口径分两层：
- * - **玻璃材质**（容器色 / 边缘光 / 模糊强度 / 对比度）完全对齐 Sonify 的
- *   LiquidTopBarButton：自适应分支下容器色 White@10% 边缘光取自适应内容色@55%
- *   模糊半径按背景亮度调制
- * - **图标着色**固定用主题前景色（浅色=黑 85% 深色=白 85%） 自适应内容色是
- *   按玻璃窗口内 backdrop 采样出来的 而返回键正好压在大标题/列表文字上方
- *   采样窗口里混进深色文字时会把图标判成"暗背景→白字" 浅色页面上出现
- *   看不清的白箭头（用户反馈"返回键颜色有时不对"） 玻璃材质本身仍走自适应
+ * 颜色口径完全对齐 Sonify 的 LiquidTopBarButton：
+ * - 容器色 White@10%、边缘光取自适应内容色@55%、模糊半径按背景亮度调制
+ * - **图标着色也走自适应**（浅色黑 85% / 深色白 85%），与 Sonify 一致
+ *   之前这里锁过主题前景色，是为了绕开"采样窗口混入大标题文字、把图标判成白箭头"
+ *   的问题；既然要求与 Sonify 完全对齐，就交回自适应
  */
 @Composable
 private fun GlassBackButton(
@@ -426,18 +423,14 @@ private fun GlassBackButton(
     contentDescription: String = "返回",
     glassAlpha: () -> Float = { 1f },
 ) {
-    // 主题前景色：与页面标题文字同色 任何背景下都读得清
-    val iconTint = MiuixTheme.colorScheme.onBackground.copy(alpha = 0.85f)
     LiquidTopBarButton(
         onClick = onClick,
         backdrop = backdrop,
         icon = icon,
         contentDescription = contentDescription,
         iconSize = 18.dp,
-        // 图标几何居中于 42dp 圆钮即可 不再额外偏移（之前左移 -2dp 导致视觉偏左）
-        iconOffset = DpOffset.Zero,
-        // 图标颜色固定 不随玻璃自适应亮度翻转
-        iconTint = iconTint,
+        // Sonify 原值：图标在 42dp 圆钮里左移 2dp 做光学居中
+        iconOffset = DpOffset((-2).dp, 0.dp),
         backdropAlpha = { glassAlpha() },
         shadowAlpha = { glassAlpha() },
         edgeLightAlpha = { glassAlpha() },
