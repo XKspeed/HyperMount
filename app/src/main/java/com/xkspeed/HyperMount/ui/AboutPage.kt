@@ -160,7 +160,7 @@ fun AboutPage(
                     summary = "v${AppVersion.name} (${AppVersion.code})",
                     onClick = {
                         runCatching {
-                            uriHandler.openUri("https://github.com/XKspeed/SystemUIRescue")
+                            uriHandler.openUri("https://github.com/XKspeed/HyperMount")
                         }
                     },
                 )
@@ -276,7 +276,7 @@ fun AboutPage(
                     title = "官网",
                     onClick = {
                         runCatching {
-                            uriHandler.openUri("https://xkspeed.github.io/SystemUIRescue/")
+                            uriHandler.openUri("https://xkspeed.github.io/HyperMount/")
                         }
                     },
                 )
@@ -284,7 +284,7 @@ fun AboutPage(
                     title = "GitHub 仓库",
                     onClick = {
                         runCatching {
-                            uriHandler.openUri("https://github.com/XKspeed/SystemUIRescue")
+                            uriHandler.openUri("https://github.com/XKspeed/HyperMount")
                         }
                     },
                 )

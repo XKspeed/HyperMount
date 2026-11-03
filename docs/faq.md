@@ -130,4 +130,4 @@ I/状态 LOG_DIR 配置=<值> → 界面显示 <值>
 SystemUI 起不来 → 黑屏但系统仍在运行 → 靠音量键 / Recovery 换回 真正救不回来的是「救砖界面本身也不可用」和「模块被卸载但界面还是替换状态」 所以第一次用请务必确认救砖界面可用 
 :::
 
-没找到答案？[提个 issue](https://github.com/XKspeed/SystemUIRescue/issues) 附上应用日志里对应的那几行 
+没找到答案？[提个 issue](https://github.com/XKspeed/HyperMount/issues) 附上应用日志里对应的那几行 

@@ -39,7 +39,7 @@ data class UpdateInfo(
  */
 object Update {
 
-    private const val REPO = "XKspeed/SystemUIRescue"
+    private const val REPO = "XKspeed/HyperMount"
     private const val BRANCH = "main"
 
     // ---------------- 清单缓存 ----------------

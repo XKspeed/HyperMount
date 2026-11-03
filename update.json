@@ -1,9 +1,9 @@
 {
   "versionCode": 10,
   "versionName": "1.4.0",
-  "url": "https://github.com/XKspeed/SystemUIRescue/releases/download/v1.4.0/HyperMount-arm64-1.4.0.apk",
+  "url": "https://github.com/XKspeed/HyperMount/releases/download/v1.4.0/HyperMount-arm64-1.4.0.apk",
   "changelog": "修复若干问题 完善细节",
   "moduleVersionCode": 15,
   "moduleVersionName": "1.5.5",
-  "moduleUrl": "https://github.com/XKspeed/SystemUIRescue/releases/download/v1.4.0/systemui_mount-v1.5.5.zip"
+  "moduleUrl": "https://github.com/XKspeed/HyperMount/releases/download/v1.4.0/systemui_mount-v1.5.5.zip"
 }

@@ -11,13 +11,13 @@ hero:
   actions:
     - theme: brand
       text: 下载 APK
-      link: https://github.com/XKspeed/SystemUIRescue/releases/latest
+      link: https://github.com/XKspeed/HyperMount/releases/latest
     - theme: alt
       text: 先看怎么装
       link: /guide/
     - theme: alt
       text: GitHub
-      link: https://github.com/XKspeed/SystemUIRescue
+      link: https://github.com/XKspeed/HyperMount
 
 features:
   - icon: |-
@@ -143,8 +143,8 @@ features:
       </div>
     </div>
     <div class="dl-actions">
-      <a class="VPButton medium brand" data-module-download href="https://github.com/XKspeed/SystemUIRescue/releases/latest">下载模块 zip</a>
-      <a class="VPButton medium alt" data-module-mirror href="https://gh-proxy.com/https://github.com/XKspeed/SystemUIRescue/releases/latest">走镜像下载</a>
+      <a class="VPButton medium brand" data-module-download href="https://github.com/XKspeed/HyperMount/releases/latest">下载模块 zip</a>
+      <a class="VPButton medium alt" data-module-mirror href="https://gh-proxy.com/https://github.com/XKspeed/HyperMount/releases/latest">走镜像下载</a>
     </div>
   </div>
 
@@ -160,8 +160,8 @@ features:
       </div>
     </div>
     <div class="dl-actions">
-      <a class="VPButton medium brand" data-download href="https://github.com/XKspeed/SystemUIRescue/releases/latest">下载 APK</a>
-      <a class="VPButton medium alt" data-mirror href="https://gh-proxy.com/https://github.com/XKspeed/SystemUIRescue/releases/latest">走镜像下载</a>
+      <a class="VPButton medium brand" data-download href="https://github.com/XKspeed/HyperMount/releases/latest">下载 APK</a>
+      <a class="VPButton medium alt" data-mirror href="https://gh-proxy.com/https://github.com/XKspeed/HyperMount/releases/latest">走镜像下载</a>
     </div>
   </div>
 </section>

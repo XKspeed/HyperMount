@@ -13,7 +13,7 @@ const MIRRORS = [
   "https://ghfast.top/",
 ];
 
-const FALLBACK_URL = "https://github.com/XKspeed/SystemUIRescue/releases/latest";
+const FALLBACK_URL = "https://github.com/XKspeed/HyperMount/releases/latest";
 
 let manifest: Promise<any> | null = null;
 

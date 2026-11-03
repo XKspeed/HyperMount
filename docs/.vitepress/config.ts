@@ -2,13 +2,13 @@ import { defineConfig } from "vitepress";
 
 /**
  * 站点部署在两个地方，路径前缀不同：
- *   GitHub Pages   https://<user>.github.io/SystemUIRescue/  → DOCS_BASE=/SystemUIRescue/
+ *   GitHub Pages   https://<user>.github.io/HyperMount/  → DOCS_BASE=/HyperMount/
  *   EdgeOne Pages  根域名                                    → 不设，默认 /
  * 工作流里通过环境变量传，本地 build 默认按根路径处理。
  */
 const base = process.env.DOCS_BASE || "/";
 
-const REPO = "https://github.com/XKspeed/SystemUIRescue";
+const REPO = "https://github.com/XKspeed/HyperMount";
 
 export default defineConfig({
   base,

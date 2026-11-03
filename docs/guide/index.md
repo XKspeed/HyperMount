@@ -60,7 +60,7 @@ HyperMount 干的事很单一：
 
 ### 1.1 下载
 
-在 [Release 页面](https://github.com/XKspeed/SystemUIRescue/releases/latest) 下模块压缩包 文件名形如 `systemui_mount-v1.5.5.zip` **别解压** 
+在 [Release 页面](https://github.com/XKspeed/HyperMount/releases/latest) 下模块压缩包 文件名形如 `systemui_mount-v1.5.5.zip` **别解压** 
 
 ### 1.2 先看你的管理器要不要装「元模块」
 
