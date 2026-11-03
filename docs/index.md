@@ -4,7 +4,7 @@ layout: home
 hero:
   name: HyperMount
   text: 换界面不再怕黑屏
-  tagline: 先留一份确认可用的 SystemUI 当后路，再换入要测的那一版。崩溃、卡死、界面点不动，它自己换回去——不用救命线，不用重刷系统。
+  tagline: 先把一份确认能用的 SystemUI 存成后路，再换入要测的那一版。崩溃、卡死、界面点不动，它自己换回去——不用救命线，不用重刷系统。不换界面的时候，也能拿它测任意 APK 崩不崩。
   image:
     src: /app-icon.svg
     alt: HyperMount
@@ -26,7 +26,7 @@ features:
         <path d="M20.5 3.8v4.3h-4.3"/>
       </svg>
     title: 崩了自动换回
-    details: 累计崩溃到阈值，或者日志疯长判定为卡死，自动把救砖界面装回去并重启 SystemUI。
+    details: 崩溃累计到阈值、日志疯长判定卡死、堆栈溢出，三种都算，自动装回救砖界面并重启 SystemUI。
   - icon: |-
       <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
         <path d="M4 9.5h2.6L11 5.6v12.8L6.6 14.5H4z"/>
@@ -37,42 +37,65 @@ features:
     details: 界面已经点不动、通知也拉不下来的时候，音量 + 直接换回，音量 − 取消误触。
   - icon: |-
       <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M7 4.5v12"/>
+        <path d="M4.2 13.7 7 16.5l2.8-2.8"/>
+        <path d="M17 19.5v-12"/>
+        <path d="M14.2 10.3 17 7.5l2.8 2.8"/>
+      </svg>
+    title: 两套流程
+    details: 界面页换 SystemUI，主页测任意 APK。后者不碰系统界面，也不依赖模块守护，关掉模块照样能跑。
+  - icon: |-
+      <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
         <path d="M12 3.2 3.4 7.6 12 12l8.6-4.4z"/>
         <path d="M3.4 12 12 16.4 20.6 12"/>
         <path d="M3.4 16.4 12 20.8l8.6-4.4"/>
       </svg>
     title: 模块化挂载
     details: 真正干活的逻辑在模块里，开机就跑，不依赖应用存活——应用本身也可能被一起带走。
-  - icon: |-
-      <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
-        <path d="M6.5 3.5h7.6L18.5 8v12.5h-12z"/>
-        <path d="M14.1 3.5V8h4.4"/>
-        <path d="M9.3 12.2h6.4"/>
-        <path d="M9.3 16h4.2"/>
-      </svg>
-    title: 日志可诊断
-    details: 应用日志分等级、脚本日志逐步记录、崩溃堆栈单独留一份，出问题先看它们。
 ---
 
 <section class="home-section">
   <h2>一条链路，三步</h2>
-  <p class="home-sub">所有设计都围绕这三步，不多做别的</p>
+  <p class="home-sub">HyperMount 不是换肤工具。它只做一件事：换 SystemUI 的时候，永远留一条能回去的路。</p>
 
   <div class="steps">
     <div class="step">
       <span class="no">01 / 备</span>
       <h3>备好救砖界面</h3>
-      <p>从已确认能用的系统里取一份 SystemUI 存下来，它就是出事后的退路。选择时会校验包名，只认 <code>com.android.systemui</code>。</p>
+      <p>从能正常开机的系统里取一份 SystemUI 存下来，它就是出事后的退路。选择时校验包名，只认 <code>com.android.systemui</code>；下载器留下的 <code>apk.1</code> 后缀会自动还原。</p>
     </div>
     <div class="step">
       <span class="no">02 / 换</span>
       <h3>换入待测界面</h3>
-      <p>把要实测的那一版换进去，正常点亮、正常滑动。稍有不对就停，守护会一直盯着崩溃日志。</p>
+      <p>确认后立即替换，不再有等待倒计时。之后盯 SystemUI 的 PID，变了才算真的重启成功；超时没变化，直接判定这次替换失败。</p>
     </div>
     <div class="step">
       <span class="no">03 / 回</span>
       <h3>崩了自动换回</h3>
-      <p>累计到设定次数、或者日志疯长判定为卡死，自动把救砖界面装回去并重启 SystemUI，回到能看的状态。</p>
+      <p>累计 fatal 到阈值、日志疯长判定为卡死、堆栈溢出，三种情况任一触发，就把救砖界面装回去并重启 SystemUI，回到能看的状态。</p>
+    </div>
+  </div>
+</section>
+
+<section class="home-section">
+  <h2>另一条链路：测任意 APK</h2>
+  <p class="home-sub">不换系统界面，也能用它验一个包稳不稳。和上一条链路完全独立，两份配置各存各的。</p>
+
+  <div class="steps">
+    <div class="step">
+      <span class="no">01 / 选</span>
+      <h3>待测 + 救砖</h3>
+      <p>选要测的 apk，再选崩了要装回的那份。把「自动替换」关掉就只抓日志，连救砖包都不用选。</p>
+    </div>
+    <div class="step">
+      <span class="no">02 / 装</span>
+      <h3>立即安装并开抓</h3>
+      <p>确认后直接安装，装完立刻抓 crash，中间不插等待。待测包先复制到应用缓存再交给系统安装，绕开 <code>/storage</code> 的权限限制。</p>
+    </div>
+    <div class="step">
+      <span class="no">03 / 判</span>
+      <h3>崩了就换回</h3>
+      <p>抓取时长内崩溃，或者日志超过设定大小，就装回救砖包。测的是 <code>miui.systemui.plugin</code> 时，额外看崩溃次数、日志疯长、堆栈占比三路。</p>
     </div>
   </div>
 </section>
@@ -90,17 +113,17 @@ features:
     <div class="step">
       <span class="no">音量键</span>
       <h3>先实测再记</h3>
-      <p>按内核能力位找设备，再逐个按键实测是否真出事件。系统升级后版本对不上，自动作废旧结果重新校验。</p>
+      <p>按内核能力位找设备，再逐个按键实测是否真出事件。系统升级后版本对不上，旧结果自动作废重新校验。</p>
     </div>
     <div class="step">
       <span class="no">系统救援</span>
       <h3>屏蔽掉它</h3>
-      <p>把 AMS 的崩溃次数上限拉高，别让系统抢在自动救砖之前把 SystemUI 杀掉。开启增强救砖时强制打开。</p>
+      <p>把 AMS 的崩溃次数上限拉到 30，别让系统抢在自动救砖之前把 SystemUI 杀掉。开启增强救砖时强制打开。</p>
     </div>
     <div class="step">
-      <span class="no">独立测试</span>
-      <h3>主页另一套</h3>
-      <p>不依赖模块守护，自己往 <code>/data/local/tmp</code> 丢脚本跑。测别的 apk 会不会崩，不动系统界面。</p>
+      <span class="no">日志</span>
+      <h3>三份分开留</h3>
+      <p>应用日志分六档（关闭 / 仅错误 / 警告 / 常规 / 详细 / 全部）、模块脚本逐步记录、崩溃堆栈单独存一份。日志目录、保留天数、缓存上限都能改。</p>
     </div>
   </div>
 </section>
