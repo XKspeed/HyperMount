@@ -65,7 +65,7 @@ export default {
       mirror.forEach((el) => el.setAttribute("href", MIRRORS[0] + url));
 
       modVersion.forEach((el) => {
-        el.textContent = mVersion || "配套模块";
+        el.textContent = mVersion || "最新版";
       });
       modLinks.forEach((el) => el.setAttribute("href", mUrl));
       modMirror.forEach((el) => el.setAttribute("href", MIRRORS[0] + mUrl));

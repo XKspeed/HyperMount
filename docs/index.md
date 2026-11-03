@@ -111,7 +111,7 @@ features:
 
   <div class="dl-card">
     <div>
-      <h2>模块 <span data-module-version>配套模块</span></h2>
+      <h2>模块 <span data-module-version>最新版</span></h2>
       <p>第一步。在 Root 管理器里「从本地安装」，刷入后重启手机。</p>
       <div class="dl-meta">
         <span>systemui_mount</span>
