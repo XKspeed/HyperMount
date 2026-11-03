@@ -27,6 +27,18 @@ jobs:
         with:
           fetch-depth: 0
 
+      # 模块包和 App 一起发：打包逻辑只维护在 module/打包.sh 一份，
+      # 本地跑同一条命令 产出完全一样的 zip（--keep 表示不改源码里的版本号）
+      - name: Build module zip
+        id: module
+        run: |
+          set -euo pipefail
+          sh module/打包.sh --keep
+          ZIP=$(ls -1 module/dist/*.zip | tail -1)
+          echo "module_zip=${ZIP}" >> "$GITHUB_OUTPUT"
+          echo "模块包: ${ZIP}"
+          ls -l "${ZIP}"
+
       - name: Set up JDK 21
         uses: actions/setup-java@v4
         with:
@@ -283,14 +295,16 @@ jobs:
             echo "update.md 为空 本次 Release 不写更新说明"
           fi
 
-      # 构建完直接发布 Release 附带签名 APK
+      # 构建完直接发布 Release 附带签名 APK 和模块 zip
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.version.outputs.tag }}
           name: ${{ steps.version.outputs.version_name }}
           body_path: release_notes.md
-          files: dist/HyperMount-arm64-${{ steps.version.outputs.version_name }}.apk
+          files: |
+            dist/HyperMount-arm64-${{ steps.version.outputs.version_name }}.apk
+            ${{ steps.module.outputs.module_zip }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -366,6 +380,12 @@ jobs:
         with:
           name: HyperMount-arm64
           path: dist/HyperMount-arm64-*.apk
+
+      - name: Upload module artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: systemui_mount-module
+          path: module/dist/*.zip
 
   # 发版收尾：update.json 已在本轮推到 main 这里紧接着重建官网
   # 用 GITHUB_TOKEN 推送的 commit 不会再触发 push 事件 所以只能主动调用
