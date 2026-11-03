@@ -243,6 +243,42 @@ jobs:
             "$FILE" > "$FILE.tmp" && mv "$FILE.tmp" "$FILE"
           grep -nE '^version|^versionCode' "$FILE"
 
+      # README 的「基本信息」表里露出版本号与代号 每次发版跟着一起改
+      # 找不到那一行就直接失败 免得机制悄悄失效 —— 改了那行的写法记得同步这里的正则
+      - name: Sync README version
+        id: readme
+        env:
+          VERSION: ${{ steps.version.outputs.version_name }}
+          CODE: ${{ steps.version.outputs.version_code }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import os, re, pathlib
+
+          version = os.environ["VERSION"]
+          code = os.environ["CODE"]
+          p = pathlib.Path("README.md")
+          src = p.read_text(encoding="utf-8")
+
+          pat = re.compile(
+              r"(\|\s*\*\*当前版本\*\*\s*\|\s*)`[^`]*`[（(]\s*`versionCode [0-9]+`\s*[）)]"
+          )
+          new, n = pat.subn(
+              lambda m: f"{m.group(1)}`{version}`（`versionCode {code}`）", src
+          )
+          if n == 0:
+              raise SystemExit(
+                  "README.md 里没找到「当前版本」那一行 —— "
+                  "格式被改过了？同步修一下这一步的正则"
+              )
+          p.write_text(new, encoding="utf-8")
+
+          changed = "true" if new != src else "false"
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as f:
+              f.write(f"changed={changed}\n")
+          print(f"README 当前版本 -> {version} (versionCode {code}) changed={changed}")
+          PY
+
       # update.md 的写法：顶部永远是一个 ## latest 段，开发中的改动都往里加
       # 发版这一刻把 ## latest 就地改名成 ## v<版本> 更新，再在最顶上插入一个新的空 latest
       # 好处是「写日志」和「发版」彻底解耦：平时只往 latest 里追加，发版不用回头改标题
@@ -345,7 +381,7 @@ jobs:
           set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add app/build.gradle.kts module/main/module.prop update.md module/main/update.md
+          git add app/build.gradle.kts module/main/module.prop README.md update.md module/main/update.md
           if git diff --cached --quiet; then
             echo "版本文件与日志无变化（可能本来就是该版本） 跳过提交"
             exit 0
