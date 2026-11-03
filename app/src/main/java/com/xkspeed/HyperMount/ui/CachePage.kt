@@ -47,13 +47,32 @@ import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.CardDefaults
 import top.yukonga.miuix.kmp.basic.Checkbox
 import top.yukonga.miuix.kmp.basic.SmallTitle
+import top.yukonga.miuix.kmp.basic.SliderDefaults
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.window.WindowDialog
 import java.io.File
+import kotlin.math.abs
+import kotlin.math.roundToInt
 
 private const val MB = 1024L * 1024L
+
+/**
+ * 缓存上限的四个关键点（MB）
+ *
+ * 滑条靠 keyPoints 吸附 拖动只会停在 100 MB / 200 MB / 500 MB / 1 GB 这四个点上
+ * 1 GB 按 1024 MB 存 显示时再换算 免得滑条上出现 1024 MB 这种别扭的数
+ */
+private val LIMIT_STEPS_MB = listOf(100L, 200L, 500L, 1024L)
+
+/** 老配置里可能存着 300 MB 这种中间值 进来时落到最近的一个关键点 */
+private fun nearestLimitMb(mb: Float): Long =
+    LIMIT_STEPS_MB.minByOrNull { abs(it - mb) } ?: LIMIT_STEPS_MB.first()
+
+/** 档位文字：单位全大写 1024 MB 写成 1 GB */
+private fun limitLabel(mb: Long): String =
+    if (mb >= 1024L) "${mb / 1024L} GB" else "$mb MB"
 
 /**
  * 缓存管理
@@ -67,8 +86,10 @@ fun CachePage(onBack: () -> Unit) {
     var files by remember { mutableStateOf<List<File>>(emptyList()) }
     var total by remember { mutableStateOf(0L) }
     var marked by remember { mutableStateOf<Set<String>>(emptySet()) }
+    // 滑条值就是 MB 本身 只是被四个关键点吸住：100 200 500 1024
+    // 老配置不在点上时先对齐到最近的 用户拖过一次才落盘
     var limitMb by remember {
-        mutableFloatStateOf((CacheConfig.limit / MB).toFloat().coerceIn(50f, 2000f))
+        mutableFloatStateOf(nearestLimitMb((CacheConfig.limit / MB).toFloat()).toFloat())
     }
     var askDelete by remember { mutableStateOf(false) }
 
@@ -82,7 +103,8 @@ fun CachePage(onBack: () -> Unit) {
 
     LaunchedEffect(Unit) { reload() }
 
-    val limitBytes = (limitMb.toLong() * MB).coerceIn(CacheConfig.MIN, CacheConfig.MAX)
+    val limitMbInt = limitMb.roundToInt().toLong()
+    val limitBytes = limitMbInt * MB
     // 已用可能比上限还大 进度条画满为止
     val ratio = if (limitBytes <= 0L) 0f else (total.toFloat() / limitBytes).coerceIn(0f, 1f)
     val picked = files.filter { it.absolutePath in marked }
@@ -177,7 +199,7 @@ fun CachePage(onBack: () -> Unit) {
                         )
                         Spacer(Modifier.weight(1f))
                         Text(
-                            "上限 " + Module.fmtSize(limitBytes),
+                            "上限 " + limitLabel(limitMbInt),
                             color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                             style = MiuixTheme.textStyles.subtitle,
                         )
@@ -187,14 +209,19 @@ fun CachePage(onBack: () -> Unit) {
                         value = limitMb,
                         onValueChange = { limitMb = it },
                         onValueChangeFinished = {
-                            CacheConfig.set(context, limitMb.toLong() * MB)
+                            CacheConfig.set(context, limitMb.roundToInt().toLong() * MB)
                             Logcat.pruneStage()
                             reload()
                         },
-                        valueRange = 50f..2000f,
-                        steps = 38,
-                        valueText = Module.fmtSize(limitMb.toLong() * MB),
-                        inputUnit = "MB",
+                        valueRange = LIMIT_STEPS_MB.first().toFloat()..LIMIT_STEPS_MB.last().toFloat(),
+                        // 只给四档 手敲数字没意义 点了也不弹输入框
+                        inputEnabled = false,
+                        showKeyPoints = true,
+                        keyPoints = LIMIT_STEPS_MB.map { it.toFloat() },
+                        // 阈值是轨道比例：0.5 等于整条轨道都归最近的关键点 中间停不住
+                        magnetThreshold = 0.5f,
+                        hapticEffect = SliderDefaults.SliderHapticEffect.Step,
+                        valueText = limitLabel(limitMbInt),
                         insideMargin = PaddingValues(horizontal = 0.dp, vertical = 10.dp),
                     )
                 }

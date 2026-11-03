@@ -22,6 +22,7 @@ import top.yukonga.miuix.kmp.basic.ButtonDefaults
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.basic.TextField
+import top.yukonga.miuix.kmp.basic.SliderDefaults
 import top.yukonga.miuix.kmp.preference.SliderPreference
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.window.WindowDialog
@@ -43,6 +44,13 @@ fun SliderInputPreference(
     valueRange: ClosedFloatingPointRange<Float>,
     steps: Int = 0,
     enabled: Boolean = true,
+    // 档位滑条只有几个固定点 手敲数值没意义 关掉后点标题不会弹输入框
+    inputEnabled: Boolean = true,
+    // 关键点：滑条上画出这几个刻度 拖到附近会被吸过去（阈值按轨道长度的比例算）
+    showKeyPoints: Boolean = false,
+    keyPoints: List<Float>? = null,
+    magnetThreshold: Float = 0.02f,
+    hapticEffect: SliderDefaults.SliderHapticEffect = SliderDefaults.DefaultHapticEffect,
     valueText: String,
     // 对话框里显示的数值区间 与内部值不同的（比如 0..2 显示成 0..200%）自己映射
     inputRange: ClosedFloatingPointRange<Float> = valueRange,
@@ -60,8 +68,8 @@ fun SliderInputPreference(
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .pointerInput(enabled) {
-                if (!enabled) return@pointerInput
+            .pointerInput(enabled, inputEnabled) {
+                if (!enabled || !inputEnabled) return@pointerInput
                 detectTapGestures(
                     onTap = {
                         val v = toInput(currentValue)
@@ -86,6 +94,10 @@ fun SliderInputPreference(
             enabled = enabled,
             valueText = valueText,
             insideMargin = insideMargin,
+            showKeyPoints = showKeyPoints,
+            keyPoints = keyPoints,
+            magnetThreshold = magnetThreshold,
+            hapticEffect = hapticEffect,
         )
     }
 
