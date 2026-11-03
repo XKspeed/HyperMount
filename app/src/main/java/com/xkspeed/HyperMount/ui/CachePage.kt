@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -27,6 +28,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.state.ToggleableState
 import androidx.compose.ui.text.font.FontWeight
@@ -87,8 +91,58 @@ fun CachePage(onBack: () -> Unit) {
     ScrollPage(
         title = "缓存",
         onBack = onBack,
+        // 底部固定条不吃列表高度：末尾多留一条 滚到底时最后一项停在它上方
         bottomPadding = WindowInsets.navigationBars.asPaddingValues()
-            .calculateBottomPadding() + 24.dp,
+            .calculateBottomPadding() + 112.dp,
+        // 删除条和底栏一样钉在页面底部 不跟着列表滚：
+        // 列表滚动时它会从卡片底下穿过去 所以先垫一层从透明到页面底色的渐变
+        overlay = {
+            Column(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .fillMaxWidth()
+                    .background(
+                        Brush.verticalGradient(
+                            listOf(Color.Transparent, MiuixTheme.colorScheme.surface)
+                        )
+                    )
+                    .padding(top = 20.dp)
+                    .navigationBarsPadding()
+                    .padding(horizontal = 12.dp)
+                    .padding(bottom = 12.dp),
+            ) {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    // 半透明红叠在内容上会透字 这里直接混成不透明的淡红
+                    colors = CardDefaults.defaultColors(
+                        color = lerp(
+                            MiuixTheme.colorScheme.surface,
+                            MiuixTheme.colorScheme.error,
+                            0.12f,
+                        ),
+                    ),
+                ) {
+                    Box(
+                        Modifier
+                            .fillMaxWidth()
+                            .clickable(enabled = picked.isNotEmpty()) { askDelete = true }
+                            .padding(vertical = 14.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(
+                            if (picked.isEmpty()) "删除" else "删除 ${picked.size} 项",
+                            color = if (picked.isEmpty()) {
+                                MiuixTheme.colorScheme.onSurfaceVariantSummary
+                            } else {
+                                MiuixTheme.colorScheme.error
+                            },
+                            style = MiuixTheme.textStyles.main,
+                            fontWeight = FontWeight.Medium,
+                        )
+                    }
+                }
+            }
+        },
     ) {
         item { SmallTitle("占用") }
         item {
@@ -198,35 +252,6 @@ fun CachePage(onBack: () -> Unit) {
                             )
                         }
                     }
-                }
-            }
-        }
-
-        item {
-            Card(
-                modifier = Modifier.fillMaxWidth()
-                    .padding(horizontal = 12.dp, vertical = 12.dp),
-                colors = CardDefaults.defaultColors(
-                    color = MiuixTheme.colorScheme.error.copy(alpha = 0.12f),
-                ),
-            ) {
-                Box(
-                    Modifier
-                        .fillMaxWidth()
-                        .clickable(enabled = picked.isNotEmpty()) { askDelete = true }
-                        .padding(vertical = 14.dp),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Text(
-                        if (picked.isEmpty()) "删除" else "删除 ${picked.size} 项",
-                        color = if (picked.isEmpty()) {
-                            MiuixTheme.colorScheme.onSurfaceVariantSummary
-                        } else {
-                            MiuixTheme.colorScheme.error
-                        },
-                        style = MiuixTheme.textStyles.main,
-                        fontWeight = FontWeight.Medium,
-                    )
                 }
             }
         }
