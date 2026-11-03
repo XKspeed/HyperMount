@@ -1,5 +1,6 @@
 package com.xkspeed.HyperMount.core
 
+import android.content.Context
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
@@ -41,6 +42,13 @@ object Update {
     private const val REPO = "XKspeed/SystemUIRescue"
     private const val BRANCH = "main"
 
+    // ---------------- 清单缓存 ----------------
+    // 查到更新之后网络就断了 / 用户重启了应用：之前查到的结果不能凭空消失
+    // 所以每次拉到清单都落一份本地副本 启动时先拿它垫上 再后台去查
+    private const val PREFS = "update_cache"
+    private const val KEY_MANIFEST = "manifest"
+    private const val KEY_PROXY = "proxy"
+
     /** 原始清单（走 GitHub raw） */
     private const val RAW_MANIFEST =
         "https://raw.githubusercontent.com/$REPO/$BRANCH/update.json"
@@ -71,6 +79,52 @@ object Update {
     /** 本次启动扫通的代理前缀（空串=直连，null=还没查过） */
     @Volatile
     private var liveProxy: String? = null
+
+    private var appContext: Context? = null
+
+    /**
+     * 装上下文：清单缓存要用它。
+     *
+     * 顺带把上次扫通的代理前缀恢复回来 —— 缓存里的下载链接也走它，
+     * 否则重启后「能查到更新、点下载却打不开」又会重演一次。
+     */
+    fun install(context: Context) {
+        appContext = context.applicationContext
+        liveProxy = prefs()?.getString(KEY_PROXY, null)
+    }
+
+    /**
+     * 上次成功拉到的清单（没有就返回 null）。
+     *
+     * 这里只负责把缓存原样给出来 判不判定有更新交给调用方拿当前版本比：
+     * 用户装上更新后 旧缓存里的版本号自然不再高于本地 提示会自己消失。
+     */
+    fun cached(): UpdateInfo? {
+        val raw = prefs()?.getString(KEY_MANIFEST, null) ?: return null
+        return runCatching { json.decodeFromString<UpdateInfo>(raw) }
+            .getOrNull()
+            ?.takeIf { it.versionCode > 0 || it.versionName.isNotBlank() }
+    }
+
+    /**
+     * 拉到清单就立刻落盘 失败也不影响本次结果。
+     *
+     * 缓存里那份比这次拉到的还新（镜像没刷新）时不动缓存 返回 false 由调用方决定用哪份。
+     */
+    private fun save(info: UpdateInfo): Boolean {
+        val p = prefs() ?: return false
+        // 不同镜像的新鲜度不一样 偶尔会拿到比本地缓存还旧的副本（CDN 没刷新）
+        // 这种不覆盖：否则刚查到的更新会被一份旧清单抹掉
+        if ((cached()?.versionCode ?: 0) > info.versionCode) return false
+        return runCatching {
+            p.edit()
+                .putString(KEY_MANIFEST, json.encodeToString(UpdateInfo.serializer(), info))
+                .putString(KEY_PROXY, liveProxy.orEmpty())
+                .apply()
+        }.isSuccess
+    }
+
+    private fun prefs() = appContext?.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
 
     // 本地版本走 PackageManager：用 MT 改过 AndroidManifest 的包装上来 这里读到的就是改后的值
     val currentCode: Int get() = AppVersion.code.toInt()
@@ -185,12 +239,15 @@ object Update {
             if (System.currentTimeMillis() >= deadline) break
             val info = fetchOne(url) ?: continue
             liveProxy = proxy
+            // 拿到就落盘：之后断网 / 重启 这次的结果都还在
+            // 写入被拒说明缓存里那份更新（镜像没刷新）那就用它 不让更新提示倒退
+            val result = if (save(info)) info else cached() ?: info
             AppLog.log(
                 "更新",
-                "命中镜像 ${proxy.ifEmpty { "直连/CDN" }} 远端 ${info.versionName}(${info.versionCode}) " +
+                "命中镜像 ${proxy.ifEmpty { "直连/CDN" }} 远端 ${result.versionName}(${result.versionCode}) " +
                     "本地 ${currentName}($currentCode)",
             )
-            return@withContext info
+            return@withContext result
         }
         AppLog.log("更新", "所有镜像都没拿到 update.json")
         null

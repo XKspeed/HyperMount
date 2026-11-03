@@ -202,11 +202,13 @@ fun App() {
     // 让底栏跳到指定页（-1 表示无）
     var jumpTab by remember { mutableIntStateOf(-1) }
 
-    // 更新：启动时后台查一次 10 秒超时 查不到就当没更新
-    var latest by remember { mutableStateOf<UpdateInfo?>(null) }
+    // 更新：先垫上次查到的结果 再后台查一次
+    // 缓存这一步很关键：查到更新后断网、或者用户重启了应用，提示不能凭空消失
+    val cachedInfo = remember { Update.cached() }
+    var latest by remember { mutableStateOf(cachedInfo?.takeIf { Update.isNewer(it) }) }
     // 清单原样留着：模块版本要等 state 读回来才比得了 判定放在渲染时做
     // （检查更新可能比首屏状态先回来 那时 state 还是空的）
-    var manifest by remember { mutableStateOf<UpdateInfo?>(null) }
+    var manifest by remember { mutableStateOf(cachedInfo) }
     // 本地模块版本：state 还没拉回来时先用 module.prop 顶上
     var moduleVer by remember { mutableStateOf("" to 0) }
     var checkingUpdate by remember { mutableStateOf(false) }
@@ -257,7 +259,14 @@ fun App() {
             checkingUpdate = false
             if (info == null) {
                 // 超时/断网：手动点才提示 启动那次安静失败
-                if (manual) toast(context, "检查更新失败 网络不通")
+                // 缓存不清空：上次查到的更新继续挂在页面上 只是说明是上一次的结果
+                if (manual) {
+                    toast(
+                        context,
+                        if (manifest != null) "网络不通 显示上次查到的结果"
+                        else "检查更新失败 网络不通",
+                    )
+                }
                 return@launch
             }
             manifest = info

@@ -6,6 +6,7 @@ import com.xkspeed.HyperMount.core.AppVersion
 import com.xkspeed.HyperMount.core.BuildVariant
 import com.xkspeed.HyperMount.core.Logcat
 import com.xkspeed.HyperMount.core.Root
+import com.xkspeed.HyperMount.core.Update
 import com.xkspeed.HyperMount.ui.component.OverScrollTuning
 
 /**
@@ -27,6 +28,8 @@ class MountApplication : Application() {
         // 过滚动上限在 Compose 起来之前就要备好 否则第一帧会用默认值
         OverScrollTuning.load(this)
         AppLog.install(this)
+        // 上次查到的更新结果存本地：断网重启也要能看到 别让提示凭空消失
+        Update.install(this)
         Root.init(this)
     }
 }
