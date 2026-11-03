@@ -60,7 +60,7 @@ object AppLog {
     private const val CONTIGUOUS_WINDOW_MS = 10 * 60 * 1000L
 
     /** 单个日志文件上限 超了砍掉前半 防止无限膨胀 */
-    private const val MAX_BYTES = 1024 * 1024L
+    private const val MAX_BYTES = 4 * 1024 * 1024L
 
     private val writeLock = Any()
 

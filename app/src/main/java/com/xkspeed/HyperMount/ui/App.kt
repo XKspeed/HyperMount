@@ -121,6 +121,9 @@ sealed interface Route : NavKey {
     data object AppLogs : Route
 
     @Serializable
+    data object Cache : Route
+
+    @Serializable
     data object ThirdPartyLicenses : Route
 
     @Serializable
@@ -189,6 +192,9 @@ fun App() {
     // 主页选到了系统界面本体：拦下来并引导去界面专区
     // 待测 apk 和救砖 apk 都会被 pm install 进系统 两份都得挡
     var sysUiBlock by remember { mutableStateOf<SysUiBlock?>(null) }
+    // 救砖包已经写进私有目录但还没确认：取消时删掉新包 旧配置原样不动
+    var pendingRescue by remember { mutableStateOf<java.io.File?>(null) }
+    var pendingPrevious by remember { mutableStateOf("") }
     // 让底栏跳到指定页（-1 表示无）
     var jumpTab by remember { mutableIntStateOf(-1) }
 
@@ -226,7 +232,12 @@ fun App() {
     }
 
     // 抓取配置存在 App 自己这边 进界面先读一次
-    LaunchedEffect(Unit) { LogConfig.load(context) }
+    LaunchedEffect(Unit) {
+        LogConfig.load(context)
+        // 救砖只认私有目录里的副本：旧配置指向外部原文件的在这里迁进来，
+        // 副本被清掉的直接作废，免得真崩了才发现包不在了
+        withContext(Dispatchers.IO) { ApkStore.ensureRescue(context) }
+    }
 
     LaunchedEffect(Unit) {
         if (UiConfigState.autoCheckUpdate) checkUpdate(manual = false)
@@ -375,6 +386,8 @@ fun App() {
                     }
                     LogConfig.targetPath = real
                     LogConfig.targetSize = Logcat.sizeOf(real)
+                    // 记下包名：miui.systemui.plugin 要走增强判定
+                    LogConfig.targetPkg = pkg
                     LogConfig.save(context)
                     toast(context, "已选择待测apk")
                     return@launch
@@ -417,10 +430,9 @@ fun App() {
                     toast(context, "待测apk不能和救砖apk是同一个文件")
                     return@launch
                 }
-                LogConfig.rescuePath = dst.absolutePath
-                LogConfig.rescueSize = dst.length()
-                LogConfig.save(context)
-                toast(context, "已选择救砖apk")
+                // 先不落配置：等红色警告弹窗确认
+                pendingPrevious = previous
+                pendingRescue = dst
                 return@launch
             }
 
@@ -539,6 +551,7 @@ fun App() {
                 onOpenVolumeCheck = { push(Route.VolumeCheck) },
                 onOpenDebug = { push(Route.Debug) },
                 onOpenAppLog = { push(Route.AppLogs) },
+                onOpenCache = { push(Route.Cache) },
                 onOpenThirdPartyLicenses = { push(Route.ThirdPartyLicenses) },
                 onOpenAbout = { push(Route.About) },
                 latest = latest,
@@ -617,6 +630,10 @@ fun App() {
 
         entry<Route.AppLogs> {
             AppLogPage(onBack = { backStack.removeLastOrNull() })
+        }
+
+        entry<Route.Cache> {
+            CachePage(onBack = { backStack.removeLastOrNull() })
         }
 
         entry<Route.ThirdPartyLicenses> {
@@ -736,6 +753,54 @@ fun App() {
         }
     }
 
+    // 选完救砖包先警告一次：救砖是最后一道保险 选错等于没有
+    val pending = pendingRescue
+    if (pending != null) {
+        WindowDialog(
+            show = true,
+            title = "警告",
+            summary = "请确保该界面能够正常使用",
+            summaryColor = MiuixTheme.colorScheme.error,
+            maxWidth = 560.dp,
+            // 点空白处不关闭 只能走下面两个按钮
+            onDismissRequest = {},
+        ) {
+            Text(
+                pending.name,
+                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                style = MiuixTheme.textStyles.subtitle,
+            )
+            Spacer(Modifier.height(20.dp))
+            Row(modifier = Modifier.fillMaxWidth()) {
+                TextButton(
+                    text = "取消",
+                    onClick = {
+                        // 取消这次选择：删掉刚写入的新包 旧配置和旧包都不动
+                        runCatching { pending.delete() }
+                        pendingRescue = null
+                        pendingPrevious = ""
+                    },
+                    modifier = Modifier.weight(1f),
+                )
+                Spacer(Modifier.width(20.dp))
+                TextButton(
+                    text = "继续",
+                    onClick = {
+                        ApkStore.commitRescue(context, pending, pendingPrevious)
+                        LogConfig.rescuePath = pending.absolutePath
+                        LogConfig.rescueSize = pending.length()
+                        LogConfig.save(context)
+                        pendingRescue = null
+                        pendingPrevious = ""
+                        toast(context, "已选择救砖apk")
+                    },
+                    modifier = Modifier.weight(1f),
+                    colors = ButtonDefaults.textButtonColorsPrimary(),
+                )
+            }
+        }
+    }
+
     // 主页塞了系统界面本体：和设置里的增强救砖同款宽对话框 直接把人赶去界面专区
     val blocked = sysUiBlock
     if (blocked != null) {
@@ -840,6 +905,7 @@ private fun MainScaffold(
     onOpenVolumeCheck: () -> Unit,
     onOpenDebug: () -> Unit,
     onOpenAppLog: () -> Unit,
+    onOpenCache: () -> Unit,
     onOpenThirdPartyLicenses: () -> Unit,
     onOpenAbout: () -> Unit,
     latest: UpdateInfo?,
@@ -957,6 +1023,7 @@ private fun MainScaffold(
                             onOpenDebugLog = onOpenLogs,
                             onOpenDebug = onOpenDebug,
                             onOpenAppLog = onOpenAppLog,
+                            onOpenCache = onOpenCache,
                             onOpenVolumeCheck = onOpenVolumeCheck,
                             onOpenAbout = onOpenAbout,
                             onCheckUpdate = onCheckUpdate,

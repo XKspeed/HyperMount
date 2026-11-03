@@ -73,6 +73,7 @@ fun SettingsPage(
     onOpenDebug: () -> Unit = {},
     onOpenAppLog: () -> Unit = {},
     onOpenVolumeCheck: () -> Unit = {},
+    onOpenCache: () -> Unit = {},
     onOpenAbout: () -> Unit = {},
     onCheckUpdate: () -> Unit = {},
     checkingUpdate: Boolean = false,
@@ -208,6 +209,11 @@ fun SettingsPage(
                                 )
                             }
                         }
+                        // 缓存跟日志模式无关：关掉日志也能进来清副本
+                        ArrowPreference(
+                            title = "缓存大小",
+                            onClick = onOpenCache,
+                        )
                         // 等待超时只在仅日志模式有意义 救砖模式一直等到按键
                         AnimatedVisibility(
                             visible = logModeIndex == 1,

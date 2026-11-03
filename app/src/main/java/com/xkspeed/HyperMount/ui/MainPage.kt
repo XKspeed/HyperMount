@@ -33,6 +33,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -49,6 +50,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.xkspeed.HyperMount.core.AppVersion
+import com.xkspeed.HyperMount.core.ApkStore
+import com.xkspeed.HyperMount.core.LastRun
 import com.xkspeed.HyperMount.core.LogConfig
 import com.xkspeed.HyperMount.core.ModuleState
 import com.xkspeed.HyperMount.core.Logcat
@@ -58,8 +61,10 @@ import com.xkspeed.HyperMount.ui.component.glass.ScrollPage
 import com.xkspeed.HyperMount.ui.components.SectionCard
 import com.xkspeed.HyperMount.ui.components.SliderInputPreference
 import com.xkspeed.HyperMount.ui.components.StatusDot
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import top.yukonga.miuix.kmp.basic.Button
 import top.yukonga.miuix.kmp.basic.ButtonDefaults
 import top.yukonga.miuix.kmp.basic.Card
@@ -85,7 +90,7 @@ private val UpdateGreen = Color(0xFF2E7D32)
  * 主页：自己的测试流程
  *
  * 逻辑照搬「双兼容版 logcat.sh」：
- * 后台 pm install 待测 apk → 等用户设定的时长 → 抓 crash 日志
+ * 后台 pm install 待测 apk → 装完立刻抓 crash 日志
  * 自动替换打开时再盯日志大小 超阈值就把救砖 apk 装回去
  *
  * 和「界面」页完全独立：两份 apk 都不复制，脚本直接读原路径安装
@@ -108,12 +113,17 @@ fun MainPage(
     val autoReplace = LogConfig.autoReplace
 
     var showConfig by remember { mutableStateOf(false) }
-    var session by remember { mutableStateOf<Logcat.Session?>(null) }
-    var running by remember { mutableStateOf(false) }
+    var showStartConfirm by remember { mutableStateOf(false) }
     var starting by remember { mutableStateOf(false) }
-    var logLines by remember { mutableStateOf<List<String>>(emptyList()) }
-    var logSize by remember { mutableStateOf(0L) }
+    // 会话与输出放单例：切到设置/关于再回来 还在跑的那一轮不会“凭空消失”
+    val session = MainUiState.session
+    val running = MainUiState.running
+    val logLines = MainUiState.logLines
+    val logSize = MainUiState.logSize
     val logListState = rememberLazyListState()
+
+    // 进页面先把累计救砖次数捞出来 不用等第一次轮询
+    LaunchedEffect(Unit) { MainUiState.rescued = Logcat.rescuedCount() }
 
     // 测试在跑 或者脚本刚起来还没读到状态 就把日志区撑开
     val showLog = running || session != null
@@ -121,18 +131,34 @@ fun MainPage(
     // 跑着就每 1.5 秒拉一次运行日志与状态
     LaunchedEffect(session?.file) {
         val s = session ?: return@LaunchedEffect
+        // 只有「跑着 → 停下」这一刻才落盘，重进页面不刷新时间
+        var wasRunning = MainUiState.running
         while (true) {
             val p = Logcat.poll(s.file)
-            logLines = if (p.text.isBlank()) emptyList() else p.text.lines()
-            logSize = p.size
-            running = p.running
-            if (!p.running) break
+            MainUiState.logLines = if (p.text.isBlank()) emptyList() else p.text.lines()
+            MainUiState.logSize = p.size
+            MainUiState.running = p.running
+            if (!p.running) {
+                MainUiState.rescued = Logcat.rescuedCount()
+                if (wasRunning) {
+                    // 结束时把结论落盘：SystemUI 反复重启时看不见界面 只能事后看
+                    val r = p.text.lineSequence()
+                        .lastOrNull { it.contains("结果:") }
+                        ?.substringAfter("结果:")?.trim().orEmpty()
+                    if (r.isNotBlank()) LastRun.save(context, LogConfig.pkg, r)
+                }
+                break
+            }
+            wasRunning = true
             delay(1500)
         }
     }
 
+    // 只在已经贴底时跟随：用户往上翻历史时不再被硬拽回来
     LaunchedEffect(logLines.size) {
-        if (logLines.isNotEmpty()) {
+        if (logLines.isEmpty()) return@LaunchedEffect
+        val last = logListState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: -1
+        if (last >= logLines.size - 3) {
             runCatching { logListState.scrollToItem(logLines.size - 1) }
         }
     }
@@ -156,7 +182,7 @@ fun MainPage(
     val canStart = rootOk == true && targetReady && !running && !starting &&
         (!autoReplace || rescueReady)
 
-    val rescueCount = logLines.count { it.contains("救砖成功") }
+    val rescueCount = MainUiState.rescued
 
     fun startTest() {
         if (!targetReady) {
@@ -169,12 +195,17 @@ fun MainPage(
         }
         scope.launch {
             starting = true
-            // 两份 apk 都不复制：待测用用户选的原文件，救砖用 files/rescueapk 里那份
-            // pm install 由 root shell 自己读文件 路径在哪都能装
+            // 待测原文件位置不动 只做存在性检查
             val target = LogConfig.targetPath
             if (!Logcat.exists(target)) {
                 starting = false
                 toast(context, "待测apk不见了 重新选一次")
+                return@launch
+            }
+            // 救砖只认私有目录里的副本：原文件被删也能救，缺了就让人重选
+            if (autoReplace && !withContext(Dispatchers.IO) { ApkStore.ensureRescue(context) }) {
+                starting = false
+                toast(context, "救砖apk不见了 重新选一次")
                 return@launch
             }
             val rescue = if (autoReplace) LogConfig.rescuePath else ""
@@ -183,22 +214,49 @@ fun MainPage(
                 toast(context, "救砖apk不见了 重新选一次")
                 return@launch
             }
-            val s = Logcat.start(
-                pkg = LogConfig.pkg.trim(),
-                waitSeconds = LogConfig.waitSeconds,
-                seconds = LogConfig.seconds,
-                targetApk = target,
-                rescueApk = rescue,
-                dir = state.logDir,
-            )
-            starting = false
-            if (s == null) {
-                toast(context, "测试没起来 检查 root 授权")
-            } else {
-                session = s
-                running = true
-                logLines = emptyList()
-                logSize = 0L
+            // 老配置没记包名：开跑前补读一次，用来判断是不是 plugin
+            val tpkg = LogConfig.targetPkg.ifBlank {
+                withContext(Dispatchers.IO) { packageNameOf(context, java.io.File(target)) }.orEmpty()
+            }
+            if (tpkg.isNotBlank() && tpkg != LogConfig.targetPkg) {
+                LogConfig.targetPkg = tpkg
+                LogConfig.save(context)
+            }
+            val pluginMode = tpkg == Logcat.PLUGIN_PKG
+
+            // 待测复制到 cache 再装：system_server 读不了 /storage 下的 fuse 文件
+            val staged = when (val r = Logcat.stageTarget(target)) {
+                is Logcat.StageResult.Ok -> r.path
+                is Logcat.StageResult.Fail -> {
+                    starting = false
+                    toast(context, r.reason)
+                    return@launch
+                }
+            }
+            when (
+                val r = Logcat.start(
+                    pkg = LogConfig.pkg.trim(),
+                    seconds = LogConfig.seconds,
+                    sizeLimitKb = LogConfig.sizeLimitKb,
+                    targetApk = staged,
+                    rescueApk = rescue,
+                    pluginMode = pluginMode,
+                    fatalThreshold = state.fatalThreshold.toIntOrNull() ?: 3,
+                    dir = state.logDir,
+                )
+            ) {
+                is Logcat.StartResult.Fail -> {
+                    starting = false
+                    toast(context, r.reason)
+                }
+                is Logcat.StartResult.Ok -> {
+                    val s = r.session
+                    starting = false
+                    MainUiState.session = s
+                    MainUiState.running = true
+                    MainUiState.logLines = emptyList()
+                    MainUiState.logSize = 0L
+                }
             }
         }
     }
@@ -206,14 +264,15 @@ fun MainPage(
     fun stopTest() {
         scope.launch {
             Logcat.stop()
-            running = false
+            MainUiState.running = false
             // 手动停止后保留这一轮的输出 方便回看跑到哪一步
             // session 不清空 日志区就不会收起来 下次开始时会自动重置
             val s = session
             if (s != null) {
                 val p = Logcat.poll(s.file)
-                if (p.text.isNotBlank()) logLines = p.text.lines()
-                logSize = p.size
+                if (p.text.isNotBlank()) MainUiState.logLines = p.text.lines()
+                MainUiState.logSize = p.size
+                MainUiState.running = false
             }
         }
     }
@@ -279,12 +338,17 @@ fun MainPage(
                         buildString {
                             if (running) {
                                 append(LogConfig.pkg.ifBlank { "全部进程" })
-                                append(" · 等待 ").append(LogConfig.waitSeconds).append(" 秒")
                                 append(" · 抓取 ").append(LogConfig.seconds).append(" 秒")
                             } else {
-                                append("未在运行")
+                                val last = LastRun.text()
+                                if (last.isBlank()) {
+                                    append("未在运行")
+                                } else {
+                                    append("上次 ").append(LastRun.timeText()).append(" · ").append(last)
+                                }
                             }
                             append(" · 自动替换").append(if (autoReplace) "开" else "关")
+                            if (LogConfig.targetPkg == Logcat.PLUGIN_PKG) append(" · plugin 增强")
                             if (rescueCount > 0) append(" · 已救砖 ").append(rescueCount).append(" 次")
                             if (logSize > 0) append(" · ").append(Module.fmtSize(logSize))
                         },
@@ -319,8 +383,7 @@ fun MainPage(
                                             line.ifEmpty { " " },
                                             modifier = Modifier.fillMaxWidth(),
                                             color = when {
-                                                line.contains("失败") || line.contains("错误") ||
-                                                    line.contains("中止") ->
+                                                isErrorLine(line) ->
                                                     MiuixTheme.colorScheme.error
                                                 line.contains("救砖成功") || line.contains("安装结束") ->
                                                     MiuixTheme.colorScheme.primary
@@ -413,7 +476,7 @@ fun MainPage(
                 Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
                     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         Button(
-                            onClick = { startTest() },
+                            onClick = { showStartConfirm = true },
                             enabled = canStart,
                             modifier = Modifier.weight(1f),
                         ) {
@@ -446,16 +509,51 @@ fun MainPage(
             }
         }
 
-        // ---- 配置项：目标包名 / 等待时长 / 抓取时长 ----
+        // ---- 配置项：目标包名 / 抓取时长 / 日志大小判定 ----
         item { SmallTitle("配置") }
         item {
             SectionCard {
                 ArrowPreference(
                     title = "配置项",
-                    summary = "包名 " + LogConfig.pkg.ifBlank { "全部进程" } +
-                        " · 等待 " + LogConfig.waitSeconds +
-                        " 秒 · 抓取 " + LogConfig.seconds + " 秒",
+                    summary = LogConfig.pkg.ifBlank { "全部进程" } +
+                        " · 抓取 " + LogConfig.seconds + " 秒" +
+                        " · 大小 " + LogConfig.sizeLimitKb + "KB",
                     onClick = { showConfig = true },
+                )
+            }
+        }
+    }
+
+    // 开始前二次确认：确认完立刻装待测 apk 不再等
+    if (showStartConfirm) {
+        WindowDialog(
+            show = true,
+            title = "开始测试",
+            summary = "确认后立即安装待测apk",
+            maxWidth = 560.dp,
+            onDismissRequest = { showStartConfirm = false },
+        ) {
+            Text(
+                LogConfig.targetPath.substringAfterLast('/'),
+                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                style = MiuixTheme.textStyles.subtitle,
+            )
+            Spacer(Modifier.height(20.dp))
+            Row(modifier = Modifier.fillMaxWidth()) {
+                TextButton(
+                    text = "取消",
+                    onClick = { showStartConfirm = false },
+                    modifier = Modifier.weight(1f),
+                )
+                Spacer(Modifier.width(20.dp))
+                TextButton(
+                    text = "继续",
+                    onClick = {
+                        showStartConfirm = false
+                        startTest()
+                    },
+                    modifier = Modifier.weight(1f),
+                    colors = ButtonDefaults.textButtonColorsPrimary(),
                 )
             }
         }
@@ -465,7 +563,7 @@ fun MainPage(
     WindowDialog(
         show = showConfig,
         title = "配置项",
-        summary = "目标包名 · 等待时长 · 抓取时长",
+        summary = "目标包名 · 抓取时长 · 日志大小判定",
         maxWidth = 560.dp,
         onDismissRequest = { showConfig = false },
     ) {
@@ -487,21 +585,8 @@ fun MainPage(
             )
             Spacer(Modifier.height(4.dp))
             SliderInputPreference(
-                title = "等待时长",
-                summary = "开抓前等多久 留给 apk 安装",
-                value = LogConfig.waitSeconds.toFloat(),
-                onValueChange = { LogConfig.waitSeconds = it.roundToInt() },
-                onValueChangeFinished = { LogConfig.save(context) },
-                valueRange = Logcat.MIN_WAIT.toFloat()..Logcat.MAX_WAIT.toFloat(),
-                steps = Logcat.MAX_WAIT - Logcat.MIN_WAIT - 1,
-                valueText = "${LogConfig.waitSeconds} 秒",
-                inputUnit = "秒",
-                // 对话框里不要卡片那层 16dp 内缩 滑轨和上面的包名输入框等宽
-                insideMargin = PaddingValues(horizontal = 0.dp, vertical = 14.dp),
-            )
-            SliderInputPreference(
                 title = "抓取时长",
-                summary = "到点自动结束 也可以随时手动停止",
+                summary = "从装完开始算 下一轮生效",
                 value = LogConfig.seconds.toFloat(),
                 onValueChange = { LogConfig.seconds = it.roundToInt() },
                 onValueChangeFinished = { LogConfig.save(context) },
@@ -509,6 +594,18 @@ fun MainPage(
                 steps = Logcat.MAX_SECONDS - Logcat.MIN_SECONDS - 1,
                 valueText = "${LogConfig.seconds} 秒",
                 inputUnit = "秒",
+                insideMargin = PaddingValues(horizontal = 0.dp, vertical = 14.dp),
+            )
+            SliderInputPreference(
+                title = "日志大小判定",
+                summary = "crash 日志超过这个大小也算崩",
+                value = LogConfig.sizeLimitKb.toFloat(),
+                onValueChange = { LogConfig.sizeLimitKb = it.roundToInt() },
+                onValueChangeFinished = { LogConfig.save(context) },
+                valueRange = Logcat.MIN_SIZE_KB.toFloat()..Logcat.MAX_SIZE_KB.toFloat(),
+                steps = Logcat.MAX_SIZE_KB - Logcat.MIN_SIZE_KB - 1,
+                valueText = "${LogConfig.sizeLimitKb} KB",
+                inputUnit = "KB",
                 insideMargin = PaddingValues(horizontal = 0.dp, vertical = 14.dp),
             )
         }
@@ -523,6 +620,21 @@ fun MainPage(
         }
     }
 }
+
+/** 主页这一轮的状态：放外面 切页回来还在 */
+private object MainUiState {
+    var session by mutableStateOf<Logcat.Session?>(null)
+    var running by mutableStateOf(false)
+    var logLines by mutableStateOf<List<String>>(emptyList())
+    var logSize by mutableStateOf(0L)
+    var rescued by mutableIntStateOf(0)
+}
+
+/** 失败判定统一一份：中文、英文、以及 pm install 的非零返回码 */
+internal fun isErrorLine(line: String): Boolean =
+    line.contains("失败") || line.contains("错误") || line.contains("中止") ||
+        line.contains("FAIL") || line.contains("Failure") || line.contains("Exception") ||
+        Regex("""exit=[1-9]""").containsMatchIn(line)
 
 private fun toast(context: Context, msg: String) {
     if (msg.isNotBlank()) Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()

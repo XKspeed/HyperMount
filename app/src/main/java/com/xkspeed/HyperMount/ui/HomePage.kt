@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.systemBars
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -53,15 +54,18 @@ import com.xkspeed.HyperMount.ui.util.pageContentPadding
 import com.xkspeed.HyperMount.ui.util.pageScrollModifiers
 import com.xkspeed.HyperMount.ui.util.rememberBlurBackdrop
 import top.yukonga.miuix.kmp.basic.Button
+import top.yukonga.miuix.kmp.basic.ButtonDefaults
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.MiuixScrollBehavior
 import top.yukonga.miuix.kmp.basic.Scaffold
 import top.yukonga.miuix.kmp.basic.SmallTitle
 import top.yukonga.miuix.kmp.basic.Text
+import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.blur.layerBackdrop
 import top.yukonga.miuix.kmp.preference.ArrowPreference
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.utils.scrollEndHaptic
+import top.yukonga.miuix.kmp.window.WindowDialog
 import com.xkspeed.HyperMount.ui.component.mountOverScrollVertical
 
 @Composable
@@ -78,6 +82,7 @@ fun HomePage(
     val isWideScreen = LocalIsWideScreen.current
     val scrollBehavior = MiuixScrollBehavior()
     val listState = rememberLazyListState()
+    var showStartConfirm by remember { mutableStateOf(false) }
 
     val backdrop = rememberBlurBackdrop()
 
@@ -87,31 +92,33 @@ fun HomePage(
     // 守护运行时把状态卡撑开 直接在这里看脚本输出 停下来再收回
     val screenHeight = LocalConfiguration.current.screenHeightDp.dp
     val logListState = rememberLazyListState()
-    var logLines by remember { mutableStateOf<List<String>>(emptyList()) }
-    // 本次进来跑过没有：只有跑过才在结束后把最后一份日志留在原地，
-    // 首次打开页面不读磁盘上的旧文件（那是上一次会话的残留）
-    var hasRun by remember { mutableStateOf(false) }
+    // 放单例：切到设置再回来 这一轮的输出还在
+    val logLines = HomeUiState.logLines
+    val hasRun = HomeUiState.hasRun
 
     LaunchedEffect(state.daemonRunning) {
         if (state.daemonRunning) {
             // 新的一轮：先把上一轮留下的输出清掉，避免开场闪一下旧日志
-            if (hasRun) logLines = emptyList()
-            hasRun = true
+            if (hasRun) HomeUiState.logLines = emptyList()
+            HomeUiState.hasRun = true
             while (true) {
                 val text = Module.tailLog(300)
-                logLines = if (text.isBlank()) emptyList() else text.lines()
+                HomeUiState.logLines = if (text.isBlank()) emptyList() else text.lines()
                 delay(1500)
             }
         } else if (hasRun) {
             // 流程结束（走完页面 / 音量键）时再补读一次：
             // 轮询协程刚被取消，最后几行不能因此丢掉
             val text = Module.tailLog(300)
-            if (text.isNotBlank()) logLines = text.lines()
+            if (text.isNotBlank()) HomeUiState.logLines = text.lines()
         }
     }
 
+    // 只在贴底时跟随 往上翻历史不被拽回来
     LaunchedEffect(logLines.size) {
-        if (logLines.isNotEmpty()) {
+        if (logLines.isEmpty()) return@LaunchedEffect
+        val last = logListState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: -1
+        if (last >= logLines.size - 3) {
             runCatching { logListState.scrollToItem(logLines.size - 1) }
         }
     }
@@ -190,7 +197,7 @@ fun HomePage(
                                                     line.ifEmpty { " " },
                                                     modifier = Modifier.fillMaxWidth(),
                                                     color = when {
-                                                        line.contains("FAIL") || line.contains("错误") ->
+                                                        isErrorLine(line) ->
                                                             MiuixTheme.colorScheme.error
                                                         line.contains("OK") || line.contains("成功") ->
                                                             MiuixTheme.colorScheme.primary
@@ -266,7 +273,7 @@ fun HomePage(
                         Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
                             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                                 Button(
-                                    onClick = onStart,
+                                    onClick = { showStartConfirm = true },
                                     enabled = canStart,
                                     modifier = Modifier.weight(1f),
                                 ) {
@@ -287,7 +294,7 @@ fun HomePage(
                                     !state.rescueReady -> "先选一个救砖界面（能正常开机的 SystemUI）"
                                     !state.targetOk -> "再选一个待测界面"
                                     state.daemonRunning -> "守护已启动 音量+ 触发救砖 音量- 取消"
-                                    else -> "启动后 5 秒自动替换界面 随后监听崩溃与音量键"
+                                    else -> "确认后立即替换界面 随后监听崩溃与音量键"
                                 },
                                 color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                                 style = MiuixTheme.textStyles.subtitle,
@@ -313,6 +320,47 @@ fun HomePage(
                             )
                         }
                     }
+                }
+    }
+
+    // 开始前二次确认：确认完立刻把待测界面换进模块目录 不再等
+    if (showStartConfirm) {
+        WindowDialog(
+            show = true,
+            title = "开始测试",
+            summary = "确认后立即替换界面",
+            maxWidth = 560.dp,
+            onDismissRequest = { showStartConfirm = false },
+        ) {
+            Text(
+                state.targetPath.substringAfterLast('/'),
+                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                style = MiuixTheme.textStyles.subtitle,
+            )
+            Spacer(Modifier.height(20.dp))
+            Row(modifier = Modifier.fillMaxWidth()) {
+                TextButton(
+                    text = "取消",
+                    onClick = { showStartConfirm = false },
+                    modifier = Modifier.weight(1f),
+                )
+                Spacer(Modifier.width(20.dp))
+                TextButton(
+                    text = "继续",
+                    onClick = {
+                        showStartConfirm = false
+                        onStart()
+                    },
+                    modifier = Modifier.weight(1f),
+                    colors = ButtonDefaults.textButtonColorsPrimary(),
+                )
+            }
+        }
     }
 }
+
+/** 界面页这一轮的状态：切页回来还在 */
+private object HomeUiState {
+    var logLines by mutableStateOf<List<String>>(emptyList())
+    var hasRun by mutableStateOf(false)
 }

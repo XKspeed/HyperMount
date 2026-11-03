@@ -175,9 +175,25 @@ object Module {
         ok
     }
 
+    /**
+     * 跑一次脚本，把命令和输出都抄进应用日志
+     *
+     * 界面页的日志区只展示模块自己的日志文件；webctl 的 OK/FAIL、pm install 的报错
+     * 以前只在界面上一闪而过，事后翻 app.log 什么都看不到。
+     */
+    private suspend fun logged(label: String, block: suspend () -> String): String {
+        val out = runCatching { block() }.getOrElse { t ->
+            AppLog.e("脚本", "$label 执行异常", t)
+            return "ERROR ${t.message ?: t.javaClass.simpleName}"
+        }
+        AppLog.i("脚本", "$label\n${out.ifBlank { "(无输出)" }}")
+        return out
+    }
+
     /** 把 APK 复制到模块根并统一命名为 MiuiSystemUI.apk */
-    suspend fun prepare(src: String): String =
+    suspend fun prepare(src: String): String = logged("prepare ${src.substringAfterLast('/')}") {
         Root.webctl("prepare ${Root.q(src)}")
+    }
 
     /**
      * 启动测试
@@ -186,16 +202,20 @@ object Module {
      * webctl 内部会用 cmp 判断是否需要重新复制
      */
     suspend fun testRun(target: String): String =
-        Root.webctl("test-run ${Root.q(Root.RESCUE_APK)} ${Root.q(target)}")
+        logged("test-run ${target.substringAfterLast('/')}") {
+            Root.webctl("test-run ${Root.q(Root.RESCUE_APK)} ${Root.q(target)}")
+        }
 
-    suspend fun stop(): String = Root.webctl("stop")
+    suspend fun stop(): String = logged("stop") { Root.webctl("stop") }
 
     /**
      * 音量键校验（webroot/check.sh）
      * up / down 会阻塞到用户按键或 10 秒超时 所以必须放在 IO 线程
      */
     suspend fun check(sub: String): String = withContext(Dispatchers.IO) {
-        Root.exec("sh " + Root.q(Root.MODULE_DIR + "/webroot/check.sh") + " " + sub)
+        logged("check $sub") {
+            Root.exec("sh " + Root.q(Root.MODULE_DIR + "/webroot/check.sh") + " " + sub)
+        }
     }
 
     /**
@@ -204,14 +224,18 @@ object Module {
      */
     suspend fun saveVolumeCheck(upDev: String = "", downDev: String = ""): String =
         withContext(Dispatchers.IO) {
-            Root.exec(
-                "sh " + Root.q(Root.MODULE_DIR + "/webroot/check.sh") +
-                    " save " + Root.q(upDev) + " " + Root.q(downDev)
-            )
+            logged("check save") {
+                Root.exec(
+                    "sh " + Root.q(Root.MODULE_DIR + "/webroot/check.sh") +
+                        " save " + Root.q(upDev) + " " + Root.q(downDev)
+                )
+            }
         }
 
     suspend fun setRescueOff(off: Boolean): String =
-        Root.webctl(if (off) "rescue off" else "rescue on")
+        logged(if (off) "rescue off" else "rescue on") {
+            Root.webctl(if (off) "rescue off" else "rescue on")
+        }
 
     /**
      * 直接把 AMS 崩溃上限改成指定值
@@ -221,15 +245,18 @@ object Module {
      * 增强救砖要屏蔽系统救援（999999）走 [setRescueOff] 这里不重复实现
      */
     suspend fun setCrashLimit(limit: Int): String = withContext(Dispatchers.IO) {
-        Root.exec(
-            "settings put global activity_manager_constants " +
-                "\"process_crash_count_limit=$limit,min_crash_interval=120000," +
-                "process_crash_count_reset_interval=43200000\" 2>/dev/null",
-        )
+        logged("崩溃上限 $limit") {
+            Root.exec(
+                "settings put global activity_manager_constants " +
+                    "\"process_crash_count_limit=$limit,min_crash_interval=120000," +
+                    "process_crash_count_reset_interval=43200000\" 2>/dev/null",
+            )
+        }
         val back = Root.exec(
             "dumpsys activity settings 2>/dev/null | " +
                 "grep -oE 'process_crash_count_limit=[0-9]+' | cut -d= -f2 | head -1",
         ).trim()
+        AppLog.i("脚本", "崩溃上限回读 ${back.ifBlank { "unknown" }}")
         if (back == limit.toString()) "OK 崩溃上限已设为 $limit"
         else "FAIL 设置未生效（当前 ${back.ifBlank { "unknown" }}）"
     }
