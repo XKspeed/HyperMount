@@ -243,6 +243,40 @@ jobs:
             "$FILE" > "$FILE.tmp" && mv "$FILE.tmp" "$FILE"
           grep -nE '^version|^versionCode' "$FILE"
 
+      # update.md 的写法：顶部永远是一个 ## latest 段，开发中的改动都往里加
+      # 发版这一刻把 ## latest 就地改名成 ## v<版本> 更新，再在最顶上插入一个新的空 latest
+      # 好处是「写日志」和「发版」彻底解耦：平时只往 latest 里追加，发版不用回头改标题
+      - name: Finalize changelog
+        env:
+          VERSION: ${{ steps.version.outputs.version_name }}
+          MODULE_VERSION: ${{ steps.version.outputs.module_name }}
+        run: |
+          set -euo pipefail
+
+          # ---- 应用 ----
+          if sh scripts/changelog.sh has update.md latest; then
+            sh scripts/changelog.sh finalize update.md "${VERSION}"
+          elif sh scripts/changelog.sh has update.md "${VERSION}"; then
+            # 重发同一版本时 latest 已经被上次发版清空，直接复用已归档的段落
+            echo "update.md 的 latest 为空，复用已归档的 v${VERSION} 段（重发同一版本）"
+          else
+            echo "::error::update.md 的 ## latest 段没有内容 —— 发布前先把这次改动写进去"
+            exit 1
+          fi
+
+          # ---- 模块 ----
+          # 模块允许这一版不发：latest 为空且没有对应段落时跳过，不阻断 App 发版
+          if sh scripts/changelog.sh has module/main/update.md latest; then
+            sh scripts/changelog.sh finalize module/main/update.md "${MODULE_VERSION}"
+          else
+            echo "模块 update.md 的 latest 为空，本次 Release 不附模块日志"
+          fi
+
+          echo "--- update.md 顶部 ---"
+          sed -n '1,12p' update.md
+          echo "--- module/main/update.md 顶部 ---"
+          sed -n '1,12p' module/main/update.md
+
       # 模块包和 App 一起发：打包逻辑只维护在 module/打包.sh 一份，
       # 本地跑同一条命令 产出完全一样的 zip（--keep 表示不改源码里的版本号）
       - name: Build module zip
@@ -301,9 +335,9 @@ jobs:
           echo "发布产物: ${OUT}"
           ls -l "$OUT"
 
-      # 构建成功后再提交版本号改动 避免构建失败留下一半的脏提交
+      # 构建成功后再提交版本号与日志改动 避免构建失败留下一半的脏提交
+      # 日志归档（## latest → ## v<版本>）也在这里一起进仓库 保证 tag 里的 update.md 是归档后的
       - name: Commit version bump
-        if: steps.version.outputs.bump == 'true' || steps.version.outputs.module_bump == 'true'
         env:
           VERSION: ${{ steps.version.outputs.version_name }}
           MODULE_VERSION: ${{ steps.version.outputs.module_name }}
@@ -311,9 +345,9 @@ jobs:
           set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add app/build.gradle.kts module/main/module.prop
+          git add app/build.gradle.kts module/main/module.prop update.md module/main/update.md
           if git diff --cached --quiet; then
-            echo "版本文件无变化（可能本来就是该版本） 跳过提交"
+            echo "版本文件与日志无变化（可能本来就是该版本） 跳过提交"
             exit 0
           fi
           git commit -m "chore(release): 版本号 ${VERSION} / 模块 ${MODULE_VERSION}"
@@ -332,29 +366,56 @@ jobs:
           git tag "${TAG}"
           git push origin "${TAG}"
 
-      # 本次 Release 说明取自 update.md 顶部最新一段：
-      # update.md 由我们维护 —— 新版本内容写在文件顶部 历史段落自然下移留档
-      # 工作流只取顶部那一段 保证每个 Release 只描述自己这个版本
+      # Release 说明由两段拼成：应用段 + 模块段
+      # 应用段取自 update.md 里 ## v<版本> 更新（上一步刚从 latest 归档出来的）
+      # 模块段取自 module/main/update.md 的同名段落，模块这版没改动就整段省略
       - name: Extract release notes
         env:
           VERSION: ${{ steps.version.outputs.version_name }}
+          MODULE_VERSION: ${{ steps.version.outputs.module_name }}
         run: |
           set -euo pipefail
-          # 默认空说明：update.md 为空时（例如首个正式版不写更新日志） Release 说明就留空
+
+          # 去掉段首段尾的空行，段与段之间统一只留一个空行
+          trim() {
+            awk '
+              { line[NR] = $0 }
+              END {
+                start = 1; end = NR
+                while (start <= end && line[start] ~ /^[[:space:]]*$/) start++
+                while (end >= start && line[end] ~ /^[[:space:]]*$/) end--
+                for (i = start; i <= end; i++) print line[i]
+              }'
+          }
+
+          sh scripts/changelog.sh extract update.md "${VERSION}" | trim > app_changelog.md
+          sh scripts/changelog.sh has module/main/update.md "${MODULE_VERSION}" \
+            && sh scripts/changelog.sh extract module/main/update.md "${MODULE_VERSION}" | trim > module_changelog.md \
+            || : > module_changelog.md
+
           : > release_notes.md
-          if [ -s update.md ]; then
-            # 顶部标题与目标版本不一致时提醒：多半是忘了在 update.md 写本次更新
-            TOP=$(head -1 update.md)
-            if [ "$TOP" != "## v${VERSION} 更新" ]; then
-              echo "::warning::update.md 顶部是「${TOP}」 与目标版本 v${VERSION} 不一致 —— Release 说明可能不是这个版本的"
-            fi
-            awk '/^## /{c++} c==1' update.md > release_notes.md
+          if [ -s app_changelog.md ]; then
+            {
+              echo "### 应用 · v${VERSION}"
+              echo
+              cat app_changelog.md
+            } > release_notes.md
           fi
+
+          if [ -s module_changelog.md ]; then
+            {
+              echo
+              echo "### 模块 · v${MODULE_VERSION}"
+              echo
+              cat module_changelog.md
+            } >> release_notes.md
+          fi
+
           if [ -s release_notes.md ]; then
             echo "--- 本次 Release 说明 ---"
             cat release_notes.md
           else
-            echo "update.md 为空 本次 Release 不写更新说明"
+            echo "update.md 里没有这个版本的段落 本次 Release 不带说明"
           fi
 
       # 构建完直接发布 Release 附带签名 APK 和模块 zip
@@ -373,7 +434,8 @@ jobs:
       # 发布完把仓库根的 update.json 指到这次 Release
       # App 启动检查更新读的就是 main 上这份清单：
       # versionCode 取 build.gradle.kts（已经 bump 过） 地址直接拼本次 tag 的 APK 资产
-      # changelog 从刚生成的 release_notes.md 里去掉标题和列表符号
+      # changelog 取 app_changelog.md（update.md 里本次版本的段落本身）
+      # 不从 release_notes.md 抠：那份说明里已经混进了模块段和 ### 标题
       - name: Update update.json
         env:
           VERSION: ${{ steps.version.outputs.version_name }}
@@ -391,23 +453,29 @@ jobs:
           python3 - <<'PY'
           import json, os, re
 
-          lines = []
-          if os.path.exists("release_notes.md"):
-              for raw in open("release_notes.md", encoding="utf-8"):
-                  s = raw.strip()
-                  if not s or s.startswith("#"):
-                      continue
-                  lines.append(re.sub(r"^[-*]\s+", "", s))
+          def read_lines(path):
+              """把 update.md 段落里的 - 列表项压成一行一条的纯文本"""
+              lines = []
+              if os.path.exists(path):
+                  for raw in open(path, encoding="utf-8"):
+                      s = raw.strip()
+                      if not s or s.startswith("#"):
+                          continue
+                      lines.append(re.sub(r"^[-*]\s+", "", s))
+              return "\n".join(lines)
 
           data = {
               "versionCode": int(os.environ["CODE"]),
               "versionName": os.environ["VERSION"],
               "url": os.environ["URL"],
-              "changelog": "\n".join(lines),
-              # 模块也挂在同一个 Release 里，官网的「先装模块」卡片读这两项
+              # 应用日志取 update.md 里本次版本的段落（不是从 Release 说明里抠，避免混进模块段）
+              "changelog": read_lines("app_changelog.md"),
+              # 模块挂在同一个 Release 里，官网「先装模块」卡片与关于页模块更新卡读这三项
               "moduleVersionCode": int(os.environ["MODULE_CODE"]),
               "moduleVersionName": os.environ["MODULE_VERSION"],
               "moduleUrl": os.environ["MODULE_URL"],
+              # 模块这版没有日志就是空串，App 端会自动回落到「见 Release 页面」
+              "moduleChangelog": read_lines("module_changelog.md"),
           }
           with open("update.json", "w", encoding="utf-8") as f:
               json.dump(data, f, ensure_ascii=False, indent=2)
