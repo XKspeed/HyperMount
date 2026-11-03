@@ -179,7 +179,7 @@ object Logcat {
 
         # 两路判定 任一命中就救：
         #   1) 按包名：Process: / name:（native）/ am_crash / am_proc_died
-        #      FATAL EXCEPTION 在 crash 缓冲，事件在 events 缓冲，所以要抓两路
+        #      FATAL EXCEPTION 在 crash 缓冲 事件在 events 缓冲 所以要抓两路
         #   2) 按大小：crash 日志超过阈值也算崩（兜住拿不到包名的机型）
         crash_hit() {
             [ -f "@LOG_FILE" ] || return 1

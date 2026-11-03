@@ -265,7 +265,7 @@ fun CachePage(onBack: () -> Unit) {
         onDismissRequest = { askDelete = false },
     ) {
         Text(
-            "将删除 ${picked.size} 个 apk 缓存，下次测试会重新复制一份",
+            "将删除 ${picked.size} 个 apk 缓存 下次测试会重新复制一份",
             color = MiuixTheme.colorScheme.onSurface,
             style = MiuixTheme.textStyles.subtitle,
         )

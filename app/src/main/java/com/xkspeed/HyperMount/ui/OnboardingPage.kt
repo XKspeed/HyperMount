@@ -112,6 +112,8 @@ fun OnboardingPage(
     startAtVolume: Boolean = false,
     /** 强制校验：忽略已校验标记 作废模块侧结果后重按一遍 */
     forceVolume: Boolean = false,
+    /** 从调试页回看时给个退出口；首次启动传 null，第一页按返回不做事 */
+    onCancel: (() -> Unit)? = null,
 ) {
     val context = LocalContext.current
 
@@ -254,9 +256,14 @@ fun OnboardingPage(
     }
 
     // 只能一步步往回退 退到第一步就不再拦 由系统退出 App
-    BackHandler(enabled = step > 0) {
-        if (step == 3 && !volDone) volSkip = true
-        step--
+    BackHandler(enabled = step > 0 || onCancel != null) {
+        if (step == 0) {
+            // 只剩回看入口这一种情况会走到这里：直接退回调试页
+            onCancel?.invoke()
+        } else {
+            if (step == 3 && !volDone) volSkip = true
+            step--
+        }
     }
 
     Box(Modifier.fillMaxSize().background(MiuixTheme.colorScheme.surface)) {
@@ -394,19 +401,24 @@ private fun WelcomeStep(icon: androidx.compose.ui.graphics.ImageBitmap?) {
         Spacer(Modifier.height(34.dp))
 
         FeatureRow(
+            icon = MiuixIcons.Backup,
+            title = "崩了自动换回",
+            desc = "崩溃到阈值 / 日志疯长 / 堆栈刷屏 任一命中就装回救砖包",
+        )
+        FeatureRow(
             icon = MiuixIcons.VolumeUp,
-            title = "崩溃自动救砖",
-            desc = "crash 日志一超阈值 立刻装回救砖包并重启界面",
+            title = "音量键兜底",
+            desc = "屏幕点不动时 音量 + 直接换回 音量 − 取消",
+        )
+        FeatureRow(
+            icon = MiuixIcons.Layers,
+            title = "不碰系统分区",
+            desc = "模块挂载 卸载模块就回到原界面 改坏了也能退",
         )
         FeatureRow(
             icon = MiuixIcons.Info,
-            title = "音量键手动救砖",
-            desc = "屏幕没反应也能按音量键确认换包",
-        )
-        FeatureRow(
-            icon = MiuixIcons.Backup,
-            title = "日志留档",
-            desc = "崩溃现场保存在手机里 方便回头定位问题",
+            title = "也能测任意 APK",
+            desc = "主页是独立流程 不依赖模块守护 装完就看崩不崩",
         )
         Spacer(Modifier.height(24.dp))
     }
@@ -473,16 +485,16 @@ private fun NoticeStep(agreed: Boolean, onAgreed: (Boolean) -> Unit) {
 
         NoticeItem(
             "需要 ROOT 与模块",
-            "所有操作都走 root shell 调用 systemui_mount 的 webctl.sh 和 check.sh。" +
-                "没装模块时只能看不能救。",
+            "所有操作都走 root shell 调用 systemui_mount 的 webctl.sh 和 check.sh " +
+                "没装模块时只能看不能救 ",
         )
         NoticeItem(
             "救砖包必须能用",
-            "换回去的包得是能正常启动的系统界面。如果救砖包本身也是坏的 换回去照样黑屏。",
+            "换回去的包得是能正常启动的系统界面 如果救砖包本身也是坏的 换回去照样黑屏 ",
         )
         NoticeItem(
             "出问题自己负责",
-            "改系统界面有风险。刷机、模块冲突导致的后果需要你自己承担。",
+            "改系统界面有风险 刷机、模块冲突导致的后果需要你自己承担 ",
         )
 
         Spacer(Modifier.height(18.dp))
@@ -589,9 +601,9 @@ private fun EnvStep(env: EnvResult, checking: Boolean, onRetry: () -> Unit) {
                 Spacer(Modifier.height(4.dp))
                 Text(
                     when {
-                        !env.root -> "先在 ROOT 管理器里给 HyperMount 授权 然后点上面的「重新检测」。"
-                        env.moduleVersion.isBlank() -> "还没装救砖模块 去 Magisk / KernelSU 里刷入模块 重启后再回来检测。"
-                        else -> "当前模块不是 XKspeed 版 它的脚本对不上 请换成官方发布的那份。"
+                        !env.root -> "先在 ROOT 管理器里给 HyperMount 授权 然后点上面的「重新检测」 "
+                        env.moduleVersion.isBlank() -> "还没装救砖模块 去 Magisk / KernelSU 里刷入模块 重启后再回来检测 "
+                        else -> "当前模块不是 XKspeed 版 它的脚本对不上 请换成官方发布的那份 "
                     },
                     style = MiuixTheme.textStyles.subtitle,
                     color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
@@ -601,7 +613,7 @@ private fun EnvStep(env: EnvResult, checking: Boolean, onRetry: () -> Unit) {
 
         Spacer(Modifier.height(12.dp))
         Text(
-            "模块作者必须是 XKspeed 用的才是这套脚本 别家挂载的调不了 sh。",
+            "模块作者必须是 XKspeed 用的才是这套脚本 别家挂载的调不了 sh ",
             style = MiuixTheme.textStyles.subtitle,
             color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
         )
@@ -695,7 +707,7 @@ private fun VolumeStep(
 
         Spacer(Modifier.height(10.dp))
         Text(
-            "每个键有 10 秒时间 按一下就行。校验只确认能读到按键事件 不改系统设置。",
+            "每个键有 10 秒时间 按一下就行 校验只确认能读到按键事件 不改系统设置 ",
             style = MiuixTheme.textStyles.subtitle,
             color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
         )

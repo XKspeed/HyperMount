@@ -384,7 +384,7 @@ private fun openCoolapk(context: Context) {
         .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
     if (runCatching { context.startActivity(anyApp) }.isSuccess) return
 
-    Toast.makeText(context, "没有安装酷安，先打开网页版", Toast.LENGTH_SHORT).show()
+    Toast.makeText(context, "没有安装酷安 先打开网页版", Toast.LENGTH_SHORT).show()
     runCatching {
         context.startActivity(
             Intent(Intent.ACTION_VIEW, webUri).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),

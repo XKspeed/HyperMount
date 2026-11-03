@@ -15,7 +15,7 @@ export default defineConfig({
   lang: "zh-CN",
   title: "HyperMount",
   description:
-    "换入待测 SystemUI 界面，崩了自动换回救砖界面。Miuix 界面、音量键救砖、崩溃阈值与卡死检测。",
+    "换入待测 SystemUI 界面 崩了自动换回救砖界面 Miuix 界面 音量键救砖 崩溃阈值与卡死检测",
   cleanUrls: true,
   head: [
     ["meta", { name: "theme-color", content: "#3482ff" }],
@@ -94,7 +94,7 @@ export default defineConfig({
     outlineTitle: "本页目录",
 
     footer: {
-      message: "换界面出问题风险自负，务必先备好可用的救砖界面",
+      message: "换界面出问题风险自负 务必先备好可用的救砖界面",
       copyright: `GPL-3.0 · Copyright © ${new Date().getFullYear()} XKspeed`,
     },
   },

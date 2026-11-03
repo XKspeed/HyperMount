@@ -149,16 +149,20 @@ fun App() {
     var volumeStale by remember {
         mutableStateOf(UiConfigState.onboarded && UiConfigState.needsVolumeRecheck())
     }
-    if (!onboarded || volumeStale) {
+    // 调试页的「重新查看引导」：只影响本轮显示 不改 onboarded 标记
+    var showOnboarding by remember { mutableStateOf(false) }
+    if (!onboarded || volumeStale || showOnboarding) {
         OnboardingPage(
             startAtVolume = volumeStale,
             forceVolume = volumeStale,
+            onCancel = if (showOnboarding) ({ showOnboarding = false }) else null,
             onDone = {
                 UiConfigState.onboarded = true
                 UiConfigState.save(context)
                 onboarded = true
                 // 跳过也算本次已提醒过 下次启动版本仍不一致会再拉起
                 volumeStale = false
+                showOnboarding = false
             },
         )
         return
@@ -572,6 +576,13 @@ fun App() {
                         toast(context, "请先选择待测界面")
                         return@start
                     }
+                    // 完全禁用时 action.sh 会直接退出，webctl 却先回了 OK
+                    // 不拦住的话用户看到「已启动」但状态立刻变回未运行，根本猜不到原因
+                    if (uiState.logMode == "0") {
+                        toast(context, "运行模式是完全禁用 先去设置改成「日志 + 救砖」")
+                        jumpTab = 2
+                        return@start
+                    }
                     busy = true
                     busyTitle = "启动测试"
                     busySub = "正在准备救砖文件…"
@@ -675,7 +686,10 @@ fun App() {
         }
 
         entry<Route.Debug> {
-            DebugPage(onBack = { backStack.removeLastOrNull() })
+            DebugPage(
+                onBack = { backStack.removeLastOrNull() },
+                onOpenOnboarding = { showOnboarding = true },
+            )
         }
 
         entry<Route.VolumeCheck> {
@@ -873,11 +887,11 @@ fun App() {
         ) {
             Text(
                 if (byRescue) {
-                    "$SYSTEMUI_PACKAGE 是系统界面本体。主页的救砖是把崩掉的待测apk" +
-                        "装回正常版本，把系统界面装进去既救不回来，装错一次还会黑砖。"
+                    "$SYSTEMUI_PACKAGE 是系统界面本体 主页的救砖是把崩掉的待测apk" +
+                        "装回正常版本 把系统界面装进去既救不回来 装错一次还会黑砖 "
                 } else {
-                    "$SYSTEMUI_PACKAGE 是系统界面本体。主页会把待测apk直接装进系统，" +
-                        "装坏一次就是黑砖，所以这里不让选。"
+                    "$SYSTEMUI_PACKAGE 是系统界面本体 主页会把待测apk直接装进系统 " +
+                        "装坏一次就是黑砖 所以这里不让选 "
                 },
                 color = MiuixTheme.colorScheme.onSurface,
                 style = MiuixTheme.textStyles.subtitle,

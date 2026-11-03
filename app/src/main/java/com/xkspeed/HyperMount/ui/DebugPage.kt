@@ -23,7 +23,7 @@ import kotlin.math.roundToInt
  * 不再往正式设置页里塞。
  */
 @Composable
-fun DebugPage(onBack: () -> Unit) {
+fun DebugPage(onBack: () -> Unit, onOpenOnboarding: () -> Unit) {
     val context = LocalContext.current
     val screenHeightDp = LocalConfiguration.current.screenHeightDp
     val fraction = OverScrollTuning.maxFraction
@@ -35,6 +35,16 @@ fun DebugPage(onBack: () -> Unit) {
         bottomPadding = WindowInsets.navigationBars.asPaddingValues()
             .calculateBottomPadding() + 24.dp,
     ) {
+        item { SmallTitle("引导") }
+        item {
+            SectionCard {
+                BasicComponent(
+                    title = "重新查看引导",
+                    summary = "功能说明 · 环境检查 · 音量键校验",
+                    onClick = onOpenOnboarding,
+                )
+            }
+        }
         item { SmallTitle("过滚动") }
         item {
             SectionCard {
