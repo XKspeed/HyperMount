@@ -17,7 +17,7 @@
 
 ## 1 · 装模块 {#step1}
 
-1. 下载配套模块的 zip，在 Root 管理器里「从本地安装」，刷入后重启手机。
+1. 下载配套模块的 zip（<a data-module-download href="https://github.com/XKspeed/SystemUIRescue/releases/latest">模块 <span data-module-version>最新</span></a>），在 Root 管理器里「从本地安装」，刷入后重启手机。
 2. 重启后确认模块处于启用状态。应用首次启动会做环境检查，读不到模块或作者不是 `XKspeed` 会直接拦住——这说明装的不是配套模块，脚本调不起来。
 
 模块负责挂载、备份与恢复 SystemUI，应用只是它的控制面板。两者版本不必严格一致，但建议一起更新。

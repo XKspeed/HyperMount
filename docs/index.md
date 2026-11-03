@@ -107,12 +107,28 @@ features:
 
 <section class="home-section">
   <h2>下载</h2>
-  <p class="home-sub">只提供 arm64-v8a 包，覆盖安装即可升级</p>
+  <p class="home-sub">先刷模块，再装应用；应用只提供 arm64-v8a，覆盖安装即可升级</p>
 
   <div class="dl-card">
     <div>
-      <h2><span data-version>最新版</span></h2>
-      <p>装之前请先看一遍<a href="guide/">使用教程</a>，第一步是装模块。</p>
+      <h2>模块 <span data-module-version>配套模块</span></h2>
+      <p>第一步。在 Root 管理器里「从本地安装」，刷入后重启手机。</p>
+      <div class="dl-meta">
+        <span>systemui_mount</span>
+        <span>Magisk / KernelSU / APatch</span>
+        <span>可单独更新</span>
+      </div>
+    </div>
+    <div class="dl-actions">
+      <a class="VPButton medium brand" data-module-download href="https://github.com/XKspeed/SystemUIRescue/releases/latest">下载模块 zip</a>
+      <a class="VPButton medium alt" data-module-mirror href="https://gh-proxy.com/https://github.com/XKspeed/SystemUIRescue/releases/latest">走镜像下载</a>
+    </div>
+  </div>
+
+  <div class="dl-card">
+    <div>
+      <h2>应用 <span data-version>最新版</span></h2>
+      <p>第二步。模块装好重启后再装它，第一次打开会走引导。</p>
       <div class="dl-meta">
         <span>arm64-v8a</span>
         <span>Android 15 (API 35)+</span>

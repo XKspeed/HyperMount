@@ -37,17 +37,38 @@ export default {
       const list = document.querySelectorAll<HTMLElement>("[data-version]");
       const links = document.querySelectorAll<HTMLAnchorElement>("[data-download]");
       const mirror = document.querySelectorAll<HTMLAnchorElement>("[data-mirror]");
-      if (!list.length && !links.length && !mirror.length) return;
+      const modVersion = document.querySelectorAll<HTMLElement>("[data-module-version]");
+      const modLinks = document.querySelectorAll<HTMLAnchorElement>("[data-module-download]");
+      const modMirror = document.querySelectorAll<HTMLAnchorElement>("[data-module-mirror]");
+      if (
+        !list.length &&
+        !links.length &&
+        !mirror.length &&
+        !modVersion.length &&
+        !modLinks.length &&
+        !modMirror.length
+      )
+        return;
 
       const info = await loadManifest(base);
       const version = info?.versionName ? "v" + info.versionName : "";
       const url = info?.url || FALLBACK_URL;
+
+      // 模块清单缺失时（旧版 update.json）退回 Release 页 不给死链
+      const mVersion = info?.moduleVersionName ? "v" + info.moduleVersionName : "";
+      const mUrl = info?.moduleUrl || FALLBACK_URL;
 
       list.forEach((el) => {
         el.textContent = version || "最新版";
       });
       links.forEach((el) => el.setAttribute("href", url));
       mirror.forEach((el) => el.setAttribute("href", MIRRORS[0] + url));
+
+      modVersion.forEach((el) => {
+        el.textContent = mVersion || "配套模块";
+      });
+      modLinks.forEach((el) => el.setAttribute("href", mUrl));
+      modMirror.forEach((el) => el.setAttribute("href", MIRRORS[0] + mUrl));
     });
   },
 };

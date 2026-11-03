@@ -193,6 +193,11 @@
   background: var(--vp-c-bg-soft);
 }
 
+/* 模块卡与应用卡挨着放时的间距 */
+.dl-card + .dl-card {
+  margin-top: 16px;
+}
+
 .dl-card h2 {
   margin: 0;
   padding: 0;

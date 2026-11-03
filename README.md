@@ -162,9 +162,18 @@ Release 工作流从仓库 Secrets 读取签名密钥 密钥不进入代码库 �
 
 更新说明维护在 [`update.md`](update.md)：**我们只管写** `update.md` 把新版本那段内容放在文件顶部 工作流会自动取顶部那一段填进对应的 Release 历史段落自然下移留档
 
-发版两步：① 在 `update.md` 顶部写好本次更新；② Actions 里点 Release 版本号填 `1.2.0`（与 `build.gradle.kts` 一致时不再递增 `versionCode`）剩下交给工作流：改版本号 → 构建签名 → 发 Release → 把 `versionCode` / `versionName` / 下载地址 / `changelog` 自动写进仓库根的 [`update.json`](update.json) 并提交回 `main` App 下次启动就能查到更新
+发版两步：① 在 `update.md` 顶部写好本次更新；② Actions 里点 Release 填 **App 版本号**和**模块版本号**（都可以留空 = 沿用现有版本）剩下交给工作流：改两处版本号 → 构建签名 APK + 打模块 zip → 发**一个** Release（两个文件放一起）→ 把 `versionCode` / `versionName` / 下载地址 / `changelog` 连同模块版本与模块下载地址写进仓库根的 [`update.json`](update.json) 并提交回 `main` App 与官网下次刷新就能读到
 
-版本号支持带后缀 例如 `1.2.0-hotfix1` 会打出 tag `v1.2.0-hotfix1` 并把 `versionName` 原样写进 `build.gradle.kts`（`versionCode` 照常 +1）写 `update.md` 时顶部标题要跟着写成 `## v1.2.0-hotfix1 更新` 否则 Release 说明会取到上一版的内容 App 端只比 `versionCode` 所以 hotfix 能正常推送
+版本代号不用手填：新版本号比现有**高**就 +1 比现有**低或完全一样**就不动 数字段相同但名字不同（`1.3.0` → `1.3.0-hotfix1`）也算新版本 同样 +1
+
+模块包由 [`module/打包.sh`](module/打包.sh) 打 工作流和本地跑的是同一条命令：
+
+```sh
+sh module/打包.sh 1.6.0     # 本地发版 写回 module/main/module.prop
+sh module/打包.sh --keep    # 只打包当前版本 不改源码（CI 用）
+```
+
+版本号支持带后缀 例如 `1.2.0-hotfix1` 会打出 tag `v1.2.0-hotfix1` 并把 `versionName` 原样写进 `build.gradle.kts`（`versionCode` 按上面的规则走）写 `update.md` 时顶部标题要跟着写成 `## v1.2.0-hotfix1 更新` 否则 Release 说明会取到上一版的内容 App 端只比 `versionCode` 所以 hotfix 能正常推送
 
 ---
 
@@ -187,6 +196,10 @@ app/src/main/java/com/xkspeed/HyperMount/
 │   └── component/        玻璃与背景组件
 ├── core/                 崩溃日志 · root 命令 · 配置读写 · 更新检查 · 测试脚本与 apk 副本
 └── ...
+
+module/
+├── main/                 模块源码（action.sh · webroot · config · module.prop）
+└── 打包.sh               打包模块 zip（本地与 CI 同一份）
 ```
 
 ---
