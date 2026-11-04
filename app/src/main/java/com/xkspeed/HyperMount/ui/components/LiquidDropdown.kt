@@ -4,6 +4,7 @@ import android.graphics.BlurMaskFilter
 import android.os.Build
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -31,6 +32,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.compositionLocalOf
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -38,6 +40,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -90,9 +93,9 @@ import com.kyant.backdrop.effects.vibrancy
 import com.xkspeed.HyperMount.ui.component.glass.InteractiveHighlight
 import com.xkspeed.HyperMount.ui.component.glass.glassBlurScale
 import com.xkspeed.HyperMount.ui.util.isInDarkTheme
+import kotlin.math.abs
 import kotlin.math.ceil
 import kotlin.math.min
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import top.yukonga.miuix.kmp.basic.BasicComponent
 import top.yukonga.miuix.kmp.icon.MiuixIcons
@@ -112,25 +115,60 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme.colorScheme
  */
 
 // =====================================================================
-// 动画参数（与 Sonify 一致，逐值对齐）
+// 动画参数（逐值对齐 Sonify ListPopupLayout 当前版本 不是旧的 ListPopupDefaults）
+//
+// 进场 spring 0.77/220 退场 0.85/650：退场更硬 收得干脆；
+// 锚点迁移 0.77/420 比尺寸更快到 1 先「移向中心」再放大；
+// 退场锚点走 tween 340 的 cubic-bezier(0,0,0,1) 收尾也靠它兜住。
 // =====================================================================
 
 private val FractionEnterAnimSpec =
-    spring<Float>(dampingRatio = 0.78f, stiffness = 240f, visibilityThreshold = 0.0001f)
+    spring<Float>(dampingRatio = 0.77f, stiffness = 220f, visibilityThreshold = 0.0001f)
 private val FractionExitAnimSpec =
-    spring<Float>(dampingRatio = 0.78f, stiffness = 400f, visibilityThreshold = 0.0001f)
-private val AlphaEnterAnimSpec = tween<Float>(durationMillis = 120)
-private val AlphaExitAnimSpec = tween<Float>(durationMillis = 400)
+    spring<Float>(dampingRatio = 0.85f, stiffness = 650f, visibilityThreshold = 0.0001f)
 
 private val OriginEnterAnimSpec =
-    spring<Float>(dampingRatio = 0.78f, stiffness = 500f, visibilityThreshold = 0.0001f)
-private val OriginExitAnimSpec = tween<Float>(durationMillis = 450)
+    spring<Float>(dampingRatio = 0.77f, stiffness = 420f, visibilityThreshold = 0.0001f)
+private val OriginExitAnimSpec =
+    tween<Float>(durationMillis = 340, easing = CubicBezierEasing(0f, 0f, 0f, 1f))
+
+// 材质与内容的消隐完全由 fraction 推 不再另开一条 alpha 轨：
+// 玻璃 f*7 很快就满 退场 f*3.6 才全透明；内容 (f-0.22)/0.4 淡入 退场 (f-0.30)/0.48
+private const val ContainerAlphaEnter = 7f
+private const val ContainerAlphaExit = 3.6f
+private const val ContentEnterFrom = 0.22f
+private const val ContentEnterTo = 0.62f
+private const val ContentExitFrom = 0.30f
+private const val ContentExitTo = 0.78f
+
+// 收起态副本的淡出系数：进场 3.2 留得久一点 长大过程中不会提前消失；退场 1.7
+private const val CollapseIconKEnter = 3.2f
+private const val CollapseIconKExit = 1.7f
+
+/** 材质透明度：进场 f*7（f≈0.14 就满） 退场 f*3.6 */
+private fun containerAlpha(f: Float, entering: Boolean): Float =
+    (f * if (entering) ContainerAlphaEnter else ContainerAlphaExit).coerceIn(0f, 1f)
+
+/** 内容透明度：进场在 f=0.62 就完全显出来 退场撑到 0.30 才开始淡 */
+private fun contentAlpha(f: Float, entering: Boolean): Float {
+    val from = if (entering) ContentEnterFrom else ContentExitFrom
+    val to = if (entering) ContentEnterTo else ContentExitTo
+    return ((f - from) / (to - from)).coerceIn(0f, 1f)
+}
+
+/** 驼峰模糊：两端清晰、中间最糊（不是单调递减） */
+private fun contentBlur(f: Float): Dp = 6.dp * (1f - abs(2f * f - 1f)).coerceIn(0f, 1f)
 
 private val PopupMinWidth = 200.dp
 private val PopupMaxWidth = 288.dp
 private val PopupMinHeight = 50.dp
 private val PopupCornerRadius = 25.dp
 private val PopupShadowPadding = 24.dp
+
+/** 收起态尺寸的额外补偿：宽 +14 高 +10 中心正好比触发区偏左 7dp 偏上 5dp 由定位偏移抵消 */
+private val CollapseExtraWidth = 14.dp
+private val CollapseExtraHeight = 10.dp
+
 private val DropdownButtonDiameter = 42.dp
 
 /** 弹层动画进度：fraction 是揭示进度（弹簧会过冲），position 是实际朝向 */
@@ -156,8 +194,9 @@ private data class LiquidDropdownPositionResult(
 
 /**
  * 窗口系定位（Sonify `calculateDropdownPosition` 原样）：
- * 右缘对齐锚点行右缘内收 27dp，默认压在锚点行上方 31dp，下方放不下翻到上方，
- * 都不够时垂直居中，最终 clamp 进窗口。
+ * 锚点是行尾「当前值 + 箭头」那块内容 —— 面板右缘比它右 7dp、上缘比它高 5dp，
+ * 配合收起态尺寸 +14/+10 的补偿 收起态矩形的中心正好落在触发文字上。
+ * 下方放不下翻到上方，都不够时垂直居中，最终 clamp 进窗口。
  */
 private fun Density.calculateDropdownPosition(
     anchorBounds: IntRect,
@@ -165,8 +204,8 @@ private fun Density.calculateDropdownPosition(
     outerSize: IntSize,
     visibleSize: IntSize,
 ): LiquidDropdownPositionResult {
-    val offsetDeltaX = 27.dp.roundToPx()
-    val offsetDeltaY = 31.dp.roundToPx()
+    val offsetDeltaX = 7.dp.roundToPx()
+    val offsetDeltaY = 5.dp.roundToPx()
 
     val offsetX = anchorBounds.right - outerSize.width + offsetDeltaX
     val spaceBelow = windowBounds.bottom - anchorBounds.bottom
@@ -217,32 +256,29 @@ fun LiquidDropdownLayout(
 ) {
     val fractionProgress = remember { Animatable(0f) }
     val originProgress = remember { Animatable(0f) }
-    val alphaProgress = remember { Animatable(0f) }
     var internalVisible by remember { mutableStateOf(false) }
     var layoutPosition by remember { mutableStateOf(LiquidDropdownLayoutPosition()) }
     var anchorOrigin by remember { mutableStateOf(TransformOrigin(1f, 0f)) }
-    // 面板左上角在窗口里的位置：收起态矩形要按它换算到画布坐标
-    var panelWindowPos by remember { mutableStateOf(IntOffset.Zero) }
     val currentOnDismissRequest by rememberUpdatedState(onDismissRequest)
     val currentOnDismissFinished by rememberUpdatedState(onDismissFinished)
     val currentOnFractionProgress by rememberUpdatedState(onFractionProgress)
     val bottomOverlayPx = with(LocalDensity.current) { LocalBottomOverlayHeight.current.toPx() }
 
-    // 三轨并行：fraction 管缩放/裁剪、origin 管锚点从角移到中心、alpha 管整体淡入淡出
+    // 两轨并行：fraction 管尺寸/淡入淡出、origin 管锚点从角落移到中心（更快到 1）
+    // 透明度不再单开一条轨 由 fraction 直接推（见 containerAlpha / contentAlpha）
     LaunchedEffect(expanded) {
         if (expanded) {
             internalVisible = true
             launch { fractionProgress.animateTo(1f, FractionEnterAnimSpec) }
             launch { originProgress.animateTo(1f, OriginEnterAnimSpec) }
-            launch { alphaProgress.animateTo(1f, AlphaEnterAnimSpec) }
         } else {
             if (!internalVisible) return@LaunchedEffect
             launch { fractionProgress.animateTo(0f, FractionExitAnimSpec) }
-            launch { originProgress.animateTo(0f, OriginExitAnimSpec) }
-            alphaProgress.animateTo(0f, AlphaExitAnimSpec)
+            // 退场要「等」锚点那条 tween 走完再收尾 不能立刻 snap：
+            // 提前 snap 会把还没跑完的 fraction 弹簧一起取消 面板会突然消失
+            originProgress.animateTo(0f, OriginExitAnimSpec)
             fractionProgress.snapTo(0f)
             originProgress.snapTo(0f)
-            alphaProgress.snapTo(0f)
             internalVisible = false
             currentOnDismissFinished()
         }
@@ -297,13 +333,14 @@ fun LiquidDropdownLayout(
                     )
                     val outerSize = IntSize(placeable.width, placeable.height)
                     val windowBounds = IntRect(0, 0, constraints.maxWidth, safeBottomPx)
-                    // 判断方向用可见面板高度，含阴影外扩会把高菜单误判成"下方放不下"
-                    val visibleSize = IntSize(
+                    // 定位要用「可见面板」尺寸 不能拿含 48dp 阴影留白的画布去算：
+                    // 那样算出来的 offset 会让面板整体偏左偏上各一个 padding
+                    val panelSize = IntSize(
                         (outerSize.width - 2 * padPx).coerceAtLeast(1),
                         (outerSize.height - 2 * padPx).coerceAtLeast(1),
                     )
                     val result = calculateDropdownPosition(
-                        anchorBounds, windowBounds, outerSize, visibleSize,
+                        anchorBounds, windowBounds, panelSize, panelSize,
                     )
                     if (result.layoutPosition != layoutPosition) {
                         layoutPosition = result.layoutPosition
@@ -316,15 +353,13 @@ fun LiquidDropdownLayout(
                     if (origin != anchorOrigin) {
                         anchorOrigin = origin
                     }
-                    // 窗口坐标（不是相对 scrim 的坐标）：收起态矩形用同一套坐标系换算
-                    if (result.offset != panelWindowPos) {
-                        panelWindowPos = result.offset
-                    }
+                    // result.offset 是面板左上角 画布左上角还要再往左上让出一个 padding
+                    val canvasOffset = IntOffset(result.offset.x - padPx, result.offset.y - padPx)
                     layout(constraints.maxWidth, constraints.maxHeight) {
                         placeable.place(
                             IntOffset(
-                                x = result.offset.x - scrimOrigin.x,
-                                y = result.offset.y - scrimOrigin.y,
+                                x = canvasOffset.x - scrimOrigin.x,
+                                y = canvasOffset.y - scrimOrigin.y,
                             ),
                         )
                     }
@@ -333,11 +368,10 @@ fun LiquidDropdownLayout(
             LiquidDropdownContent(
                 fractionProgress = { fractionProgress.value },
                 originProgress = { originProgress.value },
-                alphaProgress = { alphaProgress.value },
+                isEntering = expanded,
                 layoutPosition = layoutPosition,
                 backdrop = backdrop,
                 collapseBounds = collapseBounds,
-                panelWindowPos = panelWindowPos,
                 collapseContent = collapseContent,
                 content = content,
             )
@@ -349,11 +383,10 @@ fun LiquidDropdownLayout(
 private fun LiquidDropdownContent(
     fractionProgress: () -> Float,
     originProgress: () -> Float,
-    alphaProgress: () -> Float,
+    isEntering: Boolean,
     layoutPosition: LiquidDropdownLayoutPosition,
     backdrop: Backdrop?,
     collapseBounds: IntRect,
-    panelWindowPos: IntOffset,
     collapseContent: (@Composable () -> Unit)?,
     content: @Composable () -> Unit,
 ) {
@@ -365,91 +398,51 @@ private fun LiquidDropdownContent(
         if (!isDark) Color.White.copy(alpha = 0.7f) else Color.White.copy(alpha = 0.4f)
     val density = LocalDensity.current
     val padPx = with(density) { PopupShadowPadding.toPx() }
-    val extraW = with(density) { 14.dp.toPx() }
-    val extraH = with(density) { 10.dp.toPx() }
+    val extraW = with(density) { CollapseExtraWidth.toPx() }
+    val extraH = with(density) { CollapseExtraHeight.toPx() }
 
     // 内容自然尺寸（px）：内层测量后回填。首帧为 0 时面板还完全透明 看不到错位
     var natural by remember { mutableStateOf(IntSize.Zero) }
     val natW = natural.width.toFloat()
     val natH = natural.height.toFloat()
 
-    // 收起态矩形 = 触发区「当前值 + 箭头」的实测尺寸四周各补 7dp / 5dp
-    // 于是 f = 0 时这块矩形正好盖在触发内容上 面板看起来就是从这行文字里长出来的
+    // 收起态矩形 = 触发区「当前值 + 箭头」的实测尺寸 + (14dp, 10dp)
+    // 定位偏移给的是 7dp / 5dp 两边正好抵消 所以 f=0 时矩形中心就落在触发文字上
     val hasCollapse = collapseBounds.width > 0 && collapseBounds.height > 0
     val collapseW = if (hasCollapse) collapseBounds.width + extraW
     else with(density) { DropdownButtonDiameter.toPx() }
     val collapseH = if (hasCollapse) collapseBounds.height + extraH
     else with(density) { DropdownButtonDiameter.toPx() }
-    val collapseCx = if (hasCollapse) (collapseBounds.left - panelWindowPos.x) + collapseW / 2f
-    else padPx + natW / 2f
-    val collapseCy = if (hasCollapse) (collapseBounds.top - panelWindowPos.y) + collapseH / 2f
-    else padPx + natH / 2f
 
     // 面板矩形（画布坐标）：两条边各自插值 不是整体 scale 所以圆角不会被拉成椭圆
-    // 中心从触发内容中心迁到面板中心 迁移进度 originProgress 比 fraction 更早到 1
+    // 锚在锚点角（右上/右下） 宽度长出来的同时整体按 k = 0.5p(1-s) 往面板中心迁
+    // 迁移进度 originProgress 比 fraction 更早到 1：先「移过去」再「放大」
     fun rectOf(f: Float, p: Float): FloatArray {
         val w = collapseW + (natW - collapseW) * f
         val h = collapseH + (natH - collapseH) * f
-        val pp = p.coerceIn(0f, 1f)
-        val cx = collapseCx + (padPx + natW / 2f - collapseCx) * pp
-        val cy = collapseCy + (padPx + natH / 2f - collapseCy) * pp
-        return floatArrayOf(cx - w / 2f, cy - h / 2f, w, h)
+        val s = if (natW > 0f) w / natW else 1f
+        val k = 0.5f * p.coerceIn(0f, 1f) * (1f - s)
+        val right = layoutPosition.isRightAligned
+        val bottom = layoutPosition.showAbove
+        val migrationX = (if (right) -1f else 1f) * natW * k
+        val migrationY = (if (bottom) -1f else 1f) * natH * k
+        val leftRaw = (if (right) natW - w else 0f) + migrationX
+        val topRaw = (if (bottom) natH - h else 0f) + migrationY
+        return floatArrayOf(padPx + leftRaw, padPx + topRaw, w, h)
     }
 
     // 每帧换一个 shape 实例：drawBackdrop / clip / 边缘光都按引用缓存 shape
     // 复用同一个实例会让描边和身影冻结在第一帧的小矩形上
     val frame = (fractionProgress() * 400f).toInt()
-    val panelShape = remember(frame, natW, natH, collapseCx, collapseCy) {
+    val panelShape = remember(frame, natW, natH) {
         PanelRectShape(PopupCornerRadius) { rectOf(fractionProgress(), originProgress()) }
     }
     // 内容层在 24dp 内缩里 坐标系整体比画布小一圈
-    val contentShape = remember(frame, natW, natH, collapseCx, collapseCy) {
+    val contentShape = remember(frame, natW, natH) {
         PanelRectShape(PopupCornerRadius) {
             val r = rectOf(fractionProgress(), originProgress())
             floatArrayOf(r[0] - padPx, r[1] - padPx, r[2], r[3])
         }
-    }
-
-    // 阴影：进入 fraction≥0.78 渐显（tween 200），退出 ≥0.99 消失（tween 50）
-    val shadowAlpha = remember { Animatable(0f) }
-    LaunchedEffect(Unit) {
-        var prevFraction = fractionProgress()
-        var shadowVisible = false
-        var animationJob: Job? = null
-        snapshotFlow { fractionProgress() }
-            .collect { current ->
-                val isEntering = current >= prevFraction
-                prevFraction = current
-                val newVisible = if (isEntering) current >= 0.78f else current >= 0.99f
-                if (newVisible != shadowVisible) {
-                    shadowVisible = newVisible
-                    animationJob?.cancel()
-                    animationJob = launch {
-                        if (newVisible) {
-                            shadowAlpha.animateTo(1f, tween(200))
-                        } else if (shadowAlpha.value >= 1f) {
-                            shadowAlpha.animateTo(0f, tween(50))
-                        } else {
-                            shadowAlpha.snapTo(0f)
-                        }
-                    }
-                }
-            }
-    }
-
-    // 内容透明度：进场 0.2+0.8f，退出过半后 f*2 加速消失（壳先走、内容后散）
-    val contentAlpha = remember { Animatable(0f) }
-    LaunchedEffect(Unit) {
-        var prevFraction = 0f
-        snapshotFlow { fractionProgress() }
-            .collect { current ->
-                val isEntering = current >= prevFraction
-                prevFraction = current
-                contentAlpha.snapTo(
-                    if (isEntering) 0.2f + 0.8f * current
-                    else if (current > 0.5f) 1f else current * 2f,
-                )
-            }
     }
 
     // 按压光晕：按住不放时从手指位置绽开一团弥散白光 跟手移动
@@ -466,7 +459,7 @@ private fun LiquidDropdownContent(
 
     Box(
         modifier = Modifier.drawBehind {
-            val alpha = shadowAlpha.value
+            val alpha = containerAlpha(fractionProgress(), isEntering)
             if (alpha <= 0f) return@drawBehind
             val r = rectOf(fractionProgress(), originProgress())
             val w = r[2].coerceAtLeast(0f)
@@ -498,7 +491,9 @@ private fun LiquidDropdownContent(
         Box(
             modifier = Modifier
                 .matchParentSize()
-                .graphicsLayer { alpha = alphaProgress() },
+                .graphicsLayer {
+                    alpha = containerAlpha(fractionProgress(), isEntering)
+                },
         ) {
             Box(
                 modifier = Modifier
@@ -574,13 +569,14 @@ private fun LiquidDropdownContent(
                         val s = if (natW > 0f) r[2] / natW else 1f
                         scaleX = s
                         scaleY = s
-                        alpha = alphaProgress() * contentAlpha.value
+                        alpha = contentAlpha(f, isEntering)
                         // 内容自然中心在画布 (pad + natW/2, pad + natH/2)
                         translationX = (r[0] + r[2] / 2f) - (padPx + natW / 2f)
                         translationY = (r[1] + r[3] / 2f) - (padPx + natH / 2f)
                     }
                     .contentBlur(
-                        radius = (8f * (1f - fractionProgress())).dp,
+                        // 驼峰：两端清晰、中间最糊 —— 不是单调递减
+                        radius = contentBlur(fractionProgress()),
                     ),
             ) {
                 content()
@@ -588,14 +584,15 @@ private fun LiquidDropdownContent(
         }
 
         // 收起态内容（当前值 + 箭头）：锁在矩形正中心 随容器长大淡出
-        // 触发区自己那份用 rememberRowContentAlpha 同时淡出 两处同内容同位置 不会看出重影
+        // 这里**不乘**材质透明度：f=0 时它就是全显的 和触发区那份像素重合
+        // 触发区在展开瞬间硬切隐藏（见 rememberRowContentAlpha）所以不会重影
         if (collapseContent != null) {
             Box(
                 modifier = Modifier
                     .align(Alignment.TopStart)
                     .graphicsLayer {
-                        alpha = (alphaProgress() * (1f - fractionProgress() * CollapseIconK))
-                            .coerceIn(0f, 1f)
+                        val k = if (isEntering) CollapseIconKEnter else CollapseIconKExit
+                        alpha = (1f - fractionProgress() * k).coerceIn(0f, 1f)
                         val r = rectOf(fractionProgress(), originProgress())
                         translationX = r[0] + r[2] / 2f - size.width / 2f
                         translationY = r[1] + r[3] / 2f - size.height / 2f
@@ -637,9 +634,6 @@ private class PanelRectShape(
         )
     }
 }
-
-/** 收起态内容随 fraction 淡出的系数：f = 1/3.2 ≈ 0.31 时刚好消失 */
-private const val CollapseIconK = 3.2f
 
 /** 圆角矩形边缘光：描边画在形状边界上再裁进形状内，NORMAL 模糊 + ADD 混合 */
 private fun Modifier.rectEdgeLight(
@@ -830,35 +824,26 @@ fun LiquidDropdownRow(
 // =====================================================================
 
 /**
- * 行尾内容在弹层展开时淡出（Sonify 设置页 SelectItem 同一套阈值与时长）：
- * 展开时 fraction 过 0.15 就消失、收起掉到 0.2 以下才回来，tween(180) 两端对称。
- * 基准透明度交给颜色本身（见 [LiquidSelectPreference] 的 actionColor），这里只跑 1→0。
+ * 行尾内容的显隐（Sonify `DropdownTriggerState` 同款：**硬切** 没有半透明中间态）。
+ *
+ * 展开要延后一帧再藏：先让弹层把收起态那帧画出来 否则会空一帧；
+ * 退场要等 fraction 归零（弹层自己 snap 完才发这个信号）再露出来，
+ * 否则面板还在屏幕上时两处文字会重叠。
  */
 @Composable
-private fun rememberRowContentAlpha(fraction: () -> Float): Float {
-    val contentAlpha = remember { Animatable(1f) }
-    LaunchedEffect(Unit) {
-        var prevFraction = 0f
-        var contentVisible = true
-        var animJob: Job? = null
-        snapshotFlow { fraction() }
-            .collect { current ->
-                val isEntering = current >= prevFraction
-                prevFraction = current
-                val newVisible = if (isEntering) current < 0.15f else current < 0.2f
-                if (newVisible != contentVisible) {
-                    contentVisible = newVisible
-                    animJob?.cancel()
-                    animJob = launch {
-                        contentAlpha.animateTo(
-                            targetValue = if (newVisible) 1f else 0f,
-                            animationSpec = tween(180),
-                        )
-                    }
-                }
-            }
+private fun rememberRowContentAlpha(expanded: Boolean, fraction: () -> Float): Float {
+    var hidden by remember { mutableStateOf(false) }
+    val finished by remember { derivedStateOf { fraction() <= 0.001f } }
+    LaunchedEffect(expanded) {
+        if (expanded) {
+            withFrameNanos { }
+            hidden = true
+        }
     }
-    return contentAlpha.value
+    LaunchedEffect(expanded, finished) {
+        if (!expanded && finished) hidden = false
+    }
+    return if (hidden) 0f else 1f
 }
 
 /** 下拉选择项的共享状态：页面级持有，行与弹层各拿一半 */
@@ -902,7 +887,10 @@ fun LiquidSelectPreference(
     // 行尾「当前值 + 箭头」自己的窗口矩形：展开时弹窗从这块文字长出来
     var contentRect by remember { mutableStateOf(IntRect.Zero) }
     val isOpen = state.expanded && state.owner === rowKey
-    val rowAlpha = rememberRowContentAlpha { if (state.owner === rowKey) state.fraction else 0f }
+    val rowAlpha = rememberRowContentAlpha(
+        expanded = isOpen,
+        fraction = { if (state.owner === rowKey) state.fraction else 0f },
+    )
     // 行尾「当前值 + 箭头」用 Miuix 的语义色：SliderPreference 的数值就是这个口径
     // （onSurfaceVariantActions + body2）。Sonify 那边是 onBackground 再压 0.4 透明度，
     // 换算过来就是这一档灰度；所以这里不再额外乘 0.4，浮动只交给展开动画
@@ -992,7 +980,9 @@ fun LiquidSelectHost(
     ) {
     LiquidDropdownLayout(
         expanded = state.expanded,
-        anchorBounds = state.anchorBounds,
+        // 锚点用行尾「当前值 + 箭头」那块内容 不是整行：
+        // 定位偏移 7dp/5dp 与收起态尺寸 +14/+10 是配套的 换成整行会对不上
+        anchorBounds = state.contentBounds.takeIf { it.width > 0 } ?: state.anchorBounds,
         onDismissRequest = { state.close() },
         backdrop = backdrop,
         collapseBounds = state.contentBounds,
