@@ -3,6 +3,8 @@
 #
 # 约定：文件顶部永远是一个 ## latest 段，开发中的改动都写在这里；
 #       发版时用它把 ## latest 就地改名成 ## v<版本> 更新，并在顶部插入新的 ## latest。
+#       段内可以用 ### 修复 / ### 更改 分组：段边界只认 ## 开头的行，
+#       所以 ### 小标题不会把段落切断；判断「有没有内容」时标题不计入。
 #
 # 用法:
 #   changelog.sh finalize <文件> <版本号>   归档 latest 段并插入新的空 latest
@@ -21,9 +23,22 @@ die() {
     exit 2
 }
 
-# 段标题第一段：## v1.5.0 更新 → v1.5.0；## latest → latest
+# 段标题里的版本号：## v1.5.0 更新 → v1.5.0；## v1.5.0更新 → v1.5.0；## latest → latest
+# 不靠「按空格取第一段」：标题里版本号后面漏了空格（## v1.5.0更新）也能认出来，
+# 否则 release notes 与 update.json 会静默变成空的。
+ver_of() {
+    awk '{
+        if (match($0, /v?[0-9]+(\.[0-9]+)+([-.+][0-9A-Za-z.]+)*/))
+            print substr($0, RSTART, RLENGTH)
+        else {
+            split($0, a, " ")
+            print a[1]
+        }
+    }'
+}
+
 heading_key() {
-    printf '%s' "$1" | awk '{ sub(/^##[ \t]*/, ""); print $1 }'
+    printf '%s' "$1" | sed -E 's/^##[[:space:]]*//' | ver_of
 }
 
 # 输出某个段落的正文（不含标题行）
@@ -35,8 +50,12 @@ extract_body() {
             if (on) exit
             t = $0
             sub(/^##[ \t]*/, "", t)
-            split(t, a, " ")
-            h = a[1]
+            if (match(t, /v?[0-9]+(\.[0-9]+)+([-.+][0-9A-Za-z.]+)*/))
+                h = substr(t, RSTART, RLENGTH)
+            else {
+                split(t, a, " ")
+                h = a[1]
+            }
             if (want == "latest") on = (h == "latest")
             else on = (h == "v" want || h == want)
             next
@@ -45,9 +64,15 @@ extract_body() {
     ' "$file"
 }
 
-# 正文里是否有实际内容（忽略空行和 HTML 注释）
+# 正文里是否有实际内容
+# 只认真正的条目：空行、HTML 注释、以及 ## / ### 标题都跳过。
+# 段内允许用「### 修复」「### 更改」分组，只写了个标题没写条目仍然算空段 ——
+# 否则 latest 里放两个光秃秃的小标题也能发版，「latest 为空就失败」的保护就废了。
 body_has_text() {
-    printf '%s\n' "$1" | grep -v '^[[:space:]]*<!--' | grep -q '[^[:space:]]'
+    printf '%s\n' "$1" \
+        | grep -v '^[[:space:]]*<!--' \
+        | grep -v '^[[:space:]]*#' \
+        | grep -q '[^[:space:]]'
 }
 
 cmd=${1:-}
@@ -66,7 +91,8 @@ finalize)
     [ "$key" = "latest" ] || die "$file 顶部是「$top」，应为「## latest」—— 先手动把待发布的改动挪进 ## latest 段"
 
     # 已有同名段就不重复归档（重发同一版本时会出现）
-    if extract_body "$file" "$ver" | grep -q '[^[:space:]]'; then
+    # 用 body_has_text 判断：只剩分组标题、没有条目的空段落不算「已归档」
+    if body_has_text "$(extract_body "$file" "$ver")"; then
         die "$file 里已经存在 v$ver 的段落，不能再归档一次"
     fi
 

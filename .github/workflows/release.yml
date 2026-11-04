@@ -424,9 +424,14 @@ jobs:
               }'
           }
 
-          sh scripts/changelog.sh extract update.md "${VERSION}" | trim > app_changelog.md
+          # 段内的小节标题（### 修复 / ### 更改）本来是挂在 ## vX 底下的
+          # 拼进 Release 说明时外面又套了一层 ### 应用 · vX 原样输出会变成两组平级标题
+          # 这里统一降一级 让它正确挂在版本标题下面
+          demote() { sed -E 's/^### /#### /'; }
+
+          sh scripts/changelog.sh extract update.md "${VERSION}" | trim | demote > app_changelog.md
           sh scripts/changelog.sh has module/main/update.md "${MODULE_VERSION}" \
-            && sh scripts/changelog.sh extract module/main/update.md "${MODULE_VERSION}" | trim > module_changelog.md \
+            && sh scripts/changelog.sh extract module/main/update.md "${MODULE_VERSION}" | trim | demote > module_changelog.md \
             || : > module_changelog.md
 
           : > release_notes.md
@@ -490,7 +495,12 @@ jobs:
           import json, os, re
 
           def read_lines(path):
-              """把 update.md 段落里的 - 列表项压成一行一条的纯文本"""
+              """把 update.md 段落里的 - 列表项压成一行一条的纯文本
+
+              分组标题（### 修复 / ### 更改）不进清单：
+              应用内的更新卡片是按行纯文本渲染的 带 # 的标题会原样显示成一条内容
+              条目前的动词（修复 / 优化 / 添加 / 替换）本身已经分了类
+              """
               lines = []
               if os.path.exists(path):
                   for raw in open(path, encoding="utf-8"):
