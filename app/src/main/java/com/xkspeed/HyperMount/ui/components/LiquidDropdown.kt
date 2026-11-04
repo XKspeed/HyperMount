@@ -583,19 +583,19 @@ private fun LiquidDropdownContent(
             }
         }
 
-        // 收起态内容（当前值 + 箭头）：锁在矩形正中心 随容器长大淡出
-        // 这里**不乘**材质透明度：f=0 时它就是全显的 和触发区那份像素重合
-        // 触发区在展开瞬间硬切隐藏（见 rememberRowContentAlpha）所以不会重影
-        if (collapseContent != null) {
+        // 收起态内容（当前值 + 箭头）：钉在触发文字原位淡出 不跟着矩形中心走
+        // 跟着走会一路往左滑（矩形是从右往左长出来的）看起来就像「闪了一下往左」
+        // 尺寸还没量出来时不画：那会儿算出来的锚点是错的 画出来会先在错位置闪一帧
+        if (collapseContent != null && natW > 0f) {
+            val anchorRect = rectOf(0f, 0f)
             Box(
                 modifier = Modifier
                     .align(Alignment.TopStart)
                     .graphicsLayer {
                         val k = if (isEntering) CollapseIconKEnter else CollapseIconKExit
                         alpha = (1f - fractionProgress() * k).coerceIn(0f, 1f)
-                        val r = rectOf(fractionProgress(), originProgress())
-                        translationX = r[0] + r[2] / 2f - size.width / 2f
-                        translationY = r[1] + r[3] / 2f - size.height / 2f
+                        translationX = anchorRect[0] + anchorRect[2] / 2f - size.width / 2f
+                        translationY = anchorRect[1] + anchorRect[3] / 2f - size.height / 2f
                     },
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -826,23 +826,14 @@ fun LiquidDropdownRow(
 /**
  * 行尾内容的显隐（Sonify `DropdownTriggerState` 同款：**硬切** 没有半透明中间态）。
  *
- * 展开要延后一帧再藏：先让弹层把收起态那帧画出来 否则会空一帧；
- * 退场要等 fraction 归零（弹层自己 snap 完才发这个信号）再露出来，
+ * 判据只看 fraction：弹层真开始长了（> 0.001）才藏。
+ * 早藏一帧的话 那一刻弹层还没量出尺寸 收起态副本画不到触发文字的位置上 会先闪一下；
+ * 退场也是同一把尺子——fraction 归零（弹层自己 snap 完）才露出来，
  * 否则面板还在屏幕上时两处文字会重叠。
  */
 @Composable
-private fun rememberRowContentAlpha(expanded: Boolean, fraction: () -> Float): Float {
-    var hidden by remember { mutableStateOf(false) }
-    val finished by remember { derivedStateOf { fraction() <= 0.001f } }
-    LaunchedEffect(expanded) {
-        if (expanded) {
-            withFrameNanos { }
-            hidden = true
-        }
-    }
-    LaunchedEffect(expanded, finished) {
-        if (!expanded && finished) hidden = false
-    }
+private fun rememberRowContentAlpha(fraction: () -> Float): Float {
+    val hidden by remember { derivedStateOf { fraction() > 0.001f } }
     return if (hidden) 0f else 1f
 }
 
@@ -888,7 +879,6 @@ fun LiquidSelectPreference(
     var contentRect by remember { mutableStateOf(IntRect.Zero) }
     val isOpen = state.expanded && state.owner === rowKey
     val rowAlpha = rememberRowContentAlpha(
-        expanded = isOpen,
         fraction = { if (state.owner === rowKey) state.fraction else 0f },
     )
     // 行尾「当前值 + 箭头」用 Miuix 的语义色：SliderPreference 的数值就是这个口径
