@@ -90,7 +90,7 @@ features:
     <div class="step">
       <span class="no">02 / 装</span>
       <h3>立即安装并开抓</h3>
-      <p>确认后直接安装 装完立刻抓 crash 中间不插等待 待测包先复制到应用缓存再交给系统安装 绕开 <code>/storage</code> 的权限限制 </p>
+      <p>确认后直接安装 装完等 2 秒再开始抓 只收崩溃日志 安装期间那批装包事件不会混进来 待测包先复制到应用缓存再交给系统安装 绕开 <code>/storage</code> 的权限限制 </p>
     </div>
     <div class="step">
       <span class="no">03 / 判</span>

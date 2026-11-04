@@ -90,7 +90,7 @@ private val UpdateGreen = Color(0xFF2E7D32)
  * 主页：自己的测试流程
  *
  * 逻辑照搬「双兼容版 logcat.sh」：
- * 后台 pm install 待测 apk → 装完立刻抓 crash 日志
+ * 后台 pm install 待测 apk → 等 2 秒 → 只抓 crash 缓冲区
  * 自动替换打开时再盯日志大小 超阈值就把救砖 apk 装回去
  *
  * 和「界面」页完全独立：两份 apk 都不复制，脚本直接读原路径安装
@@ -586,7 +586,7 @@ fun MainPage(
             Spacer(Modifier.height(4.dp))
             SliderInputPreference(
                 title = "抓取时长",
-                summary = "从装完开始算 下一轮生效",
+                summary = "装完 2 秒后开始算 下一轮生效",
                 value = LogConfig.seconds.toFloat(),
                 onValueChange = { LogConfig.seconds = it.roundToInt() },
                 onValueChangeFinished = { LogConfig.save(context) },

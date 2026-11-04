@@ -19,9 +19,10 @@ import java.util.Locale
  *
  * 逻辑照搬「双兼容版 logcat.sh」：
  * 1. 后台先 pm install 待测 apk（装 SystemUI 要几秒 不能卡住主流程）
- * 2. 装完立刻开抓 中间不再等
- * 3. 抓 crash 缓冲区 同时盯着文件大小 超过阈值就执行救砖
- * 4. 救砖直接用私有目录里的救砖包 pm install -r -d -t 最后重启 SystemUI
+ * 2. 装完等 2 秒再开抓：安装期间那批 events（清数据 / dexopt / 装包回调）跟崩溃无关
+ * 3. 只抓 crash 缓冲区（FATAL EXCEPTION 与 native tombstone）不抓 events
+ * 4. 同时盯着文件大小 超过阈值就执行救砖
+ * 5. 救砖直接用私有目录里的救砖包 pm install -r -d -t 最后重启 SystemUI
  *
  * 和模块守护完全解耦：脚本、pid、运行日志、抓到的日志全部落在 App 私有目录
  * files/test/ 下，不碰系统临时目录，卸载即清干净。
@@ -178,16 +179,13 @@ object Logcat {
         rm -f "@PROBE"
 
         # 两路判定 任一命中就救：
-        #   1) 按包名：Process: / name:（native）/ am_crash / am_proc_died
-        #      FATAL EXCEPTION 在 crash 缓冲 事件在 events 缓冲 所以要抓两路
+        #   1) 按包名：crash 缓冲里的 Process:（Java 崩溃）/ name:（native 崩溃）
         #   2) 按大小：crash 日志超过阈值也算崩（兜住拿不到包名的机型）
         crash_hit() {
             [ -f "@LOG_FILE" ] || return 1
             if [ -n "@PKG" ]; then
                 grep -qF "Process: @PKG" "@LOG_FILE" 2>/dev/null && return 0
                 grep -qF "name: @PKG" "@LOG_FILE" 2>/dev/null && return 0
-                grep -F "am_crash" "@LOG_FILE" 2>/dev/null | grep -qF "@PKG" && return 0
-                grep -F "am_proc_died" "@LOG_FILE" 2>/dev/null | grep -qF "@PKG" && return 0
             fi
             if [ "@THRESHOLD" -gt 0 ]; then
                 SZ=@(stat -c%s "@LOG_FILE" 2>/dev/null || echo 0)
@@ -318,8 +316,8 @@ object Logcat {
         fi
 
         echo no_crash > "@RESULT_FILE"
-        # 安装前先清空：装完开抓时缓冲区里只剩这次安装之后的日志
-        logcat -c -b crash -b events 2>/dev/null
+        # 装包前先清一次 crash 缓冲：上一轮留下的旧崩溃不能算进这次的结果
+        logcat -c -b crash 2>/dev/null
 
         if [ -n "@TARGET_APK" ] && [ -f "@TARGET_APK" ]; then
             log "安装待测apk..."
@@ -335,6 +333,12 @@ object Logcat {
             log "没有待测apk 跳过安装"
         fi
 
+        # 装完先静 2 秒再开抓：安装这一段系统在清旧数据 dexopt 拉起新进程
+        # 早开一秒 文件前几百行就全是装包流水 真崩溃被埋在里面翻不出来
+        # 这 2 秒内真崩了也没关系 还躺在缓冲里 开抓时一起落盘
+        log "等待 2 秒后开始抓取"
+        sleep 2
+
         OLD=@(pidof "@PKG" 2>/dev/null)
         if [ -n "@OLD" ]; then
             log "当前PID: @OLD"
@@ -342,8 +346,9 @@ object Logcat {
             log "当前PID: 无（未运行）"
         fi
 
-        # 不再清缓冲：安装期间崩掉的日志就躺在里面 让 -f 一起落盘
-        logcat -b crash -b events -v threadtime -f "@OUT" &
+        # 只读 crash 缓冲：FATAL EXCEPTION 与 native tombstone 都在这里
+        # events 缓冲全是 system_server 的装包事件 跟崩溃无关 之前那些安装日志就是从这来的
+        logcat -b crash -v threadtime -f "@OUT" &
         LPID=@!
         log "logcat PID: @LPID 开始抓 @DUR 秒"
 
