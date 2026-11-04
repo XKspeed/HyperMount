@@ -30,7 +30,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -48,7 +47,6 @@ import com.xkspeed.HyperMount.ui.components.SectionCard
 import com.xkspeed.HyperMount.ui.components.SliderInputPreference
 import top.yukonga.miuix.kmp.basic.ButtonDefaults
 import top.yukonga.miuix.kmp.basic.Card
-import top.yukonga.miuix.kmp.basic.CardDefaults
 import top.yukonga.miuix.kmp.basic.Checkbox
 import top.yukonga.miuix.kmp.basic.SmallTitle
 import top.yukonga.miuix.kmp.basic.SliderDefaults
@@ -150,14 +148,6 @@ fun CachePage(onBack: () -> Unit) {
             ) {
                 Card(
                     modifier = Modifier.fillMaxWidth(),
-                    // 半透明红叠在内容上会透字 这里直接混成不透明的淡红
-                    colors = CardDefaults.defaultColors(
-                        color = lerp(
-                            MiuixTheme.colorScheme.surface,
-                            MiuixTheme.colorScheme.error,
-                            0.12f,
-                        ),
-                    ),
                 ) {
                     Box(
                         Modifier

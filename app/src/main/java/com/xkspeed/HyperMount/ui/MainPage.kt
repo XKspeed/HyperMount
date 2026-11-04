@@ -178,6 +178,10 @@ fun MainPage(
     val rescueReady = LogConfig.rescuePath.isNotBlank()
     val targetReady = LogConfig.targetPath.isNotBlank()
 
+    // 测试一旦开跑 三样东西就锁死：路径在启动那一刻已经交给脚本了
+    // 这时候还能改只会让人以为改的是正在跑的这一轮
+    val locked = running || starting
+
     // 自动替换关掉时只抓日志 所以不要求选救砖 apk
     val canStart = rootOk == true && targetReady && !running && !starting &&
         (!autoReplace || rescueReady)
@@ -438,6 +442,7 @@ fun MainPage(
                     },
                     title = "自动替换",
                     summary = "在apk崩溃后 换回救砖apk",
+                    enabled = !locked,
                 )
                 AnimatedVisibility(
                     visible = autoReplace,
@@ -452,6 +457,7 @@ fun MainPage(
                                     " · " + Module.fmtSize(LogConfig.rescueSize)
                             else "未选择 · 点击选择崩溃后要装回的 apk",
                             onClick = onPickRescue,
+                            enabled = !locked,
                         )
                     }
                 }
@@ -462,6 +468,7 @@ fun MainPage(
                             " · " + Module.fmtSize(LogConfig.targetSize)
                     else "未选择 · 点击选择要测试的 apk（系统界面本体请去界面专区）",
                     onClick = onPickTarget,
+                    enabled = !locked,
                 )
             }
         }

@@ -299,6 +299,8 @@ fun HomePage(
                                 "MiuiSystemUI.apk · ${Module.fmtSize(state.rescueSize)}"
                             else "未选择 · 点击选择要恢复的 APK",
                             onClick = onPickRescue,
+                            // 跑起来之后两个 apk 都锁死：脚本用的是启动那一刻的路径
+                            enabled = !state.daemonRunning && !busy,
                         )
                         ArrowPreference(
                             title = "待测界面",
@@ -308,6 +310,7 @@ fun HomePage(
                                     " · " + Module.fmtSize(state.targetSize)
                             },
                             onClick = onPickTarget,
+                            enabled = !state.daemonRunning && !busy,
                         )
                     }
                 }
