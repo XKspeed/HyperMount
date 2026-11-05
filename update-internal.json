@@ -1,8 +1,8 @@
 {
   "versionCode": 10,
-  "versionName": "1.4.1-rc2",
-  "buildTime": 1793892035141,
-  "buildId": "5",
+  "versionName": "1.4.0",
+  "buildTime": 1793894074425,
+  "buildId": "7",
   "url": "https://github.com/XKspeed/HyperMount/releases/download/internal/HyperMount-arm64-internal.apk",
-  "changelog": "修复主页测试时异常识别救砖的 bug\n修复内测包比当前安装的正式版还旧时仍提示更新的问题 现在直接跳过 不会再点到一个装不上的包\n设置里能选更新来源了 正式版和内测版 内测通道有新包时和正式版一样提示 点胶囊就能下载\n优化下拉栏动画效果\n添加版本号更新胶囊\n替换返回键图标\n优化检查更新逻辑\n优化缓存页面\n测试开始时锁定 apk 修改\n更新引导界面"
+  "changelog": "修复主页测试时异常识别救砖的 bug\n修复内测包比当前版本旧时仍提示更新\n修复内测通道收不到模块更新\n设置里能选更新来源 正式版和内测版\n优化下拉栏动画效果\n添加版本号更新胶囊\n替换返回键图标\n优化检查更新逻辑\n优化缓存页面\n测试开始时锁定 apk 修改\n更新引导界面"
 }
