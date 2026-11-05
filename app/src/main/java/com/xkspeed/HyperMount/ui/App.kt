@@ -287,10 +287,10 @@ fun App() {
             val code = state.versionCode.toIntOrNull()?.takeIf { it > 0 } ?: moduleVer.second
             val appNew = Update.isNewer(info, channel)
             // 本地模块版本读不到就不判 与界面那边同一个口径
-            // 模块只在正式清单里 内测包不带模块 这里一并跳过
+            // 模块挂在 Release 里 与更新来源无关：内测通道下 info 里的模块信息
+            // 是 Update 从正式清单补过来的 所以这里不再按渠道跳过
             val hasLocalModule = name.isNotBlank() || code > 0
-            val moduleNew = channel == UpdateChannel.RELEASE && hasLocalModule &&
-                Update.isModuleNewer(info, code, name)
+            val moduleNew = hasLocalModule && Update.isModuleNewer(info, code, name)
             latest = if (appNew) info else null
 
             // App 和模块一起报：两个都有新版就一条 toast 说完 不连着弹两次

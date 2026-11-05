@@ -61,6 +61,10 @@ object Update {
     private const val REPO = "XKspeed/HyperMount"
     private const val BRANCH = "main"
 
+    // 内测通道补模块信息时额外给正式清单的预算：模块只跟 Release 发 内测清单里没有
+    // 拿不到就算了（还有缓存兜着） 不能让这一次附带请求把整个检查拖长
+    private const val MODULE_BUDGET_MS = 8_000L
+
     // ---------------- 清单缓存 ----------------
     // 查到更新之后网络就断了 / 用户重启了应用：之前查到的结果不能凭空消失
     // 所以每次拉到清单都落一份本地副本 启动时先拿它垫上 再后台去查
@@ -316,6 +320,57 @@ object Update {
         channel: UpdateChannel,
         timeoutMs: Long,
     ): UpdateInfo? = withContext(Dispatchers.IO) {
+        val info = pull(channel, timeoutMs)
+        if (info == null) {
+            AppLog.log("更新", "${channel.label} 所有镜像都没拿到 ${manifestFile(channel)}")
+            return@withContext null
+        }
+        // 模块只跟正式版一起发 内测清单里根本没有模块那几项：
+        // 装上内测包的人就永远收不到模块更新 所以内测通道额外补一次正式清单
+        // 拉不到（断网）就用上次缓存的那份 至少别把已经提示过的模块更新弄丢
+        val merged = if (channel == UpdateChannel.INTERNAL) {
+            val release = pull(UpdateChannel.RELEASE, MODULE_BUDGET_MS) ?: cached(UpdateChannel.RELEASE)
+            info.withModule(release)
+        } else {
+            info
+        }
+        // 拿到就落盘：之后断网 / 重启 这次的结果都还在
+        // 写入被拒说明缓存里那份更新（镜像没刷新）那就用它 不让更新提示倒退
+        val result = if (save(merged, channel)) merged else cached(channel) ?: merged
+        AppLog.log(
+            "更新",
+            "${channel.label} 远端 ${result.versionName}(${result.versionCode}) " +
+                (result.buildId.takeIf { it.isNotBlank() }?.let { "构建 $it " } ?: "") +
+                (if (hasModule(result)) "模块 ${moduleLabel(result)} " else "") +
+                "本地 ${currentName}($currentCode)",
+        )
+        result
+    }
+
+    /**
+     * 把正式清单里的模块信息搬到这份上。
+     *
+     * 模块挂在 Release 里 内测包不带模块 所以模块的新旧跟「更新来源」无关：
+     * 不管当前选的是正式版还是内测版 都按正式清单里的模块版本判断。
+     * 对方没有模块信息（老清单）时原样返回。
+     */
+    private fun UpdateInfo.withModule(release: UpdateInfo?): UpdateInfo {
+        if (release == null || !hasModule(release)) return this
+        return copy(
+            moduleVersionCode = release.moduleVersionCode,
+            moduleVersionName = release.moduleVersionName,
+            moduleUrl = release.moduleUrl,
+            moduleChangelog = release.moduleChangelog,
+        )
+    }
+
+    /**
+     * 按「直连 → 代理 → 镜像」逐条试到拿回一份清单为止。
+     *
+     * 阻塞式 HttpURLConnection 不响应协程取消，超时只能自己在每条之前掐：
+     * 预算用完就停，免得一串死链把启动后的后台任务拖到半分钟。
+     */
+    private fun pull(channel: UpdateChannel, timeoutMs: Long): UpdateInfo? {
         val manifest = rawManifest(channel)
         val candidates = buildList {
             PROXIES.forEach { proxy -> add(proxy to proxy + manifest) }
@@ -325,27 +380,14 @@ object Update {
             val known = liveProxy ?: return@let list
             list.sortedByDescending { if (it.first == known) 1 else 0 }
         }
-        // 阻塞式 HttpURLConnection 不响应协程取消，超时只能自己在每条之前掐：
-        // 预算用完就停，免得一串死链把启动后的后台任务拖到半分钟
         val deadline = System.currentTimeMillis() + timeoutMs
         for ((proxy, url) in candidates) {
             if (System.currentTimeMillis() >= deadline) break
             val info = fetchOne(url) ?: continue
             liveProxy = proxy
-            // 拿到就落盘：之后断网 / 重启 这次的结果都还在
-            // 写入被拒说明缓存里那份更新（镜像没刷新）那就用它 不让更新提示倒退
-            val result = if (save(info, channel)) info else cached(channel) ?: info
-            AppLog.log(
-                "更新",
-                "${channel.label} 命中镜像 ${proxy.ifEmpty { "直连/CDN" }} " +
-                    "远端 ${result.versionName}(${result.versionCode}) " +
-                    (result.buildId.takeIf { it.isNotBlank() }?.let { "构建 $it " } ?: "") +
-                    "本地 ${currentName}($currentCode)",
-            )
-            return@withContext result
+            return info
         }
-        AppLog.log("更新", "${channel.label} 所有镜像都没拿到 ${manifestFile(channel)}")
-        null
+        return null
     }
 
     /** 单条地址拉一次：解析失败（被劫持成 HTML 之类）也算失败 继续试下一条 */
