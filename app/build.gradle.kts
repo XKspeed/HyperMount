@@ -8,6 +8,12 @@ plugins {
 // 检查更新用它判断「内测通道有没有比手上这个更新的包」
 val internalBuildId = (findProperty("buildId") as String?)?.trim().orEmpty()
 
+// 构建时间戳（epoch 毫秒）：检查更新靠它分先后（内测包与正式版共用 versionCode）
+// CI 传 -PbuildTime=<毫秒> 让包内值与清单里写下的完全一致；
+// 本地构建不传就取这次配置的时间 免得手动打的包时间戳是 0
+val buildTimeMs = (findProperty("buildTime") as String?)?.trim()?.toLongOrNull()
+    ?: System.currentTimeMillis()
+
 android {
     namespace = "com.xkspeed.HyperMount"
     compileSdk = 37
@@ -20,6 +26,8 @@ android {
         versionName = "1.4.0"
 
         buildConfigField("String", "BUILD_ID", "\"$internalBuildId\"")
+        // 构建时间（毫秒）：清单里的 buildTime 就是这个值 两边对不上就说明不是同一份包
+        buildConfigField("long", "BUILD_TIME", "${buildTimeMs}L")
 
         // 只打 arm64：HyperOS 机型全是 arm64-v8a，
         // 其余 ABI 的 .so（目前只有 androidx.graphics.path）白占体积

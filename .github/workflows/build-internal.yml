@@ -130,6 +130,13 @@ jobs:
             echo "asset=HyperMount-arm64-internal.apk"
           } >> "$GITHUB_OUTPUT"
 
+          # 构建时间戳（epoch 毫秒）：包内 BuildConfig.BUILD_TIME 与清单里的 buildTime 用同一个值
+          # 内测包版本号跟正式版一样 判断谁新谁旧只能看它
+          BT=$(date +%s%3N)
+          echo "build_time=${BT}" >> "$GITHUB_OUTPUT"
+          echo "BUILD_TIME=${BT}" >> "$GITHUB_ENV"
+          echo "构建时间戳: ${BT}"
+
       - name: Build release APK
         env:
           KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
@@ -137,7 +144,7 @@ jobs:
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         # 构建号写进 BuildConfig.BUILD_ID：内测包版本号跟正式版一样，
         # App 判断“有没有新内测”只能靠它
-        run: ./gradlew :app:assembleRelease --no-daemon -PbuildId=${{ github.run_number }}
+        run: ./gradlew :app:assembleRelease --no-daemon -PbuildId=${{ github.run_number }} -PbuildTime=${{ steps.v.outputs.build_time }}
 
       - name: Verify APK signature
         run: |
@@ -205,6 +212,7 @@ jobs:
           NAME: ${{ steps.v.outputs.version_name }}
           CODE: ${{ steps.v.outputs.version_code }}
           BUILD: ${{ github.run_number }}
+          BT: ${{ steps.v.outputs.build_time }}
         run: |
           set -euo pipefail
           # 更新说明取 update.md 的 ## latest：内测包里到底有什么改动 以它为准
@@ -220,6 +228,8 @@ jobs:
           data = {
               "versionCode": int(os.environ["CODE"]),
               "versionName": os.environ["NAME"],
+              # 构建时间戳：App 拿它跟手上那份比先后 比手上这份晚才算有更新
+              "buildTime": int(os.environ["BT"]),
               "buildId": os.environ["BUILD"],
               "url": os.environ["URL"],
               "changelog": "\n".join(lines),

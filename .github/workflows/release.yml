@@ -210,6 +210,13 @@ jobs:
             echo "module_name=${MNAME}"
             echo "module_code=${MCODE}"
           } >> "$GITHUB_OUTPUT"
+
+          # 构建时间戳（epoch 毫秒）：写进包内 BuildConfig.BUILD_TIME，清单里带同一个值
+          # App 检查更新靠它分先后 —— 内测包与正式版共用 versionCode 版本号分不出谁新
+          BT=$(date +%s%3N)
+          echo "build_time=${BT}" >> "$GITHUB_OUTPUT"
+          echo "BUILD_TIME=${BT}" >> "$GITHUB_ENV"
+          echo "构建时间戳: ${BT}"
           echo "目标版本: App ${NAME}(${CODE}) · 模块 ${MNAME}(${MCODE}) · tag v${NAME}"
 
       # 改版本号：versionName 与 versionCode 都用上一步算好的值
@@ -337,7 +344,7 @@ jobs:
           KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           KEY_STORE_PASSWORD: ${{ secrets.KEY_STORE_PASSWORD }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
-        run: ./gradlew :app:assembleRelease --no-daemon
+        run: ./gradlew :app:assembleRelease --no-daemon -PbuildTime=${{ steps.version.outputs.build_time }}
 
       # 确认密钥真的用上了：没签名的包也能构建出来 只有验证过才算数
       - name: Verify APK signature
@@ -485,6 +492,7 @@ jobs:
           MODULE_VERSION: ${{ steps.version.outputs.module_name }}
           MODULE_CODE: ${{ steps.version.outputs.module_code }}
           MODULE_FILE: ${{ steps.module.outputs.module_file }}
+          BUILD_TIME: ${{ steps.version.outputs.build_time }}
         run: |
           set -euo pipefail
           CODE=$(grep -oP 'versionCode\s*=\s*\K\d+' app/build.gradle.kts | head -1)
@@ -513,6 +521,8 @@ jobs:
           data = {
               "versionCode": int(os.environ["CODE"]),
               "versionName": os.environ["VERSION"],
+              # 构建时间戳：App 拿它跟手上那份比 比清单晚就是有更新
+              "buildTime": int(os.environ["BUILD_TIME"]),
               "url": os.environ["URL"],
               # 应用日志取 update.md 里本次版本的段落（不是从 Release 说明里抠，避免混进模块段）
               "changelog": read_lines("app_changelog.md"),

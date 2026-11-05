@@ -32,8 +32,11 @@ data class UpdateInfo(
     val versionName: String = "",
     val url: String = "",
     val changelog: String = "",
-    // 内测清单专有：构建号（CI 的 run number）
-    // 内测包版本号跟正式版一样 装完再装正式版不会被拒 所以「有没有新内测」只能看它
+    // 构建时间戳（epoch 毫秒）：打包时写进 BuildConfig.BUILD_TIME，清单里带同一个值
+    // 内测包和正式版共用 versionCode 光看版本号分不出谁新 只能看谁先构建出来
+    val buildTime: Long = 0,
+    // 老字段：内测构建号（CI 的 run number）
+    // 时间戳上线前的清单只有它 留着给老清单兜底
     val buildId: String = "",
     // 模块跟着同一个 Release 发 清单里一起带这三项
     // 老清单没有这些字段 默认空 此时不能判定成"模块有更新"
@@ -146,9 +149,16 @@ object Update {
         val p = prefs() ?: return false
         // 不同镜像的新鲜度不一样 偶尔会拿到比本地缓存还旧的副本（CDN 没刷新）
         // 这种不覆盖：否则刚查到的更新会被一份旧清单抹掉
-        // 内测包版本号跟正式版一致 只能比构建号：相同版本号但构建号不同 说明确实是新包
+        // 内测包版本号跟正式版一致 只能靠构建时间分先后：时间更早（或没有时间戳）说明是旧副本
         val old = cached(channel)
-        if (old != null && old.versionCode > info.versionCode) return false
+        if (old != null) {
+            if (old.versionCode > info.versionCode) return false
+            if (old.versionCode == info.versionCode &&
+                old.buildTime > 0 && info.buildTime < old.buildTime
+            ) {
+                return false
+            }
+        }
         return runCatching {
             p.edit()
                 .putString(manifestKey(channel), json.encodeToString(UpdateInfo.serializer(), info))
@@ -163,8 +173,11 @@ object Update {
     val currentCode: Int get() = AppVersion.code.toInt()
     val currentName: String get() = AppVersion.name
 
-    /** 当前这份包的内测构建号：正式包是空串 */
+    /** 当前这份包的内测构建号：正式包是空串（时间戳上线前的老判法用） */
     val currentBuildId: String get() = BuildConfig.BUILD_ID
+
+    /** 当前这份包的构建时间（epoch 毫秒）：打包时注入 读不到是 0 */
+    val currentBuildTime: Long get() = BuildConfig.BUILD_TIME
 
     /** 超时返回 null 与「没有更新」区分开：调用方可以区分"没查到"和"已最新" */
     suspend fun check(
@@ -175,17 +188,41 @@ object Update {
     }
 
     /**
+     * 清单里那份是不是比手上这份还旧。
+     *
+     * 只认 versionCode：内测包与正式版同号 光看版本号分不出先后 不算"旧"。
+     * 这是唯一需要拒绝的情况里最硬的一条 —— 降级包装不上（Android 不许 versionCode 降低覆盖安装）。
+     */
+    fun isOutdated(info: UpdateInfo?): Boolean {
+        if (info == null) return false
+        return info.versionCode in 1 until currentCode
+    }
+
+    /**
      * 有没有更新。
      *
-     * 正式版比 versionCode（发版会 +1）。
-     * 内测版版本号跟正式版一样 比的是清单里的构建号：
-     * 手上这份是正式包（buildId 为空）或者构建号对不上 就算有新内测。
+     * 一份清单同时服务两种包 靠构建时间戳分先后：
+     * 内测包和正式版共用 versionCode 版本号一样大 谁新谁旧只有打包时间说了算。
+     * 远端比手上晚 → 有更新；比手上早 → 拒绝（典型是正式版发过之后 versionCode 上去了，
+     * 内测清单还停在发版前那次构建 那时推内测包还会被系统拦下来）。
+     *
+     * 时间戳相同就是同一份构建 不用重复提示；清单里没写时间戳（时间戳上线前的老清单）
+     * 退回原来的判法：正式版比 versionCode 内测版比构建号。
      */
     fun isNewer(info: UpdateInfo?, channel: UpdateChannel = UpdateChannel.RELEASE): Boolean {
         if (info == null) return false
+        // 降级包一律拒绝 后面时间戳再新也装不进去
+        if (isOutdated(info)) return false
+        if (info.buildTime > 0) {
+            // 手上这份早于时间戳机制（装的是老包）先让它收到一次更新 装完就对上了
+            if (currentBuildTime <= 0) return true
+            return info.buildTime > currentBuildTime
+        }
+        // ---- 老清单：没有时间戳 ----
         if (channel == UpdateChannel.RELEASE) return info.versionCode > currentCode
+        if (info.versionCode > currentCode) return true
         val remote = info.buildId.trim()
-        if (remote.isEmpty()) return info.versionCode > currentCode
+        if (remote.isEmpty()) return false
         return remote != currentBuildId.trim()
     }
 
