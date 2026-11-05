@@ -255,6 +255,8 @@ fun LiquidDropdownLayout(
     var internalVisible by remember { mutableStateOf(false) }
     var layoutPosition by remember { mutableStateOf(LiquidDropdownLayoutPosition()) }
     var anchorOrigin by remember { mutableStateOf(TransformOrigin(1f, 0f)) }
+    // 画布左上角在窗口里的位置：首帧内容还没测量，收起态矩形要靠它换算到画布坐标
+    var canvasWindowPos by remember { mutableStateOf(IntOffset.Zero) }
     val currentOnDismissRequest by rememberUpdatedState(onDismissRequest)
     val currentOnDismissFinished by rememberUpdatedState(onDismissFinished)
     val currentOnFractionProgress by rememberUpdatedState(onFractionProgress)
@@ -353,6 +355,9 @@ fun LiquidDropdownLayout(
                     }
                     // result.offset 是面板左上角 画布左上角还要再往左上让出一个 padding
                     val canvasOffset = IntOffset(result.offset.x - padPx, result.offset.y - padPx)
+                    if (canvasOffset != canvasWindowPos) {
+                        canvasWindowPos = canvasOffset
+                    }
                     layout(constraints.maxWidth, constraints.maxHeight) {
                         placeable.place(
                             IntOffset(
@@ -371,6 +376,7 @@ fun LiquidDropdownLayout(
                 backdrop = backdrop,
                 collapseBounds = collapseBounds,
                 collapseContent = collapseContent,
+                canvasWindowPos = canvasWindowPos,
                 content = content,
             )
         }
@@ -386,6 +392,8 @@ private fun LiquidDropdownContent(
     backdrop: Backdrop?,
     collapseBounds: IntRect,
     collapseContent: (@Composable () -> Unit)?,
+    /** 画布左上角的窗口坐标：首帧换算收起态矩形用 */
+    canvasWindowPos: IntOffset,
     content: @Composable () -> Unit,
 ) {
     val isDark = isInDarkTheme()
@@ -416,6 +424,16 @@ private fun LiquidDropdownContent(
     // 锚在锚点角（右上/右下） 宽度长出来的同时整体按 k = 0.5p(1-s) 往面板中心迁
     // 迁移进度 originProgress 比 fraction 更早到 1：先「移过去」再「放大」
     fun rectOf(f: Float, p: Float): FloatArray {
+        // 首帧：内容还没测量 natW = 0 用内容区做基准会把矩形推到左边界（看起来往左闪一下）
+        // 这一帧直接拿触发区的实测矩形：f = 0 时两者本来就重合（面板右缘 = 触发右缘 + 7dp）
+        if (natW <= 0f) {
+            if (!hasCollapse) {
+                return floatArrayOf(padPx, padPx, collapseW, collapseH)
+            }
+            val cx = (collapseBounds.left + collapseBounds.right) / 2f - canvasWindowPos.x
+            val cy = (collapseBounds.top + collapseBounds.bottom) / 2f - canvasWindowPos.y
+            return floatArrayOf(cx - collapseW / 2f, cy - collapseH / 2f, collapseW, collapseH)
+        }
         // 弹簧会过冲：f 略微小于 0 或大于 1 时矩形会越过收起态 / 展开态
         // 关闭到最后一帧就会「抖一下再回来」 这里夹住，只留两端之间的行程
         val ff = f.coerceIn(0f, 1f)
@@ -586,12 +604,13 @@ private fun LiquidDropdownContent(
 
         // 收起态内容（当前值 + 箭头）：锁在矩形正中心 随容器长大淡出
         // 这里**不乘**材质透明度：f=0 时它就是全显的 和触发区那份像素重合
-        // 触发区在展开瞬间硬切隐藏（见 rememberRowContentAlpha）所以不会重影
+        // 触发区在展开当帧就硬切隐藏（见 rememberRowContentAlpha）所以不会重影
         //
-        // natW == 0 时不画：那是面板刚组合、内容还没测量的第一帧，
-        // 此时矩形位置按 natW 算出来会贴在内容区左缘（比触发文字靠左一整块面板宽），
-        // 画出来就是「文字先往左闪一下」。等第二帧量到了再出现，位置就是对的。
-        if (collapseContent != null && natW > 0f) {
+        // 第一帧也要画：natW 还是 0，rectOf 会用触发区实测矩形兜底，位置与原位完全重合。
+        // 若是「等测量完再画」 第一帧就会两头都空 —— 文字消失一帧再出现 看起来就是闪一下。
+        // canvasWindowPos 是画布左上角的窗口坐标 由 layout 阶段写入 绘制时已经是最新值；
+        // 它还是 0 说明还没摆过位置 这一帧确实算不出画布坐标 才跳过。
+        if (collapseContent != null && (natW > 0f || canvasWindowPos != IntOffset.Zero)) {
             Box(
                 modifier = Modifier
                     .align(Alignment.TopStart)
@@ -831,27 +850,20 @@ fun LiquidDropdownRow(
 /**
  * 行尾内容的显隐（Sonify `DropdownTriggerState` 同款：**硬切** 没有半透明中间态）。
  *
- * 展开要延后一帧再藏：先让弹层把收起态那帧画出来 否则会空一帧；
- * 退场要等面板快收完再露出来，否则面板还在屏幕上时两处文字会重叠。
+ * 展开**当帧**就藏：弹层从第一帧起就把收起态副本画在原位（几何靠触发区实测矩形算 不依赖内容测量），
+ * 所以这一帧就是「原地换人」—— 不空帧、也不会有两份一起存在好几帧（叠起来颜色发深 看起来闪一下）。
+ * 若按 fraction 判断会晚一帧：state.fraction 由回调同步 比弹层内部那条 Animatable 慢，
+ * 那一帧副本已经长出一截并开始淡出 文字会看起来「跳一下」。
  *
- * 退场阈值取 0.02 而不是 0：这里的 fraction 是弹层通过回调同步出来的，
- * 比内部那条 Animatable 慢一帧，卡在 0 会让副本先消失、文字晚一帧才出现 中间空一帧。
- * 0.02 时副本与文字位置已经几乎重合，提前一帧接上不会被看出重影。
+ * 退场要等 fraction 归零（弹层自己 snap 完才降到底）再露出来，
+ * 否则面板还在屏幕上时两处文字会重叠。
  */
 @Composable
 private fun rememberRowContentAlpha(expanded: Boolean, fraction: () -> Float): Float {
-    var hidden by remember { mutableStateOf(false) }
-    val finished by remember { derivedStateOf { fraction() <= 0.02f } }
-    LaunchedEffect(expanded) {
-        if (expanded) {
-            withFrameNanos { }
-            hidden = true
-        }
+    val visible by remember(expanded) {
+        derivedStateOf { !expanded && fraction() <= 0.0001f }
     }
-    LaunchedEffect(expanded, finished) {
-        if (!expanded && finished) hidden = false
-    }
-    return if (hidden) 0f else 1f
+    return if (visible) 1f else 0f
 }
 
 /** 下拉选择项的共享状态：页面级持有，行与弹层各拿一半 */
