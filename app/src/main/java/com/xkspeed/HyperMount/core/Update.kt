@@ -8,6 +8,9 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import java.net.HttpURLConnection
 import java.net.URL
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 /**
  * 更新来源。
@@ -182,6 +185,18 @@ object Update {
 
     /** 当前这份包的构建时间（epoch 毫秒）：打包时注入 读不到是 0 */
     val currentBuildTime: Long get() = BuildConfig.BUILD_TIME
+
+    /** 手上这份是不是内测包：正式包不打构建号 为空串 */
+    val isInternalBuild: Boolean get() = BuildConfig.BUILD_ID.isNotBlank()
+
+    /**
+     * 清单里那个包的构建时间 显示成「2026-11-06 01:07」。
+     * 老清单没有这个字段 返回空串 调用方自己决定要不要显示这一行。
+     */
+    fun buildTimeLabel(info: UpdateInfo): String {
+        if (info.buildTime <= 0) return ""
+        return SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault()).format(Date(info.buildTime))
+    }
 
     /** 超时返回 null 与「没有更新」区分开：调用方可以区分"没查到"和"已最新" */
     suspend fun check(

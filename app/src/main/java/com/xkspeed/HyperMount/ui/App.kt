@@ -295,7 +295,13 @@ fun App() {
 
             // App 和模块一起报：两个都有新版就一条 toast 说完 不连着弹两次
             val parts = buildList {
-                if (appNew) add("App v${Update.label(info)}")
+                // 内测包版本号可能跟手上这份一样 提示里先写「内测版」免得用户以为是重复弹窗
+                if (appNew) {
+                    add(
+                        if (channel == UpdateChannel.INTERNAL) "内测版 v${Update.label(info)}"
+                        else "App v${Update.label(info)}",
+                    )
+                }
                 if (moduleNew) add("模块 v${Update.moduleLabel(info)}")
             }
             if (parts.isNotEmpty()) {
@@ -750,6 +756,7 @@ fun App() {
             AboutPage(
                 moduleVersion = localModuleName,
                 latest = latest,
+                channel = UiConfigState.updateChannel,
                 moduleLatest = moduleLatest,
                 onOpenRelease = { openRelease() },
                 onDownloadModule = { downloadModule() },

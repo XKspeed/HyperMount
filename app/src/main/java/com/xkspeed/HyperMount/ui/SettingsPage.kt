@@ -388,7 +388,7 @@ fun SettingsPage(
                     }
                 }
 
-                // 关于整页挪成二级页 三行并成一张卡：关于 / 检查更新 / 自动检查更新
+                // 关于整页挪成二级页 四行并成一张卡：关于 / 检查更新 / 自动检查更新 / 更新来源
                 item { SmallTitle("关于") }
                 item {
                     SectionCard {
@@ -410,11 +410,8 @@ fun SettingsPage(
                             },
                             title = "自动检查更新",
                         )
-                    }
-                }
-                // 更新来源单独一张卡：换来源会重新查一次（见 App.kt 的 LaunchedEffect）
-                item {
-                    SectionCard {
+                        // 更新来源正好管着上面那两行查到的是哪条线 挨着放
+                        // 换来源会重新查一次（见 App.kt 的 LaunchedEffect）
                         LiquidSelectPreference(
                             title = "更新来源",
                             items = UpdateChannel.entries.map { it.label },

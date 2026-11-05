@@ -44,6 +44,7 @@ import androidx.core.graphics.drawable.toBitmap
 import com.xkspeed.HyperMount.R
 import com.xkspeed.HyperMount.core.AppVersion
 import com.xkspeed.HyperMount.core.Update
+import com.xkspeed.HyperMount.core.UpdateChannel
 import com.xkspeed.HyperMount.core.UpdateInfo
 import com.xkspeed.HyperMount.ui.component.effect.BgEffectBackground
 import com.xkspeed.HyperMount.ui.component.glass.ScrollPage
@@ -84,6 +85,8 @@ fun AboutPage(
     // 已安装的模块版本：state 还没读回来时调用方会用 module.prop 里的值顶上
     moduleVersion: String,
     latest: UpdateInfo?,
+    // 这份清单来自哪个来源：内测包的版本号跟正式版一模一样 卡片上得写清楚
+    channel: UpdateChannel = UpdateChannel.RELEASE,
     moduleLatest: UpdateInfo?,
     onOpenRelease: () -> Unit,
     onDownloadModule: () -> Unit,
@@ -157,7 +160,9 @@ fun AboutPage(
             FrostedCard(backdrop = backdrop) {
                 ArrowPreference(
                     title = "应用版本",
-                    summary = "v${AppVersion.name} (${AppVersion.code})",
+                    // 装的是内测包就标出来：版本号跟正式版一样 不标分不清手上是哪条线
+                    summary = "v${AppVersion.name} (${AppVersion.code})" +
+                        if (Update.isInternalBuild) " · 内测" else "",
                     onClick = {
                         runCatching {
                             uriHandler.openUri("https://github.com/XKspeed/HyperMount")
@@ -187,6 +192,17 @@ fun AboutPage(
                             fontWeight = FontWeight.SemiBold,
                             fontSize = 15.sp,
                         )
+                        // 内测包的版本号可能跟手上装的一模一样（只是重新构建过）
+                        // 不写清楚「内测版 / 发布时间」用户会以为检查更新坏了
+                        if (channel == UpdateChannel.INTERNAL) {
+                            val built = Update.buildTimeLabel(latest)
+                            Spacer(Modifier.height(4.dp))
+                            MiuixText(
+                                if (built.isEmpty()) "内测版" else "内测版 · 发布于 $built",
+                                color = colorScheme.primary,
+                                fontSize = 12.sp,
+                            )
+                        }
                         Spacer(Modifier.height(8.dp))
                         val notes = Update.changelogLines(latest)
                         if (notes.isEmpty()) {

@@ -188,22 +188,32 @@ jobs:
           NAME: ${{ steps.v.outputs.version_name }}
           CODE: ${{ steps.v.outputs.version_code }}
           BUILD: ${{ github.run_number }}
+          BT: ${{ steps.v.outputs.build_time }}
         run: |
           set -euo pipefail
+          # 打包时间和构建号：内测包版本号可能跟正式版一样 只有这两样能区分谁是谁
+          # 统一按北京时间写 免得用户在别的时区对着 UTC 算
+          PUBLISHED=$(TZ=Asia/Shanghai date -d "@$((BT / 1000))" "+%Y-%m-%d %H:%M")
+          printf '内测版 · 构建 %s · 发布于 %s（北京时间）\n' "$BUILD" "$PUBLISHED" > /tmp/internal-head.txt
           # 发版说明直接取 update.md 的 ## latest：这一版到底改了什么以它为准
           # 列表项前面的 ### 分组标题留着 发版页上能正常显示成小标题
           if sh scripts/changelog.sh has update.md latest; then
             sh scripts/changelog.sh extract update.md latest > /tmp/internal-latest.md
           else
-            printf '构建 %s · 版本 %s (%s)\n' "$BUILD" "$NAME" "$CODE" > /tmp/internal-latest.md
+            : > /tmp/internal-latest.md
           fi
-          cat /tmp/internal-latest.md
+          # 头部单独一行引用块：一眼看出这是测试包 什么时候打的
+          {
+            printf '> %s\n\n' "$(cat /tmp/internal-head.txt)"
+            cat /tmp/internal-latest.md
+          } > /tmp/internal-notes.md
+          cat /tmp/internal-notes.md
           gh release delete internal --repo "$REPO" --yes --cleanup-tag 2>/dev/null || true
           gh release create internal "dist/${ASSET}" \
             --repo "$REPO" \
             --prerelease \
             --title "内测版 ${NAME}" \
-            --notes-file /tmp/internal-latest.md
+            --notes-file /tmp/internal-notes.md
           COUNT=$(gh release view internal --repo "$REPO" --json assets --jq '.assets | length')
           echo "internal 下的资产数：${COUNT}"
           if [ "${COUNT}" -ne 1 ]; then
