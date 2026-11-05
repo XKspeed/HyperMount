@@ -190,12 +190,20 @@ jobs:
           BUILD: ${{ github.run_number }}
         run: |
           set -euo pipefail
+          # 发版说明直接取 update.md 的 ## latest：这一版到底改了什么以它为准
+          # 列表项前面的 ### 分组标题留着 发版页上能正常显示成小标题
+          if sh scripts/changelog.sh has update.md latest; then
+            sh scripts/changelog.sh extract update.md latest > /tmp/internal-latest.md
+          else
+            printf '构建 %s · 版本 %s (%s)\n' "$BUILD" "$NAME" "$CODE" > /tmp/internal-latest.md
+          fi
+          cat /tmp/internal-latest.md
           gh release delete internal --repo "$REPO" --yes --cleanup-tag 2>/dev/null || true
           gh release create internal "dist/${ASSET}" \
             --repo "$REPO" \
             --prerelease \
             --title "内测版 ${NAME}" \
-            --notes "构建 ${BUILD} · 版本 ${NAME} (${CODE})"
+            --notes-file /tmp/internal-latest.md
           COUNT=$(gh release view internal --repo "$REPO" --json assets --jq '.assets | length')
           echo "internal 下的资产数：${COUNT}"
           if [ "${COUNT}" -ne 1 ]; then
@@ -213,10 +221,11 @@ jobs:
           BT: ${{ steps.v.outputs.build_time }}
         run: |
           set -euo pipefail
-          # 更新说明取 update.md 的 ## latest：内测包里到底有什么改动 以它为准
-          sh scripts/changelog.sh extract update.md latest 2>/dev/null \
-            | sed -E '/^[[:space:]]*###/d; s/^-[[:space:]]*//' \
-            > /tmp/internal-changelog.txt || true
+          # 更新说明与发版页同一份内容（上一步已经落到 /tmp/internal-latest.md）
+          # 应用内的更新卡片是逐行纯文本渲染：### 分组标题会原样显示成一条内容 这里去掉
+          [ -f /tmp/internal-latest.md ] || sh scripts/changelog.sh extract update.md latest > /tmp/internal-latest.md
+          sed -E '/^[[:space:]]*###/d; s/^[-*][[:space:]]*//' /tmp/internal-latest.md \
+            > /tmp/internal-changelog.txt
           URL="https://github.com/${REPO}/releases/download/internal/HyperMount-arm64-internal.apk"
           export URL
           python3 - <<'PY'
