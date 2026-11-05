@@ -4,9 +4,7 @@ import android.graphics.BlurMaskFilter
 import android.os.Build
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.spring
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.LocalIndication
@@ -119,7 +117,7 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme.colorScheme
 //
 // 进场 spring 0.77/220 退场 0.85/650：退场更硬 收得干脆；
 // 锚点迁移 0.77/420 比尺寸更快到 1 先「移向中心」再放大；
-// 退场锚点走 tween 340 的 cubic-bezier(0,0,0,1) 收尾也靠它兜住。
+// 退场锚点不单开曲线：与尺寸共用同一条弹簧 保证两者同时归零（终点才对得上）。
 // =====================================================================
 
 private val FractionEnterAnimSpec =
@@ -129,8 +127,6 @@ private val FractionExitAnimSpec =
 
 private val OriginEnterAnimSpec =
     spring<Float>(dampingRatio = 0.77f, stiffness = 420f, visibilityThreshold = 0.0001f)
-private val OriginExitAnimSpec =
-    tween<Float>(durationMillis = 340, easing = CubicBezierEasing(0f, 0f, 0f, 1f))
 
 // 材质与内容的消隐完全由 fraction 推 不再另开一条 alpha 轨：
 // 玻璃 f*7 很快就满 退场 f*3.6 才全透明；内容 (f-0.22)/0.4 淡入 退场 (f-0.30)/0.48
@@ -274,9 +270,11 @@ fun LiquidDropdownLayout(
         } else {
             if (!internalVisible) return@LaunchedEffect
             launch { fractionProgress.animateTo(0f, FractionExitAnimSpec) }
-            // 退场要「等」锚点那条 tween 走完再收尾 不能立刻 snap：
-            // 提前 snap 会把还没跑完的 fraction 弹簧一起取消 面板会突然消失
-            originProgress.animateTo(0f, OriginExitAnimSpec)
+            // 退场让锚点与尺寸用同一条弹簧：
+            // 原来锚点走 tween(340) 尺寸走 spring(650) 两条曲线收尾不同步，
+            // 最后几帧矩形中心已经离开触发文字 但尺寸还没归零，文字就会「对不齐再跳回来」。
+            // 同 spec 同起点同时启动 → 每一帧 p == f，f 归零时锚点必然也在原位。
+            originProgress.animateTo(0f, FractionExitAnimSpec)
             fractionProgress.snapTo(0f)
             originProgress.snapTo(0f)
             internalVisible = false
@@ -418,8 +416,11 @@ private fun LiquidDropdownContent(
     // 锚在锚点角（右上/右下） 宽度长出来的同时整体按 k = 0.5p(1-s) 往面板中心迁
     // 迁移进度 originProgress 比 fraction 更早到 1：先「移过去」再「放大」
     fun rectOf(f: Float, p: Float): FloatArray {
-        val w = collapseW + (natW - collapseW) * f
-        val h = collapseH + (natH - collapseH) * f
+        // 弹簧会过冲：f 略微小于 0 或大于 1 时矩形会越过收起态 / 展开态
+        // 关闭到最后一帧就会「抖一下再回来」 这里夹住，只留两端之间的行程
+        val ff = f.coerceIn(0f, 1f)
+        val w = collapseW + (natW - collapseW) * ff
+        val h = collapseH + (natH - collapseH) * ff
         val s = if (natW > 0f) w / natW else 1f
         val k = 0.5f * p.coerceIn(0f, 1f) * (1f - s)
         val right = layoutPosition.isRightAligned
@@ -586,7 +587,11 @@ private fun LiquidDropdownContent(
         // 收起态内容（当前值 + 箭头）：锁在矩形正中心 随容器长大淡出
         // 这里**不乘**材质透明度：f=0 时它就是全显的 和触发区那份像素重合
         // 触发区在展开瞬间硬切隐藏（见 rememberRowContentAlpha）所以不会重影
-        if (collapseContent != null) {
+        //
+        // natW == 0 时不画：那是面板刚组合、内容还没测量的第一帧，
+        // 此时矩形位置按 natW 算出来会贴在内容区左缘（比触发文字靠左一整块面板宽），
+        // 画出来就是「文字先往左闪一下」。等第二帧量到了再出现，位置就是对的。
+        if (collapseContent != null && natW > 0f) {
             Box(
                 modifier = Modifier
                     .align(Alignment.TopStart)
@@ -827,13 +832,16 @@ fun LiquidDropdownRow(
  * 行尾内容的显隐（Sonify `DropdownTriggerState` 同款：**硬切** 没有半透明中间态）。
  *
  * 展开要延后一帧再藏：先让弹层把收起态那帧画出来 否则会空一帧；
- * 退场要等 fraction 归零（弹层自己 snap 完才发这个信号）再露出来，
- * 否则面板还在屏幕上时两处文字会重叠。
+ * 退场要等面板快收完再露出来，否则面板还在屏幕上时两处文字会重叠。
+ *
+ * 退场阈值取 0.02 而不是 0：这里的 fraction 是弹层通过回调同步出来的，
+ * 比内部那条 Animatable 慢一帧，卡在 0 会让副本先消失、文字晚一帧才出现 中间空一帧。
+ * 0.02 时副本与文字位置已经几乎重合，提前一帧接上不会被看出重影。
  */
 @Composable
 private fun rememberRowContentAlpha(expanded: Boolean, fraction: () -> Float): Float {
     var hidden by remember { mutableStateOf(false) }
-    val finished by remember { derivedStateOf { fraction() <= 0.001f } }
+    val finished by remember { derivedStateOf { fraction() <= 0.02f } }
     LaunchedEffect(expanded) {
         if (expanded) {
             withFrameNanos { }
