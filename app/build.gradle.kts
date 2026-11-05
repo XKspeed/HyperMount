@@ -4,6 +4,10 @@ plugins {
     id("org.jetbrains.kotlin.plugin.serialization")
 }
 
+// 内测构建号：CI 传 -PbuildId=<run number> 写进 BuildConfig；正式发布不传 为空串
+// 检查更新用它判断「内测通道有没有比手上这个更新的包」
+val internalBuildId = (findProperty("buildId") as String?)?.trim().orEmpty()
+
 android {
     namespace = "com.xkspeed.HyperMount"
     compileSdk = 37
@@ -14,6 +18,8 @@ android {
         targetSdk = 37
         versionCode = 10
         versionName = "1.4.0"
+
+        buildConfigField("String", "BUILD_ID", "\"$internalBuildId\"")
 
         // 只打 arm64：HyperOS 机型全是 arm64-v8a，
         // 其余 ABI 的 .so（目前只有 androidx.graphics.path）白占体积

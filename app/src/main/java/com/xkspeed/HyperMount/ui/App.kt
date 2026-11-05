@@ -57,6 +57,7 @@ import com.xkspeed.HyperMount.core.LogConfig
 import com.xkspeed.HyperMount.core.Logcat
 import com.xkspeed.HyperMount.core.Root
 import com.xkspeed.HyperMount.core.Update
+import com.xkspeed.HyperMount.core.UpdateChannel
 import com.xkspeed.HyperMount.core.UpdateInfo
 import com.kyant.backdrop.backdrops.layerBackdrop as kyantLayerBackdrop
 import com.kyant.backdrop.backdrops.rememberLayerBackdrop as kyantRememberLayerBackdrop
@@ -204,8 +205,11 @@ fun App() {
 
     // 更新：先垫上次查到的结果 再后台查一次
     // 缓存这一步很关键：查到更新后断网、或者用户重启了应用，提示不能凭空消失
-    val cachedInfo = remember { Update.cached() }
-    var latest by remember { mutableStateOf(cachedInfo?.takeIf { Update.isNewer(it) }) }
+    // 两个来源各有一份缓存 进页面时先按当前来源垫上 切来源时再换
+    val cachedInfo = remember { Update.cached(UiConfigState.updateChannel) }
+    var latest by remember {
+        mutableStateOf(cachedInfo?.takeIf { Update.isNewer(it, UiConfigState.updateChannel) })
+    }
     // 清单原样留着：模块版本要等 state 读回来才比得了 判定放在渲染时做
     // （检查更新可能比首屏状态先回来 那时 state 还是空的）
     var manifest by remember { mutableStateOf(cachedInfo) }
@@ -252,10 +256,11 @@ fun App() {
 
     fun checkUpdate(manual: Boolean) {
         if (checkingUpdate) return
+        val channel = UiConfigState.updateChannel
         scope.launch {
             checkingUpdate = true
             // 多镜像轮询 给足时间（内部每条 3.5s 就放弃 不会死等）
-            val info = Update.check()
+            val info = Update.check(channel)
             checkingUpdate = false
             if (info == null) {
                 // 超时/断网：手动点才提示 启动那次安静失败
@@ -263,8 +268,12 @@ fun App() {
                 if (manual) {
                     toast(
                         context,
-                        if (manifest != null) "网络不通 显示上次查到的结果"
-                        else "检查更新失败 网络不通",
+                        when {
+                            // 内测清单是内测工作流构建时才写的 没有就是还没发过内测包
+                            channel == UpdateChannel.INTERNAL -> "内测通道暂时没有可用的包"
+                            manifest != null -> "网络不通 显示上次查到的结果"
+                            else -> "检查更新失败 网络不通"
+                        },
                     )
                 }
                 return@launch
@@ -276,10 +285,12 @@ fun App() {
             }
             val name = state.version.ifBlank { moduleVer.first }
             val code = state.versionCode.toIntOrNull()?.takeIf { it > 0 } ?: moduleVer.second
-            val appNew = Update.isNewer(info)
+            val appNew = Update.isNewer(info, channel)
             // 本地模块版本读不到就不判 与界面那边同一个口径
+            // 模块只在正式清单里 内测包不带模块 这里一并跳过
             val hasLocalModule = name.isNotBlank() || code > 0
-            val moduleNew = hasLocalModule && Update.isModuleNewer(info, code, name)
+            val moduleNew = channel == UpdateChannel.RELEASE && hasLocalModule &&
+                Update.isModuleNewer(info, code, name)
             latest = if (appNew) info else null
 
             // App 和模块一起报：两个都有新版就一条 toast 说完 不连着弹两次
@@ -309,8 +320,17 @@ fun App() {
         withContext(Dispatchers.IO) { ApkStore.ensureRescue(context) }
     }
 
-    LaunchedEffect(Unit) {
-        if (UiConfigState.autoCheckUpdate) checkUpdate(manual = false)
+    // 启动查一次；换了更新来源也重查一次
+    // 第一次安静失败 之后（切来源）手动跑 该提示就提示
+    var firstCheck by remember { mutableStateOf(true) }
+    LaunchedEffect(UiConfigState.updateChannel) {
+        val manual = !firstCheck
+        firstCheck = false
+        // 换来源先把另一份缓存垫上 免得切过去还挂着上一个来源的提示
+        val cachedOfChannel = Update.cached(UiConfigState.updateChannel)
+        manifest = cachedOfChannel
+        latest = cachedOfChannel?.takeIf { Update.isNewer(it, UiConfigState.updateChannel) }
+        if (manual || UiConfigState.autoCheckUpdate) checkUpdate(manual = manual)
     }
 
     // 关闭启动崩溃弹窗：标记这份崩溃已展示过 下次启动不再弹（只提醒一次）

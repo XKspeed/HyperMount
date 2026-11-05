@@ -1,7 +1,7 @@
 name: Build Internal
 
-# 只出包 不发布：不建 tag、不动 update.json、不提交版本号
-# 产物在运行页底部 Artifacts 里下载 直接发群或自用
+# 只出包 不发布正式版：不建版本 tag、不动 update.json、不提交版本号
+# 产物同时放两处：运行页底部的 Artifacts（手动下载）与固定 tag `internal` 的 prerelease（App 内测通道直接拉）
 # 与 Release 工作流同一套签名 装过正式版的机器可以直接覆盖安装
 
 on:
@@ -17,7 +17,8 @@ on:
         default: ''
 
 permissions:
-  contents: read
+  # 要往固定 tag `internal` 发 prerelease、还要把清单提交回 main
+  contents: write
 
 jobs:
   build:
@@ -125,7 +126,8 @@ jobs:
           {
             echo "version_name=${NAME}"
             echo "version_code=${CODE}"
-            echo "asset=HyperMount-arm64-${NAME}.apk"
+            # 固定名：内测通道的下载链接要永久有效 不能带版本号
+            echo "asset=HyperMount-arm64-internal.apk"
           } >> "$GITHUB_OUTPUT"
 
       - name: Build release APK
@@ -133,7 +135,9 @@ jobs:
           KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           KEY_STORE_PASSWORD: ${{ secrets.KEY_STORE_PASSWORD }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
-        run: ./gradlew :app:assembleRelease --no-daemon
+        # 构建号写进 BuildConfig.BUILD_ID：内测包版本号跟正式版一样，
+        # App 判断“有没有新内测”只能靠它
+        run: ./gradlew :app:assembleRelease --no-daemon -PbuildId=${{ github.run_number }}
 
       - name: Verify APK signature
         run: |
@@ -169,19 +173,107 @@ jobs:
           path: dist/*.apk
           retention-days: 30
 
+      # 固定 tag 的 prerelease：App 的内测通道就从这里下
+      # 每次先删掉整个 release 再建：保证这个 tag 下永远只有一个 APK 不会越堆越多
+      - name: Publish internal prerelease
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          ASSET: ${{ steps.v.outputs.asset }}
+          NAME: ${{ steps.v.outputs.version_name }}
+          CODE: ${{ steps.v.outputs.version_code }}
+          BUILD: ${{ github.run_number }}
+        run: |
+          set -euo pipefail
+          gh release delete internal --repo "$REPO" --yes --cleanup-tag 2>/dev/null || true
+          gh release create internal "dist/${ASSET}" \
+            --repo "$REPO" \
+            --prerelease \
+            --title "内测版 ${NAME}" \
+            --notes "构建 ${BUILD} · 版本 ${NAME} (${CODE})"
+          COUNT=$(gh release view internal --repo "$REPO" --json assets --jq '.assets | length')
+          echo "internal 下的资产数：${COUNT}"
+          if [ "${COUNT}" -ne 1 ]; then
+            echo "::error::internal 下应该只有一个 APK 实际是 ${COUNT} 个"
+            exit 1
+          fi
+
+      # 清单里的构建号就是这次的 run number：App 拿它跟手上那份比 不同就算有内测更新
+      - name: Write internal manifest
+        env:
+          REPO: ${{ github.repository }}
+          NAME: ${{ steps.v.outputs.version_name }}
+          CODE: ${{ steps.v.outputs.version_code }}
+          BUILD: ${{ github.run_number }}
+        run: |
+          set -euo pipefail
+          # 更新说明取 update.md 的 ## latest：内测包里到底有什么改动 以它为准
+          sh scripts/changelog.sh extract update.md latest 2>/dev/null \
+            | sed -E '/^[[:space:]]*###/d; s/^-[[:space:]]*//' \
+            > /tmp/internal-changelog.txt || true
+          URL="https://github.com/${REPO}/releases/download/internal/HyperMount-arm64-internal.apk"
+          export URL
+          python3 - <<'PY'
+          import json, os
+
+          lines = [l.strip() for l in open("/tmp/internal-changelog.txt", encoding="utf-8") if l.strip()]
+          data = {
+              "versionCode": int(os.environ["CODE"]),
+              "versionName": os.environ["NAME"],
+              "buildId": os.environ["BUILD"],
+              "url": os.environ["URL"],
+              "changelog": "\n".join(lines),
+          }
+          with open("update-internal.json", "w", encoding="utf-8") as f:
+              json.dump(data, f, ensure_ascii=False, indent=2)
+              f.write("\n")
+          print(open("update-internal.json", encoding="utf-8").read())
+          PY
+
+      - name: Commit internal manifest
+        env:
+          BUILD: ${{ github.run_number }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add update-internal.json
+          if git diff --cached --quiet; then
+            echo "清单没有变化 跳过提交"
+            exit 0
+          fi
+          git commit -m "chore(internal): 内测清单指向构建 ${BUILD}"
+          for i in 1 2 3; do
+            if git push origin HEAD:main; then
+              echo "内测清单已推送到 main"
+              exit 0
+            fi
+            echo "推送被拒 第 ${i} 次重试…"
+            git fetch origin main
+            git rebase --autostash FETCH_HEAD
+          done
+          echo "::error::内测清单推送失败"
+          exit 1
+
       - name: Summary
         env:
           ASSET: ${{ steps.v.outputs.asset }}
           NAME: ${{ steps.v.outputs.version_name }}
           CODE: ${{ steps.v.outputs.version_code }}
+          BUILD: ${{ github.run_number }}
+          REPO: ${{ github.repository }}
         run: |
           {
-            echo "## 内测包 ${NAME} (${CODE})"
+            echo "## 内测包 ${NAME} (${CODE}) · 构建 ${BUILD}"
             echo ""
-            echo "在本次运行页底部 **Artifacts** 下载 \`${ASSET}\`，直接发群即可。"
+            echo "已发到固定 tag \`internal\` 的 prerelease，应用里把「更新来源」切到内测版就能收到："
+            echo ""
+            echo "https://github.com/${REPO}/releases/download/internal/${ASSET}"
+            echo ""
+            echo "本次运行页底部 **Artifacts** 也能手动下载。"
             echo ""
             echo "- 只有 arm64-v8a"
-            echo "- 与正式包同一签名 可直接覆盖安装（versionCode 不低于已装版本）"
-            echo "- 不建 tag、不改 update.json、不提交版本号"
-            echo "- Artifact 保留 30 天"
+            echo "- 与正式包同一签名 可直接覆盖安装"
+            echo "- 不改 update.json、不提交版本号；只提交 update-internal.json"
+            echo "- \`internal\` 下始终只有一个 APK（每次构建先删再建）"
           } >> "$GITHUB_STEP_SUMMARY"

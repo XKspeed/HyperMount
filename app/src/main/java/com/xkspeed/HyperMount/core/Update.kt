@@ -1,12 +1,25 @@
 package com.xkspeed.HyperMount.core
 
 import android.content.Context
+import com.xkspeed.HyperMount.BuildConfig
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import java.net.HttpURLConnection
 import java.net.URL
+
+/**
+ * 更新来源。
+ *
+ * 正式版读仓库根的 update.json（发版工作流维护 一个版本一份）；
+ * 内测版读 update-internal.json（内测工作流维护 每次构建覆盖同一个 tag）。
+ * 两份清单分开存 切换来源不会互相覆盖。
+ */
+enum class UpdateChannel(val label: String) {
+    RELEASE("正式版"),
+    INTERNAL("内测版"),
+}
 
 /**
  * 仓库根目录的 update.json
@@ -19,6 +32,9 @@ data class UpdateInfo(
     val versionName: String = "",
     val url: String = "",
     val changelog: String = "",
+    // 内测清单专有：构建号（CI 的 run number）
+    // 内测包版本号跟正式版一样 装完再装正式版不会被拒 所以「有没有新内测」只能看它
+    val buildId: String = "",
     // 模块跟着同一个 Release 发 清单里一起带这三项
     // 老清单没有这些字段 默认空 此时不能判定成"模块有更新"
     val moduleVersionCode: Int = 0,
@@ -46,12 +62,22 @@ object Update {
     // 查到更新之后网络就断了 / 用户重启了应用：之前查到的结果不能凭空消失
     // 所以每次拉到清单都落一份本地副本 启动时先拿它垫上 再后台去查
     private const val PREFS = "update_cache"
-    private const val KEY_MANIFEST = "manifest"
+    // 两个来源各存各的：切来切去时不至于把另一条的缓存覆盖掉
+    private const val KEY_MANIFEST = "manifest" // 老版本只存过正式版 读到了就当成正式版的
+    private const val KEY_MANIFEST_RELEASE = "manifest_release"
+    private const val KEY_MANIFEST_INTERNAL = "manifest_internal"
     private const val KEY_PROXY = "proxy"
 
+    private fun manifestKey(channel: UpdateChannel) =
+        if (channel == UpdateChannel.INTERNAL) KEY_MANIFEST_INTERNAL else KEY_MANIFEST_RELEASE
+
+    /** 清单文件名：正式版 update.json 内测版 update-internal.json */
+    private fun manifestFile(channel: UpdateChannel) =
+        if (channel == UpdateChannel.INTERNAL) "update-internal.json" else "update.json"
+
     /** 原始清单（走 GitHub raw） */
-    private const val RAW_MANIFEST =
-        "https://raw.githubusercontent.com/$REPO/$BRANCH/update.json"
+    private fun rawManifest(channel: UpdateChannel) =
+        "https://raw.githubusercontent.com/$REPO/$BRANCH/${manifestFile(channel)}"
 
     /**
      * 代理前缀：空串是直连，其余是国内常用的 GitHub 加速站
@@ -66,9 +92,9 @@ object Update {
     )
 
     /** 不走代理也能拿到的镜像/CDN：直连被墙时这几条往往还活着（只用于清单，不能转发下载） */
-    private val MIRRORS = listOf(
-        "https://cdn.jsdelivr.net/gh/$REPO@$BRANCH/update.json",
-        "https://raw.gitmirror.com/$REPO/$BRANCH/update.json",
+    private fun mirrors(channel: UpdateChannel) = listOf(
+        "https://cdn.jsdelivr.net/gh/$REPO@$BRANCH/${manifestFile(channel)}",
+        "https://raw.gitmirror.com/$REPO/$BRANCH/${manifestFile(channel)}",
     )
 
     private val json = Json {
@@ -98,9 +124,14 @@ object Update {
      *
      * 这里只负责把缓存原样给出来 判不判定有更新交给调用方拿当前版本比：
      * 用户装上更新后 旧缓存里的版本号自然不再高于本地 提示会自己消失。
+     *
+     * 正式版还认一下老键 `manifest`：上一版只存过这一份 别让老用户升级上来时白丢缓存。
      */
-    fun cached(): UpdateInfo? {
-        val raw = prefs()?.getString(KEY_MANIFEST, null) ?: return null
+    fun cached(channel: UpdateChannel = UpdateChannel.RELEASE): UpdateInfo? {
+        val p = prefs() ?: return null
+        val raw = p.getString(manifestKey(channel), null)
+            ?: (if (channel == UpdateChannel.RELEASE) p.getString(KEY_MANIFEST, null) else null)
+            ?: return null
         return runCatching { json.decodeFromString<UpdateInfo>(raw) }
             .getOrNull()
             ?.takeIf { it.versionCode > 0 || it.versionName.isNotBlank() }
@@ -111,14 +142,16 @@ object Update {
      *
      * 缓存里那份比这次拉到的还新（镜像没刷新）时不动缓存 返回 false 由调用方决定用哪份。
      */
-    private fun save(info: UpdateInfo): Boolean {
+    private fun save(info: UpdateInfo, channel: UpdateChannel): Boolean {
         val p = prefs() ?: return false
         // 不同镜像的新鲜度不一样 偶尔会拿到比本地缓存还旧的副本（CDN 没刷新）
         // 这种不覆盖：否则刚查到的更新会被一份旧清单抹掉
-        if ((cached()?.versionCode ?: 0) > info.versionCode) return false
+        // 内测包版本号跟正式版一致 只能比构建号：相同版本号但构建号不同 说明确实是新包
+        val old = cached(channel)
+        if (old != null && old.versionCode > info.versionCode) return false
         return runCatching {
             p.edit()
-                .putString(KEY_MANIFEST, json.encodeToString(UpdateInfo.serializer(), info))
+                .putString(manifestKey(channel), json.encodeToString(UpdateInfo.serializer(), info))
                 .putString(KEY_PROXY, liveProxy.orEmpty())
                 .apply()
         }.isSuccess
@@ -130,12 +163,31 @@ object Update {
     val currentCode: Int get() = AppVersion.code.toInt()
     val currentName: String get() = AppVersion.name
 
+    /** 当前这份包的内测构建号：正式包是空串 */
+    val currentBuildId: String get() = BuildConfig.BUILD_ID
+
     /** 超时返回 null 与「没有更新」区分开：调用方可以区分"没查到"和"已最新" */
-    suspend fun check(timeoutMs: Long = 15_000): UpdateInfo? = withContext(Dispatchers.IO) {
-        runCatching { fetch(timeoutMs) }.getOrNull()
+    suspend fun check(
+        channel: UpdateChannel = UpdateChannel.RELEASE,
+        timeoutMs: Long = 15_000,
+    ): UpdateInfo? = withContext(Dispatchers.IO) {
+        runCatching { fetch(channel, timeoutMs) }.getOrNull()
     }
 
-    fun isNewer(info: UpdateInfo?): Boolean = info != null && info.versionCode > currentCode
+    /**
+     * 有没有更新。
+     *
+     * 正式版比 versionCode（发版会 +1）。
+     * 内测版版本号跟正式版一样 比的是清单里的构建号：
+     * 手上这份是正式包（buildId 为空）或者构建号对不上 就算有新内测。
+     */
+    fun isNewer(info: UpdateInfo?, channel: UpdateChannel = UpdateChannel.RELEASE): Boolean {
+        if (info == null) return false
+        if (channel == UpdateChannel.RELEASE) return info.versionCode > currentCode
+        val remote = info.buildId.trim()
+        if (remote.isEmpty()) return info.versionCode > currentCode
+        return remote != currentBuildId.trim()
+    }
 
     /** 变更按行拆开 空行丢掉 列表里好排版 */
     fun changelogLines(info: UpdateInfo): List<String> =
@@ -223,10 +275,14 @@ object Update {
         return proxy + url
     }
 
-    private suspend fun fetch(timeoutMs: Long): UpdateInfo? = withContext(Dispatchers.IO) {
+    private suspend fun fetch(
+        channel: UpdateChannel,
+        timeoutMs: Long,
+    ): UpdateInfo? = withContext(Dispatchers.IO) {
+        val manifest = rawManifest(channel)
         val candidates = buildList {
-            PROXIES.forEach { proxy -> add(proxy to proxy + RAW_MANIFEST) }
-            MIRRORS.forEach { add("" to it) }
+            PROXIES.forEach { proxy -> add(proxy to proxy + manifest) }
+            mirrors(channel).forEach { add("" to it) }
         }.let { list ->
             // 本次已经扫通过一条 就把它排到最前：手动重查时不用再从死链开始试
             val known = liveProxy ?: return@let list
@@ -241,15 +297,17 @@ object Update {
             liveProxy = proxy
             // 拿到就落盘：之后断网 / 重启 这次的结果都还在
             // 写入被拒说明缓存里那份更新（镜像没刷新）那就用它 不让更新提示倒退
-            val result = if (save(info)) info else cached() ?: info
+            val result = if (save(info, channel)) info else cached(channel) ?: info
             AppLog.log(
                 "更新",
-                "命中镜像 ${proxy.ifEmpty { "直连/CDN" }} 远端 ${result.versionName}(${result.versionCode}) " +
+                "${channel.label} 命中镜像 ${proxy.ifEmpty { "直连/CDN" }} " +
+                    "远端 ${result.versionName}(${result.versionCode}) " +
+                    (result.buildId.takeIf { it.isNotBlank() }?.let { "构建 $it " } ?: "") +
                     "本地 ${currentName}($currentCode)",
             )
             return@withContext result
         }
-        AppLog.log("更新", "所有镜像都没拿到 update.json")
+        AppLog.log("更新", "${channel.label} 所有镜像都没拿到 ${manifestFile(channel)}")
         null
     }
 

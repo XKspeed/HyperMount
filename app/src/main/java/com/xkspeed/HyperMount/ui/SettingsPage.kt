@@ -34,6 +34,7 @@ import com.xkspeed.HyperMount.core.AppLog
 import com.xkspeed.HyperMount.core.BuildVariant
 import com.xkspeed.HyperMount.core.LogLevel
 import com.xkspeed.HyperMount.core.ModuleState
+import com.xkspeed.HyperMount.core.UpdateChannel
 import com.xkspeed.HyperMount.ui.component.glass.ScrollPage
 import com.xkspeed.HyperMount.ui.components.InfoRow
 import com.xkspeed.HyperMount.ui.components.SectionCard
@@ -408,6 +409,24 @@ fun SettingsPage(
                                 UiConfigState.save(context)
                             },
                             title = "自动检查更新",
+                        )
+                    }
+                }
+                // 更新来源单独一张卡：换来源会重新查一次（见 App.kt 的 LaunchedEffect）
+                item {
+                    SectionCard {
+                        LiquidSelectPreference(
+                            title = "更新来源",
+                            items = UpdateChannel.entries.map { it.label },
+                            selectedIndex = UiConfigState.updateChannel.ordinal,
+                            onSelectedIndexChange = {
+                                val channel = UpdateChannel.entries[it]
+                                if (channel != UiConfigState.updateChannel) {
+                                    UiConfigState.updateChannel = channel
+                                    UiConfigState.save(context)
+                                }
+                            },
+                            state = select,
                         )
                     }
                 }

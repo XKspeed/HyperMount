@@ -38,6 +38,7 @@ import androidx.compose.ui.unit.dp
 import com.xkspeed.HyperMount.KeyColors
 import com.xkspeed.HyperMount.ThemeState
 import com.xkspeed.HyperMount.core.AppLog
+import com.xkspeed.HyperMount.core.UpdateChannel
 import com.xkspeed.HyperMount.core.SystemVersion
 import com.xkspeed.HyperMount.ui.component.glass.GlassEffectState
 import com.xkspeed.HyperMount.ui.component.glass.ScrollPage
@@ -69,6 +70,14 @@ object UiConfigState {
     /** 启动时自动查一次更新 关掉就只在关于页手动查 */
     var autoCheckUpdate by mutableStateOf(true)
 
+    /**
+     * 更新来源：正式版读 update.json 内测版读 update-internal.json。
+     *
+     * 内测包只在稳定后发 版本号跟正式版一样（装完还能装回正式版），
+     * 所以内测通道判断有没有新版本看的是构建号 不是版本号。
+     */
+    var updateChannel by mutableStateOf(UpdateChannel.RELEASE)
+
     /** 首次启动引导是否走完（走完或跳过都算） */
     var onboarded by mutableStateOf(false)
 
@@ -92,6 +101,8 @@ object UiConfigState {
         enableBlur = p.getBoolean("enable_blur", true)
         predictiveBack = p.getBoolean("predictive_back", true)
         autoCheckUpdate = p.getBoolean("auto_check_update", true)
+        updateChannel = UpdateChannel.entries
+            .getOrElse(p.getInt("update_channel", 0)) { UpdateChannel.RELEASE }
         // 老用户升级上来时 ui_config 里已经有键 不再弹一次引导
         // 全新安装时 prefs 是空的 才会走引导
         onboarded = p.getBoolean("onboarded", p.contains("auto_check_update"))
@@ -119,6 +130,7 @@ object UiConfigState {
             putBoolean("enable_blur", enableBlur)
             putBoolean("predictive_back", predictiveBack)
             putBoolean("auto_check_update", autoCheckUpdate)
+            putInt("update_channel", updateChannel.ordinal)
             putBoolean("onboarded", onboarded)
             putString("vol_checked_version", volCheckedVersion)
         }.apply()
