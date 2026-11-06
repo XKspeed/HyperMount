@@ -14,8 +14,6 @@ export default defineConfig({
   base,
   lang: "zh-CN",
   title: "HyperMount",
-  description:
-    "换入待测 SystemUI 界面 崩了自动换回救砖界面 Miuix 界面 音量键救砖 崩溃阈值与卡死检测",
   cleanUrls: true,
   head: [
     ["meta", { name: "theme-color", content: "#3482ff" }],
