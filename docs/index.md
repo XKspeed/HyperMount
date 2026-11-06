@@ -8,9 +8,10 @@ hero:
     src: /app-icon.svg
     alt: HyperMount
   actions:
+    # 下载不直接给 GitHub：滚到页面底部的两张卡 那里才有镜像入口
     - theme: brand
       text: 下载
-      link: https://github.com/XKspeed/HyperMount/releases/latest
+      link: "#download"
     - theme: alt
       text: 使用教程
       link: /guide/
@@ -45,7 +46,7 @@ features:
 ---
 
 
-<section class="home-section">
+<section class="home-section" id="download">
   <div class="dl-card">
     <div>
       <h2>模块 <span data-module-version>最新版</span></h2>
