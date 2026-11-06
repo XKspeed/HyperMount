@@ -88,3 +88,9 @@ jobs:
       - name: Deploy
         id: deployment
         uses: actions/deploy-pages@v5
+        with:
+          # 默认 10 分钟就放弃。近期 Pages 后端发布一份 1.4MB 的站点要 8~10 分钟，
+          # 卡在 9 分多钟被掐掉 整条流水线变红 站点却没更新。放宽到 20 分钟。
+          timeout: 1200000
+          # 轮询连续失败 20 次（约 5 分钟）才判定失败 默认 10 次太急
+          error_count: 20
