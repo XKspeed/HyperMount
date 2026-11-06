@@ -3,7 +3,7 @@
 模块是挂载apk的工具<br>应用**只作为**基础工具测试apk
 ## 模块做什么 {#what}
 
-`模块` 负责把一份 `MiuiSystemUI.apk` 在开机时 将我们修改后的SystemUI放在系统分区：
+`模块` 负责把一份 `MiuiSystemUI.apk` 在开机时 将我们修改后的 SystemUI 放在系统分区：
 
 - **放置**：把待测的 SystemUI 放到模块目录里约定的位置 
 - **接管**：开机阶段让系统加载这份替换后的界面 
@@ -18,7 +18,7 @@
 /data/adb/modules/systemui_mount/
 ├── module.prop                    模块信息（应用读 author 判断是否配套）
 ├── MiuiSystemUI.apk               救砖界面：出事后换回的那一份
-├── system_ext/priv-app/MiuiSystemUI/
+├── system/system_ext/priv-app/MiuiSystemUI/
 │   └── MiuiSystemUI.apk           待测界面：当前换进去的那一份
 ├── config/settings.conf           运行参数（应用写的都在这）
 ├── webroot/webctl.sh              应用调用的入口脚本
