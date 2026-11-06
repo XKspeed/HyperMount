@@ -48,6 +48,30 @@
   --vp-c-brand-soft: rgba(39, 122, 247, 0.18);
 }
 
+/* ---------------- 基础手感 ---------------- */
+
+/* macOS 上字边缘更干净 和这套偏轻的界面更配 */
+html {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* 标题断行均匀 正文不留孤字 */
+.VPDoc h1,
+.VPDoc h2,
+.VPDoc h3,
+.home-section h2,
+.dl-card h2 {
+  text-wrap: balance;
+}
+
+.vp-doc p,
+.vp-doc li,
+.dl-meta,
+.step p {
+  text-wrap: pretty;
+}
+
 /* 搜索框描边 */
 @media (min-width: 960px) {
   .DocSearch-Button {
@@ -74,6 +98,12 @@
   letter-spacing: -0.01em;
 }
 
+/* 版本号这种会变的数字等宽 免得加载完版本号跳一下 */
+.dl-card h2 span,
+.dl-meta {
+  font-variant-numeric: tabular-nums;
+}
+
 /* 正文里的行内代码稍微提亮一点，深色下不至于糊 */
 .dark .vp-doc code {
   background-color: rgba(255, 255, 255, 0.07);
@@ -93,6 +123,19 @@
 .VPHero .image-src {
   max-width: 176px;
   max-height: 176px;
+}
+
+/* hero 的按钮也按一下有反馈 和下面下载卡一致 */
+.VPHero .actions .VPButton {
+  transition:
+    background-color 150ms ease-out,
+    border-color 150ms ease-out,
+    color 150ms ease-out,
+    transform 150ms ease-out;
+}
+
+.VPHero .actions .VPButton:active {
+  transform: scale(0.96);
 }
 
 /* 光晕别太浓，接近 Miuix 官网那种淡淡的雾 */
@@ -193,9 +236,19 @@
   gap: 24px;
   margin-top: 8px;
   padding: 28px 32px;
+  /* 边框管分隔 阴影管厚度：两层透明阴影 换底色也不会糊成一块 */
   border: 1px solid var(--vp-c-divider);
   border-radius: 12px;
   background: var(--vp-c-bg-soft);
+  box-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.04),
+    0 12px 32px -22px rgba(0, 0, 0, 0.35);
+}
+
+.dark .dl-card {
+  box-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.3),
+    0 16px 40px -26px rgba(0, 0, 0, 0.8);
 }
 
 /* 模块卡与应用卡挨着放时的间距 */
@@ -204,11 +257,28 @@
 }
 
 .dl-card h2 {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
   margin: 0;
   padding: 0;
   border: none;
   font-size: 22px;
   font-weight: 700;
+}
+
+/* 版本号做成一枚小胶囊 别和标题一样重 */
+.dl-card h2 span {
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--vp-c-brand-soft);
+  /* 品牌蓝压在小字号上对比度不够 文字走正文色 靠底色区分 */
+  color: var(--vp-c-text-1);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0;
+  line-height: 1.5;
 }
 
 .dl-card p {
@@ -220,10 +290,18 @@
 .dl-meta {
   display: flex;
   flex-wrap: wrap;
-  gap: 14px;
+  align-items: center;
+  gap: 8px;
   margin-top: 12px;
   font-size: 13px;
   color: var(--vp-c-text-3);
+}
+
+/* 三项之间用间隔点 比纯留白更像一组属性 */
+.dl-meta span + span::before {
+  content: "·";
+  margin-right: 8px;
+  opacity: 0.55;
 }
 
 .dl-actions {
@@ -245,7 +323,29 @@
   line-height: 1;
   white-space: nowrap;
   text-decoration: none;
-  transition: background-color 0.2s, border-color 0.2s, color 0.2s;
+  transition:
+    background-color 150ms ease-out,
+    border-color 150ms ease-out,
+    color 150ms ease-out,
+    transform 150ms ease-out;
+}
+
+/* 按下去有一点回弹 手上有反馈 */
+.dl-actions .VPButton:active {
+  transform: scale(0.96);
+}
+
+.dl-actions .VPButton:focus-visible,
+.VPHero .actions .VPButton:focus-visible {
+  outline: 2px solid var(--vp-c-brand-1);
+  outline-offset: 2px;
+}
+
+/* 手指点的设备上按钮给到 44 高 桌面维持 40 不显笨 */
+@media (pointer: coarse) {
+  .dl-actions .VPButton {
+    height: 44px;
+  }
 }
 
 .dl-actions .VPButton.brand {
@@ -267,6 +367,19 @@
   background: var(--vp-c-default-extra-soft, var(--vp-c-default-soft));
   color: var(--vp-c-brand-1);
   border-color: var(--vp-c-divider);
+}
+
+/* 系统开了「减少动态效果」就别缩放 */
+@media (prefers-reduced-motion: reduce) {
+  .dl-actions .VPButton,
+  .VPHero .actions .VPButton {
+    transition-duration: 0ms;
+  }
+
+  .dl-actions .VPButton:active,
+  .VPHero .actions .VPButton:active {
+    transform: none;
+  }
 }
 
 @media (max-width: 640px) {
