@@ -1,5 +1,7 @@
 package com.xkspeed.HyperMount.ui.component.glass
 
+import androidx.compose.animation.Crossfade
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.size
@@ -43,31 +45,41 @@ fun GlassBottomNav(
     // 安全模式下彻底关掉玻璃（连 solid 磨砂也不走） 退回普通底栏
     val solidCapsule = !UiConfigState.enableBlur || UiConfigState.safeMode
 
-    LiquidBottomTabs(
-        selectedTabIndex = selectedIndex,
-        onTabSelected = onTabSelected,
-        backdrop = backdrop,
-        tabsCount = items.size,
-        solidCapsule = solidCapsule,
-        modifier = modifier.fillMaxWidth(0.93f),
-    ) {
-        items.forEachIndexed { index, item ->
-            LiquidBottomTab(onClick = { onTabSelected(index) }) {
-                val selected = index == selectedIndex()
-                val tint = if (solidCapsule && selected) accentColor else contentColor
-                Icon(
-                    imageVector = item.icon,
-                    contentDescription = item.label,
-                    tint = tint,
-                    modifier = Modifier.size(26.dp),
-                )
-                Text(
-                    text = item.label,
-                    color = tint,
-                    fontSize = 12.sp,
-                    lineHeight = 12.sp,
-                    fontWeight = FontWeight.Medium,
-                )
+    // 折射开关切换时 玻璃 ↔ 磨砂是两套完全不同的绘制管线（LiquidBottomTabs 内部按
+    // solidCapsule 用 key 重建节点 不能原地 update） 所以直接换就是硬切。
+    // 照设置页按运行模式显示不同卡片的做法：让两套交叉淡入淡出，中间不做瞬变。
+    Crossfade(
+        targetState = solidCapsule,
+        animationSpec = tween(durationMillis = 260),
+        label = "bottomBarMaterial",
+    ) { solid ->
+        LiquidBottomTabs(
+            selectedTabIndex = selectedIndex,
+            onTabSelected = onTabSelected,
+            backdrop = backdrop,
+            tabsCount = items.size,
+            solidCapsule = solid,
+            modifier = modifier.fillMaxWidth(0.93f),
+        ) {
+            items.forEachIndexed { index, item ->
+                LiquidBottomTab(onClick = { onTabSelected(index) }) {
+                    val selected = index == selectedIndex()
+                    // 用 crossfade 传进来的 solid：淡出那一层的高亮色也要跟着它自己的材质走
+                    val tint = if (solid && selected) accentColor else contentColor
+                    Icon(
+                        imageVector = item.icon,
+                        contentDescription = item.label,
+                        tint = tint,
+                        modifier = Modifier.size(26.dp),
+                    )
+                    Text(
+                        text = item.label,
+                        color = tint,
+                        fontSize = 12.sp,
+                        lineHeight = 12.sp,
+                        fontWeight = FontWeight.Medium,
+                    )
+                }
             }
         }
     }

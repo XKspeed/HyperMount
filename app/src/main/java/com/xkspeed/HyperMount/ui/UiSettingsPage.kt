@@ -64,6 +64,14 @@ import kotlin.math.roundToInt
 object UiConfigState {
     var enableBlur by mutableStateOf(true)
 
+    /**
+     * 底栏形态：true = 液态玻璃悬浮条（iOS 样式，旧版默认）；false = Miuix 标准贴底底栏
+     *
+     * 默认 false：标准底栏是这一版引入的新形态。标准底栏有自己的模糊实现，
+     * 不读 [enableBlur]——切到标准时「底栏折射」开关会整行隐藏。
+     */
+    var iosBottomBar by mutableStateOf(false)
+
     /** 预测性返回预览：打开时手势拖动页面跟着走 关闭时手指拖动页面不动 松手才播放返回动画 */
     var predictiveBack by mutableStateOf(true)
 
@@ -99,6 +107,8 @@ object UiConfigState {
     fun load(context: Context) {
         val p = context.getSharedPreferences("ui_config", Context.MODE_PRIVATE)
         enableBlur = p.getBoolean("enable_blur", true)
+        // 老用户升级上来默认给标准底栏：这是新形态的默认，不认旧版留下的任何痕迹
+        iosBottomBar = p.getBoolean("ios_bottom_bar", false)
         predictiveBack = p.getBoolean("predictive_back", true)
         autoCheckUpdate = p.getBoolean("auto_check_update", true)
         updateChannel = UpdateChannel.entries
@@ -128,6 +138,7 @@ object UiConfigState {
     fun save(context: Context) {
         context.getSharedPreferences("ui_config", Context.MODE_PRIVATE).edit().apply {
             putBoolean("enable_blur", enableBlur)
+            putBoolean("ios_bottom_bar", iosBottomBar)
             putBoolean("predictive_back", predictiveBack)
             putBoolean("auto_check_update", autoCheckUpdate)
             putInt("update_channel", updateChannel.ordinal)
@@ -148,8 +159,6 @@ object UiConfigState {
         save(context)
     }
 }
-
-private val NAV_STYLES = listOf("普通悬浮", "液态玻璃")
 
 /** 主题弹窗里的第一组：明暗三档 */
 private val THEME_BRIGHTNESS_ITEMS = listOf("跟随系统", "浅色模式", "深色模式")
@@ -309,13 +318,32 @@ fun UiSettingsPage(onBack: () -> Unit) {
                 item {
                     SectionCard {
                         SwitchPreference(
-                            title = "底栏折射",
-                            checked = UiConfigState.enableBlur,
+                            title = "iOS 底栏",
+                            summary = "关闭后用贴底的标准底栏",
+                            checked = UiConfigState.iosBottomBar,
                             onCheckedChange = {
-                                UiConfigState.enableBlur = it
+                                UiConfigState.iosBottomBar = it
                                 UiConfigState.save(context)
                             },
                         )
+                        // 折射只对液态玻璃条有意义：标准底栏有自己的模糊实现 切过去就整行收起
+                        // 出现/消失与主题页种子色同款：淡入 + 垂直展开，不做瞬变
+                        AnimatedVisibility(
+                            visible = UiConfigState.iosBottomBar,
+                            enter = fadeIn() + expandVertically(),
+                            exit = fadeOut() + shrinkVertically(),
+                        ) {
+                            Column {
+                                SwitchPreference(
+                                    title = "底栏折射",
+                                    checked = UiConfigState.enableBlur,
+                                    onCheckedChange = {
+                                        UiConfigState.enableBlur = it
+                                        UiConfigState.save(context)
+                                    },
+                                )
+                            }
+                        }
                     }
                 }
 

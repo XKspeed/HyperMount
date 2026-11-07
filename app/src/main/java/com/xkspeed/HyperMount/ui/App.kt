@@ -66,8 +66,11 @@ import com.kyant.backdrop.backdrops.layerBackdrop as kyantLayerBackdrop
 import com.kyant.backdrop.backdrops.rememberLayerBackdrop as kyantRememberLayerBackdrop
 import com.xkspeed.HyperMount.ui.component.glass.GlassBottomNav
 import com.xkspeed.HyperMount.ui.component.glass.GlassNavItem
+import com.xkspeed.HyperMount.ui.component.glass.StandardBottomNav
+import com.xkspeed.HyperMount.ui.component.glass.StandardBottomNavHeight
 import com.xkspeed.HyperMount.ui.components.MiuixDialog
 import com.xkspeed.HyperMount.ui.util.LocalIsWideScreen
+import com.xkspeed.HyperMount.ui.util.rememberBlurBackdrop
 import com.xkspeed.HyperMount.ui.util.shouldShowSplitPane
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -1067,12 +1070,17 @@ private fun MainScaffold(
     // 底栏采样源：kyant backdrop 采样整个页面内容（含滚动中的列表）
     val surfaceColor = MiuixTheme.colorScheme.surface
     val backdrop = kyantRememberLayerBackdrop()
+    // 标准底栏走 miuix 的 textureBlur（材质与 miuix-example 一致），需要它自己的一份采样层：
+    // 只在标准底栏模式下挂到内容层，液态玻璃模式不录制 不会白花这份开销
+    val standardBarBackdrop = rememberBlurBackdrop()
     CompositionLocalProvider(LocalIsWideScreen provides shouldShowSplitPane()) {
         // 底栏是浮在内容上的（内容延伸到它后面 玻璃采样才有东西）
         // 所以不走 Scaffold 的 bottomBar —— 那会把内容顶开 玻璃后面就是空背景
+        // 两种底栏高度不同：标准条 64dp 贴底 液态玻璃悬浮条再加 6dp 呼吸
+        val bottomBarHeight = if (UiConfigState.iosBottomBar) 70.dp else StandardBottomNavHeight
         val pagePadding = PaddingValues(
             bottom = WindowInsets.navigationBars.asPaddingValues()
-                .calculateBottomPadding() + 70.dp,
+                .calculateBottomPadding() + bottomBarHeight,
         )
         Box(
             Modifier
@@ -1085,7 +1093,14 @@ private fun MainScaffold(
             Box(
                 Modifier
                     .fillMaxSize()
-                    .kyantLayerBackdrop(backdrop),
+                    .kyantLayerBackdrop(backdrop)
+                    .then(
+                        if (!UiConfigState.iosBottomBar && standardBarBackdrop != null) {
+                            Modifier.layerBackdrop(standardBarBackdrop)
+                        } else {
+                            Modifier
+                        },
+                    ),
             ) {
                 // 只认底栏切页：左右滑动会把「主页」误带到设置/界面
                 // userScrollEnabled=false 只关手势 底栏的 animateScrollToPage 照常走
@@ -1142,24 +1157,37 @@ private fun MainScaffold(
             }
 
             // 底栏浮层：垫在导航栏之上、宽度照原版收窄到 93%
+            // 液态玻璃条是悬浮胶囊 自己不吃 inset（由这层壳抬起来）；
+            // 标准底栏要一路铺到屏幕底 所以 inset 交给它自己处理
             Box(
                 Modifier
                     .align(Alignment.BottomCenter)
                     .fillMaxWidth()
-                    .navigationBarsPadding(),
+                    .then(if (UiConfigState.iosBottomBar) Modifier.navigationBarsPadding() else Modifier),
                 contentAlignment = Alignment.BottomCenter,
             ) {
-                GlassBottomNav(
-                    selectedIndex = { selected },
-                    onTabSelected = { idx ->
-                        selected = idx
-                        scope.launch { pagerState.animateScrollToPage(idx) }
-                    },
-                    items = navItems,
-                    backdrop = backdrop,
-                )
+                if (UiConfigState.iosBottomBar) {
+                    GlassBottomNav(
+                        selectedIndex = { selected },
+                        onTabSelected = { idx ->
+                            selected = idx
+                            scope.launch { pagerState.animateScrollToPage(idx) }
+                        },
+                        items = navItems,
+                        backdrop = backdrop,
+                    )
+                } else {
+                    StandardBottomNav(
+                        selectedIndex = { selected },
+                        onTabSelected = { idx ->
+                            selected = idx
+                            scope.launch { pagerState.animateScrollToPage(idx) }
+                        },
+                        items = navItems,
+                        backdrop = standardBarBackdrop,
+                    )
+                }
             }
-
         }
     }
 }
