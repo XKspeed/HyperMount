@@ -127,8 +127,12 @@ fun CachePage(onBack: () -> Unit) {
         title = "缓存",
         onBack = onBack,
         // 底部固定条不吃列表高度：末尾多留一条 滚到底时最后一项停在它上方
-        bottomPadding = WindowInsets.navigationBars.asPaddingValues()
-            .calculateBottomPadding() + 112.dp,
+        // 空状态整块正好一屏 再留这段空白就会多出一截可滚的虚空 所以不补
+        bottomPadding = if (files.isEmpty()) {
+            0.dp
+        } else {
+            WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 112.dp
+        },
         // 删除条和底栏一样钉在页面底部 不跟着列表滚：
         // 列表滚动时它会从卡片底下穿过去 所以先垫一层从透明到页面底色的渐变
         overlay = {
@@ -171,82 +175,95 @@ fun CachePage(onBack: () -> Unit) {
             }
         },
     ) {
-        item { SmallTitle("占用") }
+        // 占用卡和空状态放进同一个 item：空的时候整块占满一屏，
+        // 「无缓存」才能落在卡下面的剩余区域正中心 而不是浮在列表里
         item {
-            Card(
-                modifier = Modifier.fillMaxWidth()
-                    .padding(horizontal = 12.dp, vertical = 4.dp)
+            Column(
+                if (files.isEmpty()) Modifier.fillParentMaxHeight() else Modifier
             ) {
-                Column(Modifier.padding(horizontal = 16.dp, vertical = 14.dp)) {
-                    // 全长 = 上限，填满的部分 = 当前占用
+                SmallTitle("占用")
+                Card(
+                    modifier = Modifier.fillMaxWidth()
+                        .padding(horizontal = 12.dp, vertical = 4.dp)
+                ) {
+                    Column(Modifier.padding(horizontal = 16.dp, vertical = 14.dp)) {
+                        // 全长 = 上限，填满的部分 = 当前占用
+                        Box(
+                            Modifier
+                                .fillMaxWidth()
+                                .height(6.dp)
+                                .clip(RoundedCornerShape(3.dp))
+                                .background(MiuixTheme.colorScheme.secondaryVariant)
+                        ) {
+                            if (ratio > 0f) {
+                                Box(
+                                    Modifier
+                                        .fillMaxWidth(ratio)
+                                        .fillMaxHeight()
+                                        .background(MiuixTheme.colorScheme.primary)
+                                )
+                            }
+                        }
+                        Spacer(Modifier.height(8.dp))
+                        Row(Modifier.fillMaxWidth()) {
+                            Text(
+                                "已用 " + Module.fmtSize(total),
+                                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                                style = MiuixTheme.textStyles.subtitle,
+                            )
+                            Spacer(Modifier.weight(1f))
+                            Text(
+                                "上限 " + optionLabel(limitMb),
+                                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                                style = MiuixTheme.textStyles.subtitle,
+                            )
+                        }
+                        SliderInputPreference(
+                            title = "缓存上限",
+                            value = limitIndex,
+                            onValueChange = { limitIndex = it },
+                            onValueChangeFinished = { persistLimit() },
+                            valueRange = 0f..LIMIT_OPTIONS_MB.lastIndex.toFloat(),
+                            // 五个点之间夹三个刻度 间距完全相等 拖动只会停在整档上
+                            steps = LIMIT_OPTIONS_MB.size - 2,
+                            // 只有五档 手敲数字没意义 点了也不弹输入框
+                            inputEnabled = false,
+                            showKeyPoints = true,
+                            hapticEffect = SliderDefaults.SliderHapticEffect.Step,
+                            valueText = optionLabel(limitMb),
+                            insideMargin = PaddingValues(horizontal = 0.dp, vertical = 10.dp),
+                        )
+                        // 档位文字直接可点：点哪档就跳哪档 不用非得拖过去
+                        LimitTicks(
+                            selected = limitIndex.roundToInt(),
+                            onSelect = { i ->
+                                limitIndex = i.toFloat()
+                                persistLimit()
+                            },
+                        )
+                    }
+                }
+                if (files.isEmpty()) {
+                    // 没有缓存就不起卡片：直接在剩下的空白里居中一行字
                     Box(
                         Modifier
                             .fillMaxWidth()
-                            .height(6.dp)
-                            .clip(RoundedCornerShape(3.dp))
-                            .background(MiuixTheme.colorScheme.secondaryVariant)
+                            .weight(1f),
+                        contentAlignment = Alignment.Center,
                     ) {
-                        if (ratio > 0f) {
-                            Box(
-                                Modifier
-                                    .fillMaxWidth(ratio)
-                                    .fillMaxHeight()
-                                    .background(MiuixTheme.colorScheme.primary)
-                            )
-                        }
-                    }
-                    Spacer(Modifier.height(8.dp))
-                    Row(Modifier.fillMaxWidth()) {
                         Text(
-                            "已用 " + Module.fmtSize(total),
-                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                            style = MiuixTheme.textStyles.subtitle,
-                        )
-                        Spacer(Modifier.weight(1f))
-                        Text(
-                            "上限 " + optionLabel(limitMb),
+                            "无缓存",
                             color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                             style = MiuixTheme.textStyles.subtitle,
                         )
                     }
-                    SliderInputPreference(
-                        title = "缓存上限",
-                        value = limitIndex,
-                        onValueChange = { limitIndex = it },
-                        onValueChangeFinished = { persistLimit() },
-                        valueRange = 0f..LIMIT_OPTIONS_MB.lastIndex.toFloat(),
-                        // 五个点之间夹三个刻度 间距完全相等 拖动只会停在整档上
-                        steps = LIMIT_OPTIONS_MB.size - 2,
-                        // 只有五档 手敲数字没意义 点了也不弹输入框
-                        inputEnabled = false,
-                        showKeyPoints = true,
-                        hapticEffect = SliderDefaults.SliderHapticEffect.Step,
-                        valueText = optionLabel(limitMb),
-                        insideMargin = PaddingValues(horizontal = 0.dp, vertical = 10.dp),
-                    )
-                    // 档位文字直接可点：点哪档就跳哪档 不用非得拖过去
-                    LimitTicks(
-                        selected = limitIndex.roundToInt(),
-                        onSelect = { i ->
-                            limitIndex = i.toFloat()
-                            persistLimit()
-                        },
-                    )
                 }
             }
         }
 
-        item { SmallTitle("文件") }
-        item {
-            SectionCard {
-                if (files.isEmpty()) {
-                    Text(
-                        "缓存目录是空的",
-                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                        style = MiuixTheme.textStyles.subtitle,
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
-                    )
-                } else {
+        if (files.isNotEmpty()) {
+            item {
+                SectionCard {
                     files.forEach { f ->
                         val checked = f.absolutePath in marked
                         Row(

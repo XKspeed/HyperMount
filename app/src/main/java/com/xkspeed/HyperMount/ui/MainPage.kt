@@ -178,6 +178,10 @@ fun MainPage(
     val rescueReady = LogConfig.rescuePath.isNotBlank()
     val targetReady = LogConfig.targetPath.isNotBlank()
 
+    // 日志目录是开机测试的硬前提：模块里默认是空的 没选就写不了日志
+    // 光看配置还不够 目录可能被删了 真正启动前再问一次 shell
+    val logDirReady = state.logDir.isNotBlank()
+
     // 测试一旦开跑 三样东西就锁死：路径在启动那一刻已经交给脚本了
     // 这时候还能改只会让人以为改的是正在跑的这一轮
     val locked = running || starting
@@ -198,6 +202,11 @@ fun MainPage(
             return
         }
         scope.launch {
+            // 二次确认这一会儿也可能被清空：开跑前再核一次 免得脚本空跑一趟
+            if (state.logDir.isBlank()) {
+                toast(context, "未指定日志目录")
+                return@launch
+            }
             starting = true
             // 待测原文件位置不动 只做存在性检查
             val target = LogConfig.targetPath
@@ -466,7 +475,7 @@ fun MainPage(
                     summary = if (targetReady)
                         LogConfig.targetPath.substringAfterLast('/') +
                             " · " + Module.fmtSize(LogConfig.targetSize)
-                    else "未选择 · 点击选择要测试的 apk（系统界面本体请去界面专区）",
+                    else "未选择 · 点击选择要测试的 apk（系统界面本体请去 SystemUI 页）",
                     onClick = onPickTarget,
                     enabled = !locked,
                 )
@@ -483,7 +492,14 @@ fun MainPage(
                 Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
                     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         Button(
-                            onClick = { showStartConfirm = true },
+                            onClick = {
+                                // 只判「有没有配」：目录不存在会由脚本 mkdir -p 建出来
+                                if (state.logDir.isBlank()) {
+                                    toast(context, "未指定日志目录")
+                                    return@Button
+                                }
+                                showStartConfirm = true
+                            },
                             enabled = canStart,
                             modifier = Modifier.weight(1f),
                         ) {
@@ -502,6 +518,7 @@ fun MainPage(
                         when {
                             rootOk != true -> "等待 root 授权"
                             !targetReady -> "先选待测apk"
+                            !logDirReady -> "未指定日志目录 去设置里选一个"
                             autoReplace && !rescueReady -> "自动替换开着 还需要选救砖apk"
                             running -> "测试中 手动停止可以提前结束"
                             autoReplace -> "先装待测apk 再抓 " + LogConfig.seconds +

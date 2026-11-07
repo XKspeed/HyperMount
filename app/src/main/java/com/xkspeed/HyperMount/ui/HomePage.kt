@@ -1,5 +1,7 @@
 package com.xkspeed.HyperMount.ui
 
+import android.content.Context
+import android.widget.Toast
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateDpAsState
@@ -44,6 +46,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.LayoutDirection
@@ -100,11 +103,15 @@ fun HomePage(
     val scrollBehavior = MiuixScrollBehavior()
     val listState = rememberLazyListState()
     var showStartConfirm by remember { mutableStateOf(false) }
+    val context = LocalContext.current
 
     val backdrop = rememberBlurBackdrop()
 
     val canStart = rootOk == true && state.rescueReady && state.targetOk &&
         !state.daemonRunning && !busy
+
+    // 和主页同一条标准：模块默认不带日志目录 没选就不让开始
+    val logDirReady = state.logDir.isNotBlank()
 
     // 守护运行时把状态卡撑开 直接在这里看脚本输出 停下来再收回
     val screenHeight = LocalConfiguration.current.screenHeightDp.dp
@@ -325,7 +332,14 @@ fun HomePage(
                         Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
                             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                                 Button(
-                                    onClick = { showStartConfirm = true },
+                                    onClick = {
+                                        // 只判「有没有配」：目录不存在由 action.sh 的 mkdir -p 建
+                                        if (state.logDir.isBlank()) {
+                                            toast(context, "未指定日志目录")
+                                            return@Button
+                                        }
+                                        showStartConfirm = true
+                                    },
                                     enabled = canStart,
                                     modifier = Modifier.weight(1f),
                                 ) {
@@ -345,6 +359,7 @@ fun HomePage(
                                     rootOk != true -> "等待 root 授权"
                                     !state.rescueReady -> "先选一个救砖界面（能正常开机的 SystemUI）"
                                     !state.targetOk -> "再选一个待测界面"
+                                    !logDirReady -> "未指定日志目录 去设置里选一个"
                                     state.daemonRunning -> "守护已启动 音量+ 触发救砖 音量- 取消"
                                     else -> "确认后立即替换界面 随后监听崩溃与音量键"
                                 },
@@ -400,6 +415,11 @@ fun HomePage(
                 TextButton(
                     text = "继续",
                     onClick = {
+                        // 确认这会儿配置也可能被清空：开跑前再核一次
+                        if (state.logDir.isBlank()) {
+                            toast(context, "未指定日志目录")
+                            return@TextButton
+                        }
                         showStartConfirm = false
                         onStart()
                     },
@@ -415,4 +435,8 @@ fun HomePage(
 private object HomeUiState {
     var logLines by mutableStateOf<List<String>>(emptyList())
     var hasRun by mutableStateOf(false)
+}
+
+private fun toast(context: Context, msg: String) {
+    if (msg.isNotBlank()) Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
 }

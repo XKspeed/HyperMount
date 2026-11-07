@@ -5,6 +5,12 @@ CONFIG_DIR="${MODDIR}/config"
 [ -f "${CONFIG_DIR}/settings.conf" ] || exit 0
 . "${CONFIG_DIR}/settings.conf" 2>/dev/null || exit 0
 [ "${LOG_MODE:-0}" = "0" ] && exit 0
+# 日志目录留空就当是不记日志 直接把描述改成「未设置」再退出
+# 否则 service.sh 写下的「等待开机完成」会一直挂在模块卡片上
+if [ -z "${LOG_DIR}" ]; then
+    update_desc "未设置日志目录 请先在 App 里选一个"
+    exit 0
+fi
 WAITED=0
 while [ "$(getprop sys.boot_completed 2>/dev/null)" != "1" ]; do
     sleep 1

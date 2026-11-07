@@ -12,7 +12,7 @@ CONFIG_DIR="${MODDIR}/config"
 [ -f "${CONFIG_DIR}/settings.conf" ] && . "${CONFIG_DIR}/settings.conf"
 
 MISSING=""
-for v in TIME_FORMAT LOG_DIR LOG_RETENTION_DAYS KEY_TIMEOUT LINE LOG_MODE VOLUME_CHECK_ASSESS DEBUG PROTECT_COUNT FATAL_THRESHOLD; do
+for v in TIME_FORMAT LOG_DIR LOG_RETENTION_DAYS KEY_TIMEOUT LINE LOG_MODE VOLUME_CHECK_ASSESS PROTECT_COUNT FATAL_THRESHOLD; do
     eval "[ -z \"\${$v+x}\" ]" && MISSING="${MISSING} ${v}"
 done
 for f in get_time update_desc; do
@@ -36,8 +36,6 @@ for v in KEY_TIMEOUT LOG_RETENTION_DAYS LOG_MODE PROTECT_COUNT FATAL_THRESHOLD; 
             ;;
     esac
 done
-
-case "${DEBUG}" in 1|true|TRUE|yes|YES) DEBUG=true ;; *) DEBUG=false ;; esac
 
 # ---------- 参数解析 ----------
 # --test <apk>  测试模式：记录基线后自动把该 APK 换进挂载点
@@ -347,11 +345,22 @@ if [ "${VOLUME_CHECK_ASSESS}" != "1" ]; then
     fi
 fi
 
-D_LOG="${CONFIG_DIR}/debug.log"
-[ "${DEBUG}" = "true" ] && : > "${D_LOG}" 2>/dev/null
-debug(){ [ "${DEBUG}" = "true" ] && printf '%s %s\n' "$(date +%H:%M:%S)" "$1" >> "${D_LOG}" 2>/dev/null; :; }
+# 过程行直接走 stdout：App 会把脚本输出整段抄进「应用日志」
+# 模块自己不再单独留 debug.log 一套
+debug(){ printf '%s %s\n' "$(date +%H:%M:%S)" "$1"; }
 
 [ "${LOG_MODE}" -eq 0 ] && { echo "日志已禁用"; sleep 1; exit 0; }
+
+# 整套模块都围绕日志转：崩溃计数、日志疯长、超阈救砖全读 LOG_FILE
+# 没有目录就没有判据 直接拒绝 别让人以为流程跑起来了
+if [ -z "${LOG_DIR}" ]; then
+    echo "${LINE}"
+    echo "未设置日志目录，无法运行"
+    echo "请先在 App 的「设置 → 日志目录」里选一个目录，再重新运行"
+    echo "${LINE}"
+    sleep 3
+    exit 1
+fi
 
 mkdir -p "${LOG_DIR}" 2>/dev/null
 

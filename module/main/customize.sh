@@ -2,6 +2,33 @@ SKIPMOUNT=false
 PROPFILE=true
 POSTFSDATA=false
 LATESTARTSERVICE=true
+
+# 覆盖安装时保留用户原有配置：模块配置里存着日志目录、运行模式、待测 apk 路径，
+# 直接换成新包里的默认值等于把用户设过的东西全清了。
+# 做法是以新配置为底，把旧配置里的 KEY=VALUE 逐条覆盖上去，新版本新增的键仍然生效。
+MODID=$(grep '^id=' "${MODPATH}/module.prop" 2>/dev/null | head -1 | cut -d= -f2 | tr -d ' \r')
+OLD_CONF="/data/adb/modules/${MODID}/config/settings.conf"
+NEW_CONF="${MODPATH}/config/settings.conf"
+KEPT_CONF=0
+if [ -n "${MODID}" ] && [ -f "${OLD_CONF}" ] && [ -f "${NEW_CONF}" ] && [ "${OLD_CONF}" != "${NEW_CONF}" ]; then
+    awk '
+        NR==FNR {
+            if ($0 ~ /^[A-Z][A-Z0-9_]*=/) { split($0, a, "="); old[a[1]] = $0; order[++n] = a[1] }
+            next
+        }
+        {
+            if ($0 ~ /^[A-Z][A-Z0-9_]*=/) {
+                split($0, a, "=")
+                if (a[1] in old) { print old[a[1]]; used[a[1]] = 1; next }
+            }
+            print
+        }
+        END { for (i = 1; i <= n; i++) if (!(order[i] in used)) print old[order[i]] }
+    ' "${OLD_CONF}" "${NEW_CONF}" > "${NEW_CONF}.merged" 2>/dev/null \
+        && mv -f "${NEW_CONF}.merged" "${NEW_CONF}"
+    KEPT_CONF=1
+fi
+
 [ -f "${MODPATH}/config/settings.conf" ] && . "${MODPATH}/config/settings.conf"
 ui_print ""
 ui_print "${LINE}"
@@ -9,6 +36,7 @@ ui_print "        救砖模块 安装信息"
 ui_print "${LINE}"
 ui_print ""
 ui_print "  📁 配置文件: config/settings.conf"
+[ "${KEPT_CONF}" = "1" ] && ui_print "  ♻️ 检测到已安装 沿用原有配置"
 ui_print ""
 LM="${LOG_MODE:-0}"
 case "${LM}" in

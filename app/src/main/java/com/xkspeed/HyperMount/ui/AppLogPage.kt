@@ -116,5 +116,17 @@ fun AppLogPage(onBack: () -> Unit) {
     }
 }
 
-/** 等级下拉的文案（设置页与日志页共用一份 顺序即 LogLevel 的 ordinal） */
-val LOG_LEVEL_LABELS: List<String> = LogLevel.entries.map { it.label }
+/**
+ * 等级下拉只给三档：关闭 / 正常 / 调试
+ *
+ * E/W/I 只是写入级别（行首标记），不单独当档位暴露；
+ * 「调试」已经含全部内容，再留一档「全部」没有意义
+ */
+val LOG_LEVEL_CHOICES: List<LogLevel> = listOf(LogLevel.OFF, LogLevel.INFO, LogLevel.DEBUG)
+
+/** 等级下拉的文案（设置页与日志页共用一份） */
+val LOG_LEVEL_LABELS: List<String> = LOG_LEVEL_CHOICES.map { it.label }
+
+/** 当前等级落在下拉里的下标；老配置残留的 E/W 值按「正常」显示 */
+fun logLevelIndex(level: LogLevel): Int =
+    LOG_LEVEL_CHOICES.indexOf(level).takeIf { it >= 0 } ?: LOG_LEVEL_CHOICES.indexOf(LogLevel.INFO)

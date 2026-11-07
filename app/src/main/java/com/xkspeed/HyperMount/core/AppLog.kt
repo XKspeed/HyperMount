@@ -21,11 +21,11 @@ import java.util.Locale
  */
 enum class LogLevel(val label: String, val tag: String) {
     OFF("关闭", "OFF"),
+    // 下面三级是写入级别（决定行首的 E/W/I 标记），界面上只暴露「正常 / 调试」两档
     ERROR("仅错误", "E"),
     WARN("警告", "W"),
-    INFO("常规", "I"),
-    DEBUG("详细", "D"),
-    VERBOSE("全部", "V"),
+    INFO("正常", "I"),
+    DEBUG("调试", "D"),
 }
 
 /**
@@ -129,7 +129,12 @@ object AppLog {
     private fun readLevel(context: Context): LogLevel {
         val raw = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             .getString("level", null)
-        return LogLevel.entries.firstOrNull { it.name == raw } ?: LogLevel.INFO
+        // 老版本存过「仅错误 / 警告 / 全部」：现在只留三档 按信息量就近落
+        return when (raw) {
+            "ERROR", "WARN" -> LogLevel.INFO
+            "VERBOSE" -> LogLevel.DEBUG
+            else -> LogLevel.entries.firstOrNull { it.name == raw } ?: LogLevel.INFO
+        }
     }
 
     // ------------------------------------------------------------------
@@ -144,8 +149,6 @@ object AppLog {
 
     /** 常规流水（原来 AppLog.log 的口径） */
     fun log(tag: String, msg: String) = i(tag, msg)
-
-    fun v(tag: String, msg: String) = write(LogLevel.VERBOSE, tag, msg, null)
 
     fun d(tag: String, msg: String) = write(LogLevel.DEBUG, tag, msg, null)
 

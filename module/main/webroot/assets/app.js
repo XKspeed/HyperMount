@@ -547,10 +547,8 @@ function fillForm(cfg) {
     syncModeButtons(cfg.LOG_MODE || '0');
     var f = document.getElementById('fatal-threshold');
     var k = document.getElementById('key-timeout');
-    var d = document.getElementById('debug-toggle');
     if (f) f.value = cfg.FATAL_THRESHOLD || '3';
     if (k) k.value = cfg.KEY_TIMEOUT || '30';
-    if (d) d.checked = /^(true|1|yes)$/i.test(cfg.DEBUG || 'false');
 }
 
 /* ==================== 输出 ==================== */
@@ -764,11 +762,6 @@ function bindEvents() {
             el.value = v;
             await setConf(id === 'fatal-threshold' ? 'FATAL_THRESHOLD' : 'KEY_TIMEOUT', v);
         });
-    });
-
-    // 调试开关
-    document.getElementById('debug-toggle').addEventListener('change', async function () {
-        await setConf('DEBUG', this.checked ? 'true' : 'false');
     });
 
     // 系统救援开关

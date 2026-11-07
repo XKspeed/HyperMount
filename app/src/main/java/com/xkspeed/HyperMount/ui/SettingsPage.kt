@@ -70,7 +70,6 @@ fun SettingsPage(
     onRescueToggle: (Boolean) -> Unit,
     onSetCrashLimit: (Int) -> Unit,
     onOpenUiSettings: () -> Unit = {},
-    onOpenDebugLog: () -> Unit = {},
     onOpenDebug: () -> Unit = {},
     onOpenAppLog: () -> Unit = {},
     onOpenVolumeCheck: () -> Unit = {},
@@ -195,21 +194,14 @@ fun SettingsPage(
                             onSelectedIndexChange = { applyMode(it) },
                             state = select,
                         )
-                        // 只要带日志就联动出现 点了直接改 LOG_DIR
-                        AnimatedVisibility(
-                            visible = logModeIndex >= 1,
-                            enter = fadeIn() + expandVertically(),
-                            exit = fadeOut() + shrinkVertically(),
-                        ) {
-                            Column {
-                                ArrowPreference(
-                                    title = "日志目录",
-                                    summary = state.logDir.ifBlank { "未设置" },
-                                    // 点一下直接跳 MT 选文件夹 不再先弹输入框
-                                    onClick = { pickLogFolder() },
-                                )
-                            }
-                        }
+                        // 日志目录不再跟着运行模式收起：主页测试也往这里写日志
+                        // 模式 0（完全禁用）还得能选 否则主页永远开不了测试
+                        ArrowPreference(
+                            title = "日志目录",
+                            summary = state.logDir.ifBlank { "未设置 · 点击选择目录" },
+                            // 点一下直接跳 MT 选文件夹 不再先弹输入框
+                            onClick = { pickLogFolder() },
+                        )
                         // 缓存跟日志模式无关：关掉日志也能进来清副本
                         ArrowPreference(
                             title = "缓存大小",
@@ -325,14 +317,14 @@ fun SettingsPage(
                 item { SmallTitle("调试") }
                 item {
                     SectionCard {
-                        // 顺序：应用日志等级 → 应用日志内容 → 模块调试日志 → 其预览
+                        // 顺序：应用日志等级 → 应用日志内容
                         // 这两行不带副标题：下拉右侧已经写着当前档位 文件行点进去就是内容
                         LiquidSelectPreference(
                             title = "应用日志等级",
                             items = LOG_LEVEL_LABELS,
-                            selectedIndex = AppLog.level.ordinal,
+                            selectedIndex = logLevelIndex(AppLog.level),
                             onSelectedIndexChange = {
-                                AppLog.setLevel(context, LogLevel.entries[it])
+                                AppLog.setLevel(context, LOG_LEVEL_CHOICES[it])
                             },
                             state = select,
                         )
@@ -346,25 +338,6 @@ fun SettingsPage(
                                 ArrowPreference(
                                     title = "应用日志内容",
                                     onClick = onOpenAppLog,
-                                )
-                            }
-                        }
-                        // 这两行不带副标题：开关本身就是说明
-                        SwitchPreference(
-                            checked = state.debug,
-                            onCheckedChange = { onSetConf("DEBUG", if (it) "true" else "false") },
-                            title = "模块调试日志",
-                        )
-                        // 预览跟着开关展开 动画与上面「日志目录」同款
-                        AnimatedVisibility(
-                            visible = state.debug,
-                            enter = fadeIn() + expandVertically(),
-                            exit = fadeOut() + shrinkVertically(),
-                        ) {
-                            Column {
-                                ArrowPreference(
-                                    title = "调试日志预览",
-                                    onClick = onOpenDebugLog,
                                 )
                             }
                         }

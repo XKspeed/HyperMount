@@ -42,12 +42,15 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.res.vectorResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import com.xkspeed.HyperMount.R
 import com.xkspeed.HyperMount.core.AppLog
 import com.xkspeed.HyperMount.core.DaemonService
 import com.xkspeed.HyperMount.core.Module
@@ -105,9 +108,6 @@ import top.yukonga.miuix.kmp.window.WindowDialog
 sealed interface Route : NavKey {
     @Serializable
     data object Main : Route
-
-    @Serializable
-    data object Logs : Route
 
     @Serializable
     data object UiSettings : Route
@@ -194,7 +194,7 @@ fun App() {
     // 记录当前弹窗对应的是哪份崩溃文件 关闭时用来标记「已看过」
     var crashFile by remember { mutableStateOf<File?>(null) }
 
-    // 主页选到了系统界面本体：拦下来并引导去界面专区
+    // 主页选到了系统界面本体：拦下来并引导去 SystemUI 页
     // 待测 apk 和救砖 apk 都会被 pm install 进系统 两份都得挡
     var sysUiBlock by remember { mutableStateOf<SysUiBlock?>(null) }
     // 救砖包已经写进私有目录但还没确认：取消时删掉新包 旧配置原样不动
@@ -655,7 +655,6 @@ fun App() {
                         toast(context, firstLine(out).ifBlank { "已停止" })
                     }
                 },
-                onOpenLogs = { push(Route.Logs) },
                 onOpenUiSettings = { push(Route.UiSettings) },
                 onOpenVolumeCheck = { push(Route.VolumeCheck) },
                 onOpenDebug = { push(Route.Debug) },
@@ -710,15 +709,6 @@ fun App() {
                         }
                     }
                 },
-            )
-        }
-
-        entry<Route.Logs> {
-            LogPage(
-                title = "调试日志",
-                autoRefresh = uiState.debug,
-                loader = { lines -> Module.tailDebug(lines) },
-                onBack = { backStack.removeLastOrNull() },
             )
         }
 
@@ -916,14 +906,14 @@ fun App() {
         }
     }
 
-    // 主页塞了系统界面本体：和设置里的增强救砖同款宽对话框 直接把人赶去界面专区
+    // 主页塞了系统界面本体：和设置里的增强救砖同款宽对话框 直接把人赶去 SystemUI 页
     val blocked = sysUiBlock
     if (blocked != null) {
         val byRescue = blocked == SysUiBlock.Rescue
         WindowDialog(
             show = true,
             title = if (byRescue) "救砖apk不能是系统界面" else "这个包不能装",
-            summary = "系统界面本体 请走界面专区的模块流程",
+            summary = "系统界面本体 请走 SystemUI 页的模块流程",
             maxWidth = 560.dp,
             onDismissRequest = { sysUiBlock = null },
         ) {
@@ -940,7 +930,7 @@ fun App() {
             )
             Spacer(Modifier.height(6.dp))
             Text(
-                "要" + (if (byRescue) "换" else "测") + "系统界面请去「界面专区」 那边走模块挂载和救砖守护 " +
+                "要" + (if (byRescue) "换" else "测") + "系统界面请去「SystemUI」 那边走模块挂载和救砖守护 " +
                     "崩了会自动换回救砖包",
                 color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                 style = MiuixTheme.textStyles.subtitle,
@@ -954,7 +944,7 @@ fun App() {
                 )
                 Spacer(Modifier.width(20.dp))
                 TextButton(
-                    text = "前往界面专区",
+                    text = "前往 SystemUI",
                     onClick = {
                         sysUiBlock = null
                         jumpTab = 0
@@ -1015,7 +1005,6 @@ private fun MainScaffold(
     onPickMainTarget: () -> Unit,
     onStart: () -> Unit,
     onStop: () -> Unit,
-    onOpenLogs: () -> Unit,
     onOpenUiSettings: () -> Unit,
     onOpenVolumeCheck: () -> Unit,
     onOpenDebug: () -> Unit,
@@ -1034,9 +1023,12 @@ private fun MainScaffold(
     // 三页：界面 / 主页 / 设置 默认落在中间的主页
     val pagerState = rememberPagerState(initialPage = HOME_PAGE, pageCount = { 3 })
     var selected by remember { mutableIntStateOf(HOME_PAGE) }
-    val navItems = remember {
+    // SystemUI 页换成九宫格图标（原图的圆角底板已经去掉 只留 3×3 方块）
+    // 深浅两档靠 alpha 区分 底栏的 tint 只换颜色 不动透明度
+    val systemUiIcon = ImageVector.vectorResource(R.drawable.ic_systemui_grid)
+    val navItems = remember(systemUiIcon) {
         listOf(
-            GlassNavItem("界面", MiuixIcons.Layers),
+            GlassNavItem("SystemUI", systemUiIcon),
             GlassNavItem("主页", MiuixIcons.Home),
             GlassNavItem("设置", MiuixIcons.Settings),
         )
@@ -1045,7 +1037,7 @@ private fun MainScaffold(
 
     // 渲染阶段埋点：崩了能知道是第几个 tab / 哪一层出的问题
     LaunchedEffect(selected) {
-        AppLog.stage("主界面 tab=${listOf("界面", "主页", "设置").getOrElse(selected) { "?" }}")
+        AppLog.stage("主界面 tab=${listOf("SystemUI", "主页", "设置").getOrElse(selected) { "?" }}")
     }
 
     // 用 settledPage（动画结束后的落点）而不是 currentPage：
@@ -1056,7 +1048,7 @@ private fun MainScaffold(
         selected = pagerState.settledPage
     }
 
-    // 主页误选系统界面包被拦下后 点弹窗里的「前往界面专区」直接切过去
+    // 主页误选系统界面包被拦下后 点弹窗里的「前往 SystemUI」直接切过去
     LaunchedEffect(jumpTab) {
         if (jumpTab < 0) return@LaunchedEffect
         pagerState.animateScrollToPage(jumpTab)
@@ -1137,7 +1129,6 @@ private fun MainScaffold(
                             onRescueToggle = onRescueToggle,
                             onSetCrashLimit = onSetCrashLimit,
                             onOpenUiSettings = onOpenUiSettings,
-                            onOpenDebugLog = onOpenLogs,
                             onOpenDebug = onOpenDebug,
                             onOpenAppLog = onOpenAppLog,
                             onOpenCache = onOpenCache,

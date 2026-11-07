@@ -437,7 +437,9 @@ object Logcat {
     ): StartResult = withContext(Dispatchers.IO) {
         // 和 stop 串行：手动停止还没收完尾就点开始 会互相踩 PID 文件
         lifecycle.withLock {
-            val target = dir.ifBlank { "/data/adb/systemui_mount_log" }
+            // 目录空着就不跑：兜底到隐藏目录 只会在用户不知道的地方堆一堆日志
+            if (dir.isBlank()) return@withContext StartResult.Fail("未指定日志目录")
+            val target = dir
             val SCRIPT = scriptFile()
             val PID_FILE = pidFile()
             val RUN_LOG = runLog()

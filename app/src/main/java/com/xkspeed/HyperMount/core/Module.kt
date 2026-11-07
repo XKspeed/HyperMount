@@ -41,7 +41,6 @@ data class ModuleState(
     val logMode: String = "0",
     val keyTimeout: String = "30",
     val fatalThreshold: String = "3",
-    val debug: Boolean = false,
     val protectCount: String = "0",
     val logDir: String = "",
 ) {
@@ -59,7 +58,6 @@ data class ModuleState(
         "LOG_MODE" -> copy(logMode = value.ifBlank { "0" })
         "KEY_TIMEOUT" -> copy(keyTimeout = value)
         "FATAL_THRESHOLD" -> copy(fatalThreshold = value)
-        "DEBUG" -> copy(debug = value.lowercase() in listOf("true", "1", "yes"))
         "LOG_DIR" -> copy(logDir = value)
         "TARGET_APK_PATH" -> copy(targetPath = value)
         // 下面两个不是 settings.conf 里的键 是对应写操作的占位 用于写前先把界面改掉
@@ -73,7 +71,6 @@ data class ModuleState(
         "LOG_MODE" -> logMode
         "KEY_TIMEOUT" -> keyTimeout
         "FATAL_THRESHOLD" -> fatalThreshold
-        "DEBUG" -> if (debug) "true" else "false"
         "LOG_DIR" -> logDir
         "TARGET_APK_PATH" -> targetPath
         "RESCUE_OFF" -> if (rescueOff) "1" else "0"
@@ -110,14 +107,13 @@ object Module {
         val env = sec["ENV"].orEmpty()
         val keys = sec["KEYS"].orEmpty()
 
-        val logDir = c["LOG_DIR"].orEmpty().ifBlank { "/data/adb/systemui_mount_log" }
+        // 日志目录不再兜底：模块默认就是空的 空着就按「未设置」处理
+        // 以前兜底到 /data/adb 下的隐藏目录 用户既不知道日志在哪 也管不了
+        val logDir = c["LOG_DIR"].orEmpty().trim()
         // 界面显示的就是这里读出来的值：只在值变化时记一条 避免守护刷新时刷屏
         if (logDir != lastLogDirLogged) {
             lastLogDirLogged = logDir
-            AppLog.i(
-                "状态",
-                "LOG_DIR 配置=${c["LOG_DIR"].orEmpty().ifBlank { "(未配置)" }} → 界面显示 $logDir",
-            )
+            AppLog.i("状态", "LOG_DIR=${logDir.ifBlank { "(未设置)" }}")
         }
 
         return@withContext ModuleState(
@@ -143,7 +139,6 @@ object Module {
             logMode = c["LOG_MODE"].orEmpty().ifBlank { "0" },
             keyTimeout = c["KEY_TIMEOUT"].orEmpty().ifBlank { "30" },
             fatalThreshold = c["FATAL_THRESHOLD"].orEmpty().ifBlank { "3" },
-            debug = c["DEBUG"] in listOf("true", "1", "TRUE", "yes"),
             protectCount = c["PROTECT_COUNT"].orEmpty().ifBlank { "0" },
             logDir = logDir,
         )
@@ -299,18 +294,13 @@ object Module {
 
     /** 最近日志：优先读最新日志文件的尾部 拿不到就退回 webctl output */
     suspend fun tailLog(lines: Int = 400): String = withContext(Dispatchers.IO) {
-        val cmd = "d=\$(grep '^LOG_DIR=' ${Root.q(Root.CONF)} 2>/dev/null | cut -d= -f2-); " +
-            "[ -z \"\$d\" ] && d=/data/adb/systemui_mount_log; " +
+        // 日志目录可能是空串或带引号：先剥引号 空着就不找了 直接让调用方回退 webctl
+        val cmd = "d=\$(grep '^LOG_DIR=' ${Root.q(Root.CONF)} 2>/dev/null | cut -d= -f2- | tr -d '\"'); " +
+            "[ -z \"\$d\" ] && exit 0; " +
             "f=\$(ls -t \"\$d\"/*.log 2>/dev/null | head -1); " +
             "[ -n \"\$f\" ] && tail -n $lines \"\$f\""
         val out = Root.exec(cmd)
         if (out.isNotBlank()) out else Root.webctl("output")
-    }
-
-    /** 脚本的 debug.log 只有 DEBUG=true 时才写 没有文件就返回空 */
-    suspend fun tailDebug(lines: Int = 400): String = withContext(Dispatchers.IO) {
-        val f = Root.q(Root.MODULE_DIR + "/config/debug.log")
-        Root.exec("[ -s $f ] && tail -n $lines $f")
     }
 
     fun fmtSize(bytes: Long): String = when {
