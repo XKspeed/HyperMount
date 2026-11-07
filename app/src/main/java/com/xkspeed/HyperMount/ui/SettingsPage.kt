@@ -10,6 +10,8 @@ import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -62,6 +64,7 @@ private val LOG_MODE_SUMMARIES = listOf(
 
 // 增强救砖每次开启都会弹警告
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun SettingsPage(
     padding: PaddingValues,
@@ -199,8 +202,17 @@ fun SettingsPage(
                         ArrowPreference(
                             title = "日志目录",
                             summary = state.logDir.ifBlank { "未设置 · 点击选择目录" },
-                            // 点一下直接跳 MT 选文件夹 不再先弹输入框
-                            onClick = { pickLogFolder() },
+                            // 点按跳文件选择器；长按走手填，给选择器解析不出路径时留一条主动入口
+                            onClick = null,
+                            modifier = Modifier.combinedClickable(
+                                onClickLabel = "选择目录",
+                                onLongClickLabel = "手动输入目录",
+                                onClick = { pickLogFolder() },
+                                onLongClick = {
+                                    manualDirText = state.logDir
+                                    showManualDir = true
+                                },
+                            ),
                         )
                         // 缓存跟日志模式无关：关掉日志也能进来清副本
                         ArrowPreference(
@@ -448,8 +460,8 @@ fun SettingsPage(
         TextField(
             value = manualDirText,
             onValueChange = { manualDirText = it },
+            // 空时居中、输入后上浮缩小：和示例里的 With title 同款
             label = "目录路径",
-            useLabelAsPlaceholder = true,
             singleLine = true,
             modifier = Modifier.fillMaxWidth(),
         )

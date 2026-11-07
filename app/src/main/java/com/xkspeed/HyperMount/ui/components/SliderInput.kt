@@ -113,8 +113,8 @@ fun SliderInputPreference(
         TextField(
             value = text,
             onValueChange = { text = it },
+            // 空时居中、输入后上浮缩小：和示例里的 With title 同款
             label = "数值",
-            useLabelAsPlaceholder = true,
             singleLine = true,
             modifier = Modifier.fillMaxWidth(),
         )

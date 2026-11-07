@@ -31,12 +31,14 @@ object Root {
 
     /** 在 Application.onCreate 里调一次 必须在任何 Shell.cmd 之前  */
     fun init(context: android.content.Context) {
+        // 脚本的 FAIL 提示可能走 stderr 合并进 stdout 才能一起判读。
+        // libsu 6 里 FLAG_REDIRECT_STDERR 已废弃（设它只是打开这个开关），
+        // 默认不并 stderr，所以要显式打开
+        Shell.enableLegacyStderrRedirection = true
         Shell.setDefaultBuilder(
             Shell.Builder.create()
                 // 显式传 Context 省掉 libsu 反射找 Application 的兜底路径
                 .setContext(context)
-                // 脚本的 FAIL 提示可能走 stderr 合并进 stdout 才能一起判读
-                .setFlags(Shell.FLAG_REDIRECT_STDERR)
                 // 复制几十兆 APK 在慢存储上可能要十几秒 留足余量
                 // 注意是 long 参数 Kotlin 不会自动从 Int 拓宽
                 .setTimeout(300L)

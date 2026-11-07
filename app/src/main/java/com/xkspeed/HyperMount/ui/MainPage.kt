@@ -602,8 +602,8 @@ fun MainPage(
                     LogConfig.pkg = it.trim()
                     LogConfig.save(context)
                 },
+                // 空时居中、输入后上浮缩小：和示例里的 With title 同款
                 label = "目标包名",
-                useLabelAsPlaceholder = true,
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth(),
             )

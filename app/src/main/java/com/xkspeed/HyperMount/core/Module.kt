@@ -324,12 +324,12 @@ object Module {
             val line = raw.trimEnd('\r')
             if (line.startsWith("##")) {
                 cur = line.removePrefix("##").trim()
-                out[cur!!] = LinkedHashMap()
+                out[cur] = LinkedHashMap()
                 return@forEach
             }
             val i = line.indexOf('=')
             if (i <= 0 || cur == null) return@forEach
-            out[cur!!]!![line.substring(0, i)] = line.substring(i + 1)
+            out.getValue(cur)[line.substring(0, i)] = line.substring(i + 1)
         }
         return out
     }

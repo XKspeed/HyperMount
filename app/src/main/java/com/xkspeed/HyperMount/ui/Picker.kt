@@ -132,7 +132,7 @@ fun resolveFolderResult(context: Context, data: Intent?): FolderPick {
         }
         data.extras?.let { b ->
             append(" extras={")
-            b.keySet().forEach { k -> append(k).append('=').append(runCatching { b.get(k) }.getOrNull()).append(' ') }
+            b.keySet().forEach { k -> append(k).append('=').append(b.getCharSequence(k)).append(' ') }
             append('}')
         }
     }
@@ -147,7 +147,7 @@ fun resolveFolderResult(context: Context, data: Intent?): FolderPick {
     pathFromText(context, data.dataString)?.let { return FolderPick(it, "dataString", dump) }
     data.extras?.let { b ->
         for (k in b.keySet()) {
-            val v = runCatching { b.get(k) }.getOrNull() as? String ?: continue
+            val v = runCatching { b.getString(k) }.getOrNull() ?: continue
             pathFromText(context, v)?.let { return FolderPick(it, "extra.$k", dump) }
         }
     }
