@@ -1,9 +1,11 @@
 {
-  "versionCode": 10,
-  "versionName": "1.4.0",
-  "url": "https://github.com/XKspeed/HyperMount/releases/download/v1.4.0/HyperMount-arm64-1.4.0.apk",
-  "changelog": "修复若干问题 完善细节",
-  "moduleVersionCode": 15,
-  "moduleVersionName": "1.5.5",
-  "moduleUrl": "https://github.com/XKspeed/HyperMount/releases/download/v1.4.0/systemui_mount-v1.5.5.zip"
+  "versionCode": 11,
+  "versionName": "1.4.1",
+  "buildTime": 1794058890577,
+  "url": "https://github.com/XKspeed/HyperMount/releases/download/v1.4.1/HyperMount-arm64-1.4.1.apk",
+  "changelog": "修复主页误显示已救砖\n修复内测版更新提示异常\n设置页新增更新来源与版本胶囊\n新增标准底栏与折射开关\n新增主题快捷按钮与位置微调\n优化下拉栏动画与拖动选择\n新增日志目录校验与长按填写\n精简日志等级与调试入口\n优化缓存页排版与滑条弹窗\n移除设置页运行数据栏\n优化引导页",
+  "moduleVersionCode": 16,
+  "moduleVersionName": "1.5.6",
+  "moduleUrl": "https://github.com/XKspeed/HyperMount/releases/download/v1.4.1/systemui_mount-v1.5.6.zip",
+  "moduleChangelog": "修复模块缺少系统挂载目录\n移除模块默认日志目录\n移除模块调试日志\n新增未设日志目录拒绝运行\n新增升级保留原有配置"
 }
