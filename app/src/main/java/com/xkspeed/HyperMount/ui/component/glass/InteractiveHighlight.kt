@@ -45,6 +45,31 @@ class InteractiveHighlight(
     val pressProgress: Float get() = press.value
     val offset: Offset get() = location.value - start
 
+    /**
+     * 外部驱动接口（与 [gestureModifier] 同一套动画，供已消费指针事件的手势层
+     * 直接调用）：下拉面板的滑选手势会消费事件，自挂的 inspectDragGestures 看到
+     * isConsumed 即取消——高光/形变需要由手势层经这三个方法全程驱动。
+     * 坐标是**本节点局部坐标系**。
+     */
+    fun externalDragStart(position: Offset) {
+        start = position
+        animationScope.launch {
+            launch { press.animateTo(1f, spring(0.5f, 300f, 0.001f)) }
+            launch { location.snapTo(start) }
+        }
+    }
+
+    fun externalDragMove(position: Offset) {
+        animationScope.launch { location.snapTo(position) }
+    }
+
+    fun externalDragEnd() {
+        animationScope.launch {
+            launch { press.animateTo(0f, spring(0.5f, 300f, 0.001f)) }
+            launch { location.animateTo(start, spring(0.5f, 300f, Offset.VisibilityThreshold)) }
+        }
+    }
+
     // 弥散高光：官方 demo 同款 AGSL 径向 smoothstep 渐隐 + Plus 混合；
     // 之前简化成 drawCircle 纯色圆 边缘生硬 视觉上退化为半透明遮罩
     private val shader =

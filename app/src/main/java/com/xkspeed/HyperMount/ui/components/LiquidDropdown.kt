@@ -28,6 +28,7 @@ import androidx.compose.foundation.shape.CornerSize
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.derivedStateOf
@@ -69,12 +70,14 @@ import androidx.compose.ui.layout.Measurable
 import androidx.compose.ui.layout.MeasurePolicy
 import androidx.compose.ui.layout.MeasureScope
 import androidx.compose.ui.layout.Placeable
+import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Density
@@ -248,6 +251,8 @@ fun LiquidDropdownLayout(
     /** 收起态显示的内容（触发区副本） 随容器长大淡出 */
     collapseContent: (@Composable () -> Unit)? = null,
     onFractionProgress: ((LiquidDropdownProgress) -> Unit)? = null,
+    /** 跟手滑选状态：非 null 时面板手势独占指针、行改由面板统一命中（见 DropdownPanelDragSelect） */
+    dragSelectState: DropdownPanelDragSelectState? = null,
     content: @Composable () -> Unit,
 ) {
     val fractionProgress = remember { Animatable(0f) }
@@ -377,6 +382,7 @@ fun LiquidDropdownLayout(
                 collapseBounds = collapseBounds,
                 collapseContent = collapseContent,
                 canvasWindowPos = canvasWindowPos,
+                dragSelectState = dragSelectState,
                 content = content,
             )
         }
@@ -394,6 +400,8 @@ private fun LiquidDropdownContent(
     collapseContent: (@Composable () -> Unit)?,
     /** 画布左上角的窗口坐标：首帧换算收起态矩形用 */
     canvasWindowPos: IntOffset,
+    /** 跟手滑选状态：非 null 时面板手势独占指针、行改由面板统一命中 */
+    dragSelectState: DropdownPanelDragSelectState? = null,
     content: @Composable () -> Unit,
 ) {
     val isDark = isInDarkTheme()
@@ -476,8 +484,46 @@ private fun LiquidDropdownContent(
         )
     }
 
+    // 展开进度登记给状态：面板外的驱动方（长按触发区）据此判断何时能开始命中。
+    // 必须成对登记与清理，否则状态对象会指着已死亡的 Animatable
+    dragSelectState?.registerFraction { fractionProgress() }
+    val haptic = LocalHapticFeedback.current
+
     Box(
-        modifier = Modifier.drawBehind {
+        modifier = Modifier
+            // 跟手滑选：面板上唯一的手势状态，按下即命中、逐帧改命中、松手执行。
+            // 它会消费事件，所以光晕不再自挂手势，改由下面三个回调直接驱动
+            .then(
+                if (dragSelectState != null) {
+                    Modifier.dropdownPanelDragSelect(
+                        state = dragSelectState,
+                        fraction = { fractionProgress() },
+                        hapticFeedback = haptic,
+                        onPointerDown = glow::externalDragStart,
+                        onPointerMove = glow::externalDragMove,
+                        onPointerUp = glow::externalDragEnd,
+                    )
+                } else {
+                    Modifier
+                },
+            )
+            // 面板在 root 里的原点，供菜单项把 boundsInRoot 换算成手势用的局部坐标
+            // （轴向区间用 y，二维命中的横截区间用 x，两个原点都写）。
+            // boundsInRoot 不含 graphicsLayer 变换，所以形变不影响这个换算
+            .onGloballyPositioned {
+                dragSelectState?.let { state ->
+                    val bounds = it.boundsInRoot()
+                    state.panelTopInRoot = bounds.top
+                    state.panelLeftInRoot = bounds.left
+                }
+            }
+            // 按压 / 跟手拉伸 / tanh 阻尼位移整块面板一起做（玻璃、边光、阴影、内容）
+            .dropdownPanelDragTransform(
+                fraction = { fractionProgress() },
+                pressProgress = { glow.pressProgress },
+                dragOffset = { glow.offset },
+            )
+            .drawBehind {
             val alpha = containerAlpha(fractionProgress(), isEntering)
             if (alpha <= 0f) return@drawBehind
             val r = rectOf(fractionProgress(), originProgress())
@@ -565,11 +611,12 @@ private fun LiquidDropdownContent(
         }
 
         // 按压光晕：夹在材质之上、内容之下（放内容上面会把行文字刷白）
+        // 开了跟手滑选时手势归面板独占，这里只负责画，按压/位移由 externalDrag* 驱动
         Box(
             modifier = Modifier
                 .matchParentSize()
                 .clip(panelShape)
-                .then(glow.pressOnlyModifier)
+                .then(if (dragSelectState == null) glow.pressOnlyModifier else Modifier)
                 .then(glow.modifier),
         )
 
@@ -598,7 +645,17 @@ private fun LiquidDropdownContent(
                         radius = contentBlur(fractionProgress()),
                     ),
             ) {
-                content()
+                // 下发给菜单项（登记位置 + 画命中高光）。必须在内容槽位内下发：
+                // 菜单项是 content 的后代，在槽位外下发它们读不到
+                if (dragSelectState != null) {
+                    CompositionLocalProvider(
+                        LocalDropdownPanelDragSelect provides dragSelectState,
+                    ) {
+                        content()
+                    }
+                } else {
+                    content()
+                }
             }
         }
 
@@ -708,9 +765,16 @@ private fun Modifier.rectEdgeLight(
 
 private const val MaxItemsForWidth = 8
 
+/**
+ * 内容列：宽度取前 8 项最大固有宽度、clamp 在 200~288dp，超出走内滚。
+ *
+ * @param onFitsOnScreen 内容是否一屏装得下（不需要滚动）。跟手滑选据此决定是否启用：
+ *   装不下时纵向手势归滚动，否则两种手势互相抢。
+ */
 @Composable
 fun LiquidDropdownColumn(
     modifier: Modifier = Modifier,
+    onFitsOnScreen: (Boolean) -> Unit = {},
     content: @Composable () -> Unit,
 ) {
     val scrollState = rememberScrollState()
@@ -778,6 +842,13 @@ fun LiquidDropdownColumn(
             .verticalScroll(state = scrollState),
         measurePolicy = measurePolicy,
     )
+
+    // 上报是否需要滚动。用 snapshotFlow 而非 onSizeChanged：maxValue 还会在
+    // 「内容没变、只是被 maxHeight 压缩」时变化，那次 onSizeChanged 不触发
+    LaunchedEffect(scrollState) {
+        snapshotFlow { scrollState.maxValue <= 1 }
+            .collect { onFitsOnScreen(it) }
+    }
 }
 
 // =====================================================================
@@ -802,6 +873,10 @@ fun LiquidDropdownRow(
     val contentColor = colorScheme.onSurface
     val selectedColor = colorScheme.primary
     val interactionSource = remember { MutableInteractionSource() }
+    // 跟手滑选：面板下发状态时，行不再挂 clickable（两个手势状态互相抢事件正是
+    // 「先按住再滑动会跳状态」的根因），改由面板手势层统一命中 + 执行 + 画高亮
+    val dragSelect = LocalDropdownPanelDragSelect.current
+    val rowShape = RoundedCornerShape(17.dp)
     Row(
         modifier = modifier
             .padding(
@@ -810,14 +885,24 @@ fun LiquidDropdownRow(
                 top = if (isFirst) 8.dp else 0.dp,
                 bottom = if (isLast) 8.dp else 0.dp,
             )
-            .clip(RoundedCornerShape(17.dp))
-            // 点击光晕用主题给的 Indication（Miuix 那套 spring 按压高亮），
-            // 跟卡片里的 ArrowPreference / SwitchPreference 完全同一手感
-            .clickable(
-                enabled = enabled,
-                interactionSource = interactionSource,
-                indication = LocalIndication.current,
-                onClick = onClick,
+            .clip(rowShape)
+            .then(
+                if (dragSelect != null) {
+                    Modifier.dropdownPanelEntry(
+                        enabled = enabled,
+                        highlightShape = rowShape,
+                        action = onClick,
+                    )
+                } else {
+                    // 点击光晕用主题给的 Indication（Miuix 那套 spring 按压高亮），
+                    // 跟卡片里的 ArrowPreference / SwitchPreference 完全同一手感
+                    Modifier.clickable(
+                        enabled = enabled,
+                        interactionSource = interactionSource,
+                        indication = LocalIndication.current,
+                        onClick = onClick,
+                    )
+                },
             )
             .padding(horizontal = 14.dp, vertical = verticalPadding)
             .alpha(if (enabled) 1f else 0.4f),
@@ -994,6 +1079,8 @@ fun LiquidSelectHost(
     /** 页面底部被底栏等遮住的高度：弹层定位与高度上限会避开这块 */
     bottomInset: Dp = 0.dp,
 ) {
+    // 跟手滑选状态：面板手势与行共用同一份（行经 CompositionLocal 拿到）
+    val dragSelect = remember { DropdownPanelDragSelectState() }
     if (!state.expanded && state.fraction <= 0f) return
     androidx.compose.runtime.CompositionLocalProvider(
         LocalBottomOverlayHeight provides bottomInset,
@@ -1025,8 +1112,11 @@ fun LiquidSelectHost(
             )
         },
         onFractionProgress = { state.fraction = it.fraction },
+        dragSelectState = dragSelect,
     ) {
-        LiquidDropdownColumn {
+        LiquidDropdownColumn(
+            onFitsOnScreen = { dragSelect.fitsOnScreen = it },
+        ) {
             state.items.forEachIndexed { index, item ->
                 LiquidDropdownRow(
                     text = item,
