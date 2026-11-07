@@ -16,17 +16,6 @@
 
 ---
 
-### 📌 基本信息
-
-| 项目 | 说明 |
-| :--- | :--- |
-| **当前版本** | `1.4.1` |
-| **最低系统** | **Android 15（API 35）** 及以上 |
-| **运行环境** | 需要 **Root** 以及与 App 配套的 Magisk / APatch / KernelSU 模块 |
-| **官网与教程** | [xkspeed.github.io/HyperMount](https://xkspeed.github.io/HyperMount/) 下载 安装 常见问题都在上面 |
-
----
-
 ## ✨ 功能
 
 ### 救援流程
