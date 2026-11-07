@@ -98,8 +98,16 @@ fun ScrollPage(
     onBack: (() -> Unit)? = null,
     /** 返回键图标 传 null 用 Sonify 同款实心箭头 */
     backIcon: Painter? = null,
-    /** 右上角关闭键：与左上角返回键同款玻璃圆钮 点击直接退出本页（不再是一级目录） 传 null 不画 */
-    onClose: (() -> Unit)? = null,
+    /** 右上角动作键：与左上角返回键同款玻璃圆钮 传 null 不画 */
+    onTopAction: (() -> Unit)? = null,
+    /** 右上角动作键的图标 传 null 用关闭图标 */
+    topActionIcon: Painter? = null,
+    /** 右上角动作键的无障碍描述 */
+    topActionDescription: String = "关闭",
+    /** 右上角动作键的图标边长 与返回键一样走 42dp 圆钮 但图标可以单独给尺寸 */
+    topActionIconSize: Dp = 24.dp,
+    /** 右上角动作键图标的位移 正数向右 / 向下 用来纠图标本身的重心 */
+    topActionIconOffset: DpOffset = DpOffset.Zero,
     smallTitle: String? = null,
     /** 版本号右侧的附加内容（如「有新版本可用」按钮） 跟着大标题一起滚动淡出 */
     subtitleExtra: @Composable RowScope.() -> Unit = {},
@@ -173,7 +181,11 @@ fun ScrollPage(
             onTitleLongClick = onTitleLongClick,
             onBack = onBack,
             backIcon = backIcon,
-            onClose = onClose,
+            onTopAction = onTopAction,
+            topActionIcon = topActionIcon,
+            topActionDescription = topActionDescription,
+            topActionIconSize = topActionIconSize,
+            topActionIconOffset = topActionIconOffset,
             actions = actions,
             backdrop = backdrop,
             barVisible = collapse.bar,
@@ -238,7 +250,11 @@ private fun GlassTopBar(
     onTitleLongClick: (() -> Unit)?,
     onBack: (() -> Unit)?,
     backIcon: Painter?,
-    onClose: (() -> Unit)?,
+    onTopAction: (() -> Unit)?,
+    topActionIcon: Painter?,
+    topActionDescription: String,
+    topActionIconSize: Dp,
+    topActionIconOffset: DpOffset,
     actions: @Composable RowScope.() -> Unit,
     backdrop: Backdrop,
     barVisible: () -> Boolean,
@@ -310,14 +326,19 @@ private fun GlassTopBar(
                         horizontalArrangement = Arrangement.End,
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        // 右上角关闭键：与左上角返回键同款玻璃圆钮 点一下直接退出本页
-                        if (onClose != null) {
+                        // 右上角动作键：与左上角返回键同款玻璃圆钮
+                        if (onTopAction != null) {
+                            val icon = topActionIcon
+                                ?: rememberVectorPainter(MiuixIcons.Close)
                             Box(Modifier.padding(end = 10.dp)) {
                                 GlassBackButton(
-                                    onClick = onClose,
+                                    onClick = onTopAction,
                                     backdrop = backdrop,
-                                    icon = rememberVectorPainter(MiuixIcons.Close),
-                                    contentDescription = "关闭",
+                                    icon = icon,
+                                    contentDescription = topActionDescription,
+                                    // 图标不是箭头 不需要返回键那 2dp 光学补偿
+                                    iconSize = topActionIconSize,
+                                    iconOffset = topActionIconOffset,
                                     glassAlpha = { barGlassAlpha.value },
                                 )
                             }
@@ -421,6 +442,9 @@ private fun GlassBackButton(
     backdrop: Backdrop,
     icon: Painter,
     contentDescription: String = "返回",
+    iconSize: Dp = 18.dp,
+    // Sonify 原值：箭头在 42dp 圆钮里左移 2dp 做光学居中
+    iconOffset: DpOffset = DpOffset((-2).dp, 0.dp),
     glassAlpha: () -> Float = { 1f },
 ) {
     LiquidTopBarButton(
@@ -428,9 +452,8 @@ private fun GlassBackButton(
         backdrop = backdrop,
         icon = icon,
         contentDescription = contentDescription,
-        iconSize = 18.dp,
-        // Sonify 原值：图标在 42dp 圆钮里左移 2dp 做光学居中
-        iconOffset = DpOffset((-2).dp, 0.dp),
+        iconSize = iconSize,
+        iconOffset = iconOffset,
         backdropAlpha = { glassAlpha() },
         shadowAlpha = { glassAlpha() },
         edgeLightAlpha = { glassAlpha() },

@@ -309,7 +309,7 @@ fun UiSettingsPage(onBack: () -> Unit) {
                 item {
                     SectionCard {
                         SwitchPreference(
-                            title = "底栏模糊",
+                            title = "底栏折射",
                             checked = UiConfigState.enableBlur,
                             onCheckedChange = {
                                 UiConfigState.enableBlur = it
@@ -325,6 +325,8 @@ fun UiSettingsPage(onBack: () -> Unit) {
                         SliderInputPreference(
                             title = "模糊强度",
                             value = GlassEffectState.blurScale,
+                            // 出厂就是 1.0 倍
+                            defaultValue = 1f,
                             onValueChange = {
                                 GlassEffectState.blurScale = it
                                 GlassEffectState.save(context)

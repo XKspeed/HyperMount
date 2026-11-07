@@ -39,6 +39,8 @@ fun SliderInputPreference(
     title: String,
     summary: String? = null,
     value: Float,
+    // 出厂默认值（内部值）：弹窗里的「默认值」文案和「重置」按钮都用它
+    defaultValue: Float,
     onValueChange: (Float) -> Unit,
     onValueChangeFinished: () -> Unit = {},
     valueRange: ClosedFloatingPointRange<Float>,
@@ -65,6 +67,12 @@ fun SliderInputPreference(
     // 拖动过程中 value 一直在变 用 rememberUpdatedState 免得每帧重启手势检测
     val currentValue by rememberUpdatedState(value)
 
+    // 输入域里的数怎么显示：整数不带小数点 带小数的留两位
+    fun fmtInput(v: Float): String =
+        if (v == v.roundToInt().toFloat()) v.roundToInt().toString() else "%.2f".format(v)
+
+    val defaultInput = toInput(defaultValue)
+
     Box(
         modifier = Modifier
             .fillMaxWidth()
@@ -72,12 +80,7 @@ fun SliderInputPreference(
                 if (!enabled || !inputEnabled) return@pointerInput
                 detectTapGestures(
                     onTap = {
-                        val v = toInput(currentValue)
-                        text = if (v == v.roundToInt().toFloat()) {
-                            v.roundToInt().toString()
-                        } else {
-                            v.toString()
-                        }
+                        text = fmtInput(toInput(currentValue))
                         showInput = true
                     },
                 )
@@ -104,30 +107,45 @@ fun SliderInputPreference(
     WindowDialog(
         show = showInput,
         title = title,
-        summary = "输入 " + inputRange.start.roundToInt() + " 到 " +
-            inputRange.endInclusive.roundToInt() + " 之间的数值" +
-            if (inputUnit.isBlank()) "" else "（$inputUnit）",
+        summary = buildString {
+            // 中文单位前留一个空格 百分号这种符号直接贴数字
+            val gap = if (inputUnit == "%") "" else " "
+            append("默认值：").append(fmtInput(defaultInput))
+            if (inputUnit.isNotBlank()) append(gap).append(inputUnit)
+            append(" ｜ 范围：")
+                .append(fmtInput(inputRange.start))
+                .append("/")
+                .append(fmtInput(inputRange.endInclusive))
+            if (inputUnit.isNotBlank()) append(gap).append(inputUnit)
+        },
         maxWidth = 560.dp,
         onDismissRequest = { showInput = false },
     ) {
         TextField(
             value = text,
             onValueChange = { text = it },
-            // 空时居中、输入后上浮缩小：和示例里的 With title 同款
-            label = "数值",
+            // 标签跟着这一项的标题走 不再固定写「数值」
+            label = title,
             singleLine = true,
             modifier = Modifier.fillMaxWidth(),
         )
         Spacer(Modifier.height(20.dp))
         Row(modifier = Modifier.fillMaxWidth()) {
+            // 重置只把输入框填成默认值 还得点保存才落盘 免得误触改了配置
+            TextButton(
+                text = "重置",
+                onClick = { text = fmtInput(defaultInput) },
+                modifier = Modifier.weight(1f),
+            )
+            Spacer(Modifier.width(12.dp))
             TextButton(
                 text = "取消",
                 onClick = { showInput = false },
                 modifier = Modifier.weight(1f),
             )
-            Spacer(Modifier.width(20.dp))
+            Spacer(Modifier.width(12.dp))
             TextButton(
-                text = "确定",
+                text = "保存",
                 onClick = {
                     val typed = text.trim().toFloatOrNull()
                     if (typed == null) {

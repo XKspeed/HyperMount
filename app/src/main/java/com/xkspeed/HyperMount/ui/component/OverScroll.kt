@@ -1,10 +1,6 @@
 package com.xkspeed.HyperMount.ui.component
 
-import android.content.Context
 import androidx.compose.runtime.Stable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
@@ -45,51 +41,21 @@ import kotlin.math.sign
 import androidx.compose.runtime.withFrameNanos
 
 /**
- * 过滚动（拉伸回弹）的可调参数。
+ * 过滚动（拉伸回弹）。
  *
  * 原来的曲线写在 miuix 的 `SpringMath` 里，是 `internal` 且没有任何入参，
- * 只能拉出窗口高度的 1/3。这里把同一套实现搬进项目，只把"最大拉伸距离"
- * 提成一个全局参数，供调试页实时调整。
+ * 只能拉出窗口高度的 1/3。这里把同一套实现搬进项目 把"最大拉伸距离"
+ * 固定成屏高的 15%——调试页调参入口已经撤掉，手感按调好的这版写死。
  *
  * 只有日志块（主页 / 界面页「运行状态」下面那块）走这套实现；
  * 页面本身的滚动仍旧用 miuix 的 `overScrollVertical`，保持原手感。
  */
-object OverScrollTuning {
-    /** 默认值：屏高的 15%，只作用于日志块 */
-    const val DEFAULT_MAX_FRACTION = 0.15f
-
-    const val MIN_MAX_FRACTION = 0.10f
-    const val MAX_MAX_FRACTION = 1.00f
-
-    /** 最大拉伸距离占窗口高度的比例 */
-    var maxFraction by mutableFloatStateOf(DEFAULT_MAX_FRACTION)
-        private set
-
-    fun set(fraction: Float) {
-        maxFraction = fraction.coerceIn(MIN_MAX_FRACTION, MAX_MAX_FRACTION)
-    }
-
-    fun reset() {
-        maxFraction = DEFAULT_MAX_FRACTION
-    }
-
-    fun load(context: Context) {
-        val p = context.getSharedPreferences("ui_config", Context.MODE_PRIVATE)
-        maxFraction = p.getFloat("overscroll_max_fraction", DEFAULT_MAX_FRACTION)
-            .coerceIn(MIN_MAX_FRACTION, MAX_MAX_FRACTION)
-    }
-
-    fun save(context: Context) {
-        context.getSharedPreferences("ui_config", Context.MODE_PRIVATE).edit()
-            .putFloat("overscroll_max_fraction", maxFraction)
-            .apply()
-    }
-}
+private const val MAX_FRACTION = 0.15f
 
 /**
  * 垂直过滚动。与 miuix 的 `overScrollVertical` 行为一致，区别只有两点：
  *
- * 1. 最大拉伸距离读 [OverScrollTuning.maxFraction]，可以超过原来的 1/3 屏；
+ * 1. 最大拉伸距离是屏高的 15%（[MAX_FRACTION]），可以超过原来的 1/3 屏；
  * 2. 松手时若还停在拉伸状态之外（`offset` 已回位），不会再把余下的甩动速度
  *    喂给弹簧 —— 原实现无条件喂，会把刚回位的内容再踹出去，看着像瞬移。
  *
@@ -267,12 +233,12 @@ private class MountOverScrollNode(
     private fun dampedDistance(normalized: Float, range: Float): Float {
         val x = normalized.coerceIn(0f, 1f)
         val factor = x - x * x + x * x * x / 3f
-        return factor * range * (3f * OverScrollTuning.maxFraction)
+        return factor * range * (3f * MAX_FRACTION)
     }
 
     /** 由位移反解手指走过的距离：曲线单调，二分足够且比解析解稳 */
     private fun touchDistanceFor(absOffset: Float, range: Float): Float {
-        val maxOffset = range * OverScrollTuning.maxFraction
+        val maxOffset = range * MAX_FRACTION
         if (absOffset >= maxOffset) return range
         var lo = 0f
         var hi = 1f

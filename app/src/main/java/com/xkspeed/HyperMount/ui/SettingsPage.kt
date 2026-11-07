@@ -30,6 +30,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.vector.rememberVectorPainter
+import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.dp
 import com.xkspeed.HyperMount.core.CRASH_LIMIT_MANUAL
 import com.xkspeed.HyperMount.core.AppLog
@@ -38,7 +40,7 @@ import com.xkspeed.HyperMount.core.LogLevel
 import com.xkspeed.HyperMount.core.ModuleState
 import com.xkspeed.HyperMount.core.UpdateChannel
 import com.xkspeed.HyperMount.ui.component.glass.ScrollPage
-import com.xkspeed.HyperMount.ui.components.InfoRow
+import com.xkspeed.HyperMount.ui.component.glass.TopBarTuning
 import com.xkspeed.HyperMount.ui.components.SectionCard
 import com.xkspeed.HyperMount.ui.components.SliderInputPreference
 import top.yukonga.miuix.kmp.basic.ButtonDefaults
@@ -46,6 +48,8 @@ import top.yukonga.miuix.kmp.basic.SmallTitle
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextField
 import top.yukonga.miuix.kmp.basic.TextButton
+import top.yukonga.miuix.kmp.icon.MiuixIcons
+import top.yukonga.miuix.kmp.icon.extended.Theme
 import top.yukonga.miuix.kmp.preference.ArrowPreference
 import top.yukonga.miuix.kmp.preference.SwitchPreference
 import com.xkspeed.HyperMount.ui.components.LiquidSelectHost
@@ -182,6 +186,16 @@ fun SettingsPage(
 
     ScrollPage(
         title = "设置",
+        // 主题入口挪到右上角：与返回键同款玻璃圆钮 图标用 Miuix 的 Theme
+        onTopAction = onOpenUiSettings,
+        topActionIcon = rememberVectorPainter(MiuixIcons.Theme),
+        topActionDescription = "界面与主题",
+        // 尺寸与位移走调试页那几项 默认 24dp 居中
+        topActionIconSize = TopBarTuning.actionIconSize.dp,
+        topActionIconOffset = DpOffset(
+            TopBarTuning.actionOffsetX.dp,
+            TopBarTuning.actionOffsetY.dp,
+        ),
         // 与主页/关于一致：底栏高度（70dp）已由外层 pagePadding 给出 这里只加一点呼吸
         bottomPadding = padding.calculateBottomPadding() + 16.dp,
         overlay = { bd -> LiquidSelectHost(select, bd, bottomInset = padding.calculateBottomPadding()) },
@@ -230,6 +244,8 @@ fun SettingsPage(
                                     title = "等待超时",
                                     summary = "替换界面后等 SystemUI 重启的秒数",
                                     value = keyTimeout,
+                                    // settings.conf 里 KEY_TIMEOUT 的出厂值
+                                    defaultValue = 30f,
                                     onValueChange = { keyTimeout = it },
                                     onValueChangeFinished = {
                                         onSetConf("KEY_TIMEOUT", keyTimeout.roundToInt().toString())
@@ -281,6 +297,8 @@ fun SettingsPage(
                                     else
                                         "开启增强救砖后生效",
                                     value = fatalThreshold,
+                                    // settings.conf 里 FATAL_THRESHOLD 的出厂值
+                                    defaultValue = 3f,
                                     onValueChange = { fatalThreshold = it },
                                     onValueChangeFinished = {
                                         onSetConf(
@@ -313,16 +331,6 @@ fun SettingsPage(
                                 )
                             }
                         }
-                    }
-                }
-
-                item { SmallTitle("外观") }
-                item {
-                    SectionCard {
-                        ArrowPreference(
-                            title = "界面与主题",
-                            onClick = onOpenUiSettings,
-                        )
                     }
                 }
 
@@ -361,15 +369,6 @@ fun SettingsPage(
                                 onClick = onOpenDebug,
                             )
                         }
-                    }
-                }
-
-                item { SmallTitle("运行数据") }
-                item {
-                    SectionCard {
-                        InfoRow("已救砖", "${state.protectCount} 次")
-                        InfoRow("SystemUI", if (state.pid.isNotBlank()) "PID ${state.pid}" else "未运行")
-                        InfoRow("崩溃上限", state.rescueLimitText)
                     }
                 }
 

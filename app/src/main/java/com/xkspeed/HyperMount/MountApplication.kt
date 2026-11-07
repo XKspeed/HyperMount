@@ -7,7 +7,6 @@ import com.xkspeed.HyperMount.core.BuildVariant
 import com.xkspeed.HyperMount.core.Logcat
 import com.xkspeed.HyperMount.core.Root
 import com.xkspeed.HyperMount.core.Update
-import com.xkspeed.HyperMount.ui.component.OverScrollTuning
 
 /**
  * libsu 的默认 builder 必须在任何 Shell.cmd 之前设置
@@ -25,8 +24,6 @@ class MountApplication : Application() {
         BuildVariant.install(this)
         // 测试流程的脚本 / 日志 / apk 副本都放私有目录 路径要在这里备好
         Logcat.install(this)
-        // 过滚动上限在 Compose 起来之前就要备好 否则第一帧会用默认值
-        OverScrollTuning.load(this)
         AppLog.install(this)
         // 上次查到的更新结果存本地：断网重启也要能看到 别让提示凭空消失
         Update.install(this)

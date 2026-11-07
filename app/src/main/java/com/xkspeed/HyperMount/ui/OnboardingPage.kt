@@ -51,7 +51,6 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.state.ToggleableState
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -59,6 +58,7 @@ import androidx.core.graphics.drawable.toBitmap
 import com.xkspeed.HyperMount.core.Module
 import com.xkspeed.HyperMount.core.ModuleState
 import com.xkspeed.HyperMount.core.Root
+import kotlinx.coroutines.delay
 import top.yukonga.miuix.kmp.basic.Button
 import top.yukonga.miuix.kmp.basic.ButtonDefaults
 import top.yukonga.miuix.kmp.basic.Card
@@ -119,6 +119,18 @@ fun OnboardingPage(
 
     var step by remember { mutableIntStateOf(if (startAtVolume) 3 else 0) }
     var agreed by remember { mutableStateOf(false) }
+
+    // 第 2 页强制停留 3 秒：进来从 3 倒数 归零前「同意并继续」不可点
+    // 回退再进来重新计时 免得拿后退绕过
+    var agreeLeft by remember { mutableIntStateOf(3) }
+    LaunchedEffect(step) {
+        agreeLeft = 3
+        if (step != 1) return@LaunchedEffect
+        while (agreeLeft > 0) {
+            delay(1000)
+            agreeLeft--
+        }
+    }
 
     // 环境检查
     var envChecking by remember { mutableStateOf(false) }
@@ -226,7 +238,7 @@ fun OnboardingPage(
     // 与其放进去点一路报错 不如卡在这一页把话说清楚
     val envReady = env.root && env.moduleOk
     val canNext = when (step) {
-        1 -> agreed
+        1 -> agreed && agreeLeft == 0
         2 -> !envChecking && envReady
         else -> true
     }
@@ -305,7 +317,7 @@ fun OnboardingPage(
             ) { index ->
                 when (index) {
                     0 -> WelcomeStep(appIcon)
-                    1 -> NoticeStep(agreed) { agreed = it }
+                    1 -> NoticeStep()
                     2 -> EnvStep(env, envChecking) { envRetry++ }
                     3 -> VolumeStep(upState, downState, volHint, canSkip = !volAlready) {
                         volSkip = false
@@ -322,6 +334,38 @@ fun OnboardingPage(
                     .navigationBarsPadding()
                     .padding(horizontal = 24.dp, vertical = 14.dp),
             ) {
+                // 勾选栏只在第 2 页出现 紧贴按钮上方
+                if (step == 1) {
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(16.dp))
+                            .clickable { agreed = !agreed }
+                            .padding(vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Checkbox(
+                            state = if (agreed) ToggleableState.On else ToggleableState.Off,
+                            onClick = { agreed = !agreed },
+                        )
+                        Spacer(Modifier.width(6.dp))
+                        Text(
+                            "我已阅读并了解以上内容",
+                            style = MiuixTheme.textStyles.main,
+                        )
+                        // 倒计时没走完时在勾选文字右边说明为什么按钮点不了
+                        if (agreeLeft > 0) {
+                            Spacer(Modifier.weight(1f))
+                            Text(
+                                "$agreeLeft 秒后可继续",
+                                style = MiuixTheme.textStyles.subtitle,
+                                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                                maxLines = 1,
+                            )
+                        }
+                    }
+                    Spacer(Modifier.height(8.dp))
+                }
                 Button(
                     onClick = { next() },
                     enabled = canNext,
@@ -331,14 +375,6 @@ fun OnboardingPage(
                 ) {
                     Text(buttonLabel, fontSize = 16.sp)
                 }
-                Spacer(Modifier.height(10.dp))
-                Text(
-                    "第 ${step + 1} / $ONBOARD_STEPS 步",
-                    modifier = Modifier.fillMaxWidth(),
-                    textAlign = TextAlign.Center,
-                    style = MiuixTheme.textStyles.subtitle,
-                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                )
             }
         }
     }
@@ -390,13 +426,6 @@ private fun WelcomeStep(icon: androidx.compose.ui.graphics.ImageBitmap?) {
             "v${com.xkspeed.HyperMount.core.Update.currentName}",
             style = MiuixTheme.textStyles.subtitle,
             color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-        )
-        Spacer(Modifier.height(14.dp))
-        Text(
-            "系统界面崩了 也能自己换回来",
-            style = MiuixTheme.textStyles.body2,
-            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-            textAlign = TextAlign.Center,
         )
         Spacer(Modifier.height(34.dp))
 
@@ -466,7 +495,7 @@ private fun FeatureRow(
 // ---------------- 第 2 页：使用须知 ----------------
 
 @Composable
-private fun NoticeStep(agreed: Boolean, onAgreed: (Boolean) -> Unit) {
+private fun NoticeStep() {
     Column(
         Modifier
             .fillMaxSize()
@@ -475,13 +504,7 @@ private fun NoticeStep(agreed: Boolean, onAgreed: (Boolean) -> Unit) {
     ) {
         Spacer(Modifier.height(30.dp))
         Text("使用之前", style = MiuixTheme.textStyles.title1, fontWeight = FontWeight.SemiBold)
-        Spacer(Modifier.height(10.dp))
-        Text(
-            "这个 App 不联网上传任何东西 它只是替你调用模块里的脚本",
-            style = MiuixTheme.textStyles.subtitle,
-            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-        )
-        Spacer(Modifier.height(26.dp))
+        Spacer(Modifier.height(22.dp))
 
         NoticeItem(
             "需要 ROOT 与模块",
@@ -497,25 +520,6 @@ private fun NoticeStep(agreed: Boolean, onAgreed: (Boolean) -> Unit) {
             "改系统界面有风险 刷机、模块冲突导致的后果需要你自己承担 ",
         )
 
-        Spacer(Modifier.height(18.dp))
-        Row(
-            Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(16.dp))
-                .clickable { onAgreed(!agreed) }
-                .padding(vertical = 10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Checkbox(
-                state = if (agreed) ToggleableState.On else ToggleableState.Off,
-                onClick = { onAgreed(!agreed) },
-            )
-            Spacer(Modifier.width(6.dp))
-            Text(
-                "我已阅读并了解以上内容",
-                style = MiuixTheme.textStyles.main,
-            )
-        }
         Spacer(Modifier.height(12.dp))
     }
 }
@@ -545,13 +549,7 @@ private fun EnvStep(env: EnvResult, checking: Boolean, onRetry: () -> Unit) {
     ) {
         Spacer(Modifier.height(30.dp))
         Text("环境检查", style = MiuixTheme.textStyles.title1, fontWeight = FontWeight.SemiBold)
-        Spacer(Modifier.height(10.dp))
-        Text(
-            "确认下面两项都能读到 后面救砖才有意义",
-            style = MiuixTheme.textStyles.subtitle,
-            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-        )
-        Spacer(Modifier.height(26.dp))
+        Spacer(Modifier.height(22.dp))
 
         Card(Modifier.fillMaxWidth()) {
             EnvRow("ROOT 权限", if (checking) "检测中…" else if (env.root) "已授权" else "未授权", env.root, checking)
@@ -657,13 +655,7 @@ private fun VolumeStep(
     ) {
         Spacer(Modifier.height(30.dp))
         Text("音量键校验", style = MiuixTheme.textStyles.title1, fontWeight = FontWeight.SemiBold)
-        Spacer(Modifier.height(10.dp))
-        Text(
-            "救砖时要按音量键确认 先确认这两颗键能读到 不然真崩了按了也没反应",
-            style = MiuixTheme.textStyles.subtitle,
-            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-        )
-        Spacer(Modifier.height(26.dp))
+        Spacer(Modifier.height(22.dp))
 
         Card(Modifier.fillMaxWidth()) {
             KeyRow("音量 +", up)
@@ -705,12 +697,6 @@ private fun VolumeStep(
             }
         }
 
-        Spacer(Modifier.height(10.dp))
-        Text(
-            "每个键有 10 秒时间 按一下就行 校验只确认能读到按键事件 不改系统设置 ",
-            style = MiuixTheme.textStyles.subtitle,
-            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-        )
         Spacer(Modifier.height(16.dp))
     }
 }
@@ -798,12 +784,6 @@ private fun DoneStep() {
         }
         Spacer(Modifier.height(24.dp))
         Text("设置完毕", style = MiuixTheme.textStyles.title1, fontWeight = FontWeight.SemiBold)
-        Spacer(Modifier.height(8.dp))
-        Text(
-            "欢迎使用 HyperMount",
-            style = MiuixTheme.textStyles.body2,
-            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-        )
         Spacer(Modifier.height(34.dp))
 
         Card(Modifier.fillMaxWidth()) {
@@ -818,13 +798,6 @@ private fun DoneStep() {
                 summary = "启动时看一眼 GitHub 上有没有新版本",
             )
         }
-        Spacer(Modifier.height(20.dp))
-        Text(
-            "之后可以在「设置」里重新校验音量键、改运行模式",
-            style = MiuixTheme.textStyles.subtitle,
-            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-            textAlign = TextAlign.Center,
-        )
         Spacer(Modifier.height(20.dp))
     }
 }

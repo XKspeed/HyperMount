@@ -48,11 +48,11 @@ import com.xkspeed.HyperMount.core.Logcat
 import com.xkspeed.HyperMount.core.Module
 import com.xkspeed.HyperMount.ui.component.glass.ScrollPage
 import com.xkspeed.HyperMount.ui.components.SectionCard
-import com.xkspeed.HyperMount.ui.components.SliderInputPreference
 import top.yukonga.miuix.kmp.basic.ButtonDefaults
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.Checkbox
 import top.yukonga.miuix.kmp.basic.SmallTitle
+import top.yukonga.miuix.kmp.basic.Slider
 import top.yukonga.miuix.kmp.basic.SliderDefaults
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextButton
@@ -249,20 +249,19 @@ fun CachePage(onBack: () -> Unit) {
                             style = MiuixTheme.textStyles.subtitle,
                         )
                     }
-                    SliderInputPreference(
-                        title = "缓存上限",
+                    // 只留轨道：标题和右侧数值都不显示 大小看下面那排档位就够了
+                    Slider(
                         value = limitIndex,
                         onValueChange = { limitIndex = it },
                         onValueChangeFinished = { persistLimit() },
                         valueRange = 0f..LIMIT_OPTIONS_MB.lastIndex.toFloat(),
                         // 五个点之间夹三个刻度 间距完全相等 拖动只会停在整档上
                         steps = LIMIT_OPTIONS_MB.size - 2,
-                        // 只有五档 手敲数字没意义 点了也不弹输入框
-                        inputEnabled = false,
                         showKeyPoints = true,
                         hapticEffect = SliderDefaults.SliderHapticEffect.Step,
-                        valueText = optionLabel(limitMb),
-                        insideMargin = PaddingValues(horizontal = 0.dp, vertical = 10.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 6.dp),
                     )
                     // 档位文字直接可点：点哪档就跳哪档 不用非得拖过去
                     LimitTicks(
