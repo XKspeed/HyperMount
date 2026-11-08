@@ -156,13 +156,14 @@ object Update {
         val p = prefs() ?: return false
         // 不同镜像的新鲜度不一样 偶尔会拿到比本地缓存还旧的副本（CDN 没刷新）
         // 这种不覆盖：否则刚查到的更新会被一份旧清单抹掉
-        // 内测包版本号跟正式版一致 只能靠构建时间分先后：时间更早（或没有时间戳）说明是旧副本
+        // 有构建时间就只比时间：versionCode 不可靠（清单的代号曾经从 15 回退到 11，
+        // 老规则会把之后所有新清单都挡在门外 缓存永远停在旧的一份）
         val old = cached(channel)
         if (old != null) {
-            if (old.versionCode > info.versionCode) return false
-            if (old.versionCode == info.versionCode &&
-                old.buildTime > 0 && info.buildTime < old.buildTime
-            ) {
+            if (info.buildTime > 0) {
+                // 旧缓存没有时间戳（时间戳机制之前存的）→ 新的这份更晚 直接接受
+                if (old.buildTime > 0 && info.buildTime < old.buildTime) return false
+            } else if (old.versionCode > info.versionCode) {
                 return false
             }
         }
@@ -207,31 +208,13 @@ object Update {
     }
 
     /**
-     * 清单里那份是不是比手上这份还旧。
-     *
-     * 只认 versionCode：内测包与正式版同号 光看版本号分不出先后 不算"旧"。
-     * 这是唯一需要拒绝的情况里最硬的一条 —— 降级包装不上（Android 不许 versionCode 降低覆盖安装）。
-     */
-    fun isOutdated(info: UpdateInfo?): Boolean {
-        if (info == null) return false
-        return info.versionCode in 1 until currentCode
-    }
-
-    /**
      * 有没有更新。
      *
-     * 一份清单同时服务两种包 靠构建时间戳分先后：
-     * 内测包和正式版共用 versionCode 版本号一样大 谁新谁旧只有打包时间说了算。
-     * 远端比手上晚 → 有更新；比手上早 → 拒绝（典型是正式版发过之后 versionCode 上去了，
-     * 内测清单还停在发版前那次构建 那时推内测包还会被系统拦下来）。
-     *
-     * 时间戳相同就是同一份构建 不用重复提示；清单里没写时间戳（时间戳上线前的老清单）
-     * 退回原来的判法：正式版比 versionCode 内测版比构建号。
+     * 只认构建时间戳：谁后打包出来谁新，正式版和内测包同一套判法。
+     * 清单里没写时间戳（时间戳机制上线前的老清单）才退回版本号/构建号。
      */
     fun isNewer(info: UpdateInfo?, channel: UpdateChannel = UpdateChannel.RELEASE): Boolean {
         if (info == null) return false
-        // 降级包一律拒绝 后面时间戳再新也装不进去
-        if (isOutdated(info)) return false
         if (info.buildTime > 0) {
             // 手上这份早于时间戳机制（装的是老包）先让它收到一次更新 装完就对上了
             if (currentBuildTime <= 0) return true

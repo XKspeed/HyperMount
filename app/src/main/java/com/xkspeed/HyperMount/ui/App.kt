@@ -350,19 +350,13 @@ fun App() {
             if (parts.isNotEmpty()) {
                 toast(context, "发现 ${parts.joinToString(" · ")} 更新")
             } else if (manual) {
-                // 清单比手上这份还旧（内测清单常停在发版前那次构建）：说清楚为什么不推
-                // 只说"已是最新"会让用户以为检查坏了
-                if (Update.isOutdated(info)) {
-                    toast(context, "${channel.label} v${Update.label(info)} 低于当前版本 已跳过")
-                } else {
-                    toast(
-                        context,
-                        buildString {
-                            append("已是最新 App v${Update.currentName}")
-                            if (name.isNotBlank()) append(" · 模块 v$name")
-                        },
-                    )
-                }
+                toast(
+                    context,
+                    buildString {
+                        append("已是最新 App v${Update.currentName}")
+                        if (name.isNotBlank()) append(" · 模块 v$name")
+                    },
+                )
             }
         }
     }

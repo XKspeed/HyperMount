@@ -1,6 +1,7 @@
 name: Build Internal
 
-# 只出包 不发布正式版：不建版本 tag、不动 update.json、不提交版本号
+# 只出包 不发布正式版：不建版本 tag、不动 update.json
+# versionCode 每次 +1 并写回 main，保证清单的代号只涨不跌（正式发版会在此基础上再 +1）
 # 产物同时放两处：运行页底部的 Artifacts（手动下载）与固定 tag `internal` 的 prerelease（App 内测通道直接拉）
 # 与 Release 工作流同一套签名 装过正式版的机器可以直接覆盖安装
 
@@ -133,12 +134,16 @@ jobs:
           fi
           MNAME="$(mark_debug "$BASE").${GITHUB_RUN_NUMBER}"
 
-          CODE="${CUR_CODE}"
+          # 内测代号每次 +1：清单的 versionCode 只涨不跌
+          # 老版本 App 写缓存时「代号更小的清单一律不覆盖」 代号回退过一次（15 → 11）
+          # 就让所有人的缓存卡在旧清单上 更新检查从此一直显示已是最新
+          CODE=$((CUR_CODE + 1))
           MCODE="${MK_CODE}"
           echo "App ${CUR_NAME}(${CUR_CODE}) → ${NAME}(${CODE})"
           echo "模块 ${MK_NAME}(${MK_CODE}) → ${MNAME}(${MCODE})"
 
           sed -i -E "s/versionName\s*=\s*\"[^\"]*\"/versionName = \"${NAME}\"/" app/build.gradle.kts
+          sed -i -E "s/versionCode\s*=\s*[0-9]+/versionCode = ${CODE}/" app/build.gradle.kts
           grep -nE 'versionCode|versionName' app/build.gradle.kts
 
           {
@@ -336,9 +341,13 @@ jobs:
           set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add update-internal.json
+          # 只把 +1 后的 versionCode 带回 main：versionName 上的 -debug 是这次构建专用的
+          # 留着会让仓库里的版本名一直挂着测试后缀
+          CUR_NAME=$(grep -oP 'versionName\s*=\s*"\K[^"]+' app/build.gradle.kts | head -1)
+          sed -i "s/versionName = \"${CUR_NAME}\"/versionName = \"${CUR_NAME%-debug}\"/" app/build.gradle.kts
+          git add update-internal.json app/build.gradle.kts
           if git diff --cached --quiet; then
-            echo "清单没有变化 跳过提交"
+            echo "清单与版本号没有变化 跳过提交"
             exit 0
           fi
           git commit -m "chore(internal): 内测清单指向构建 ${BUILD}"
@@ -378,6 +387,6 @@ jobs:
             echo "- 只有 arm64-v8a"
             echo "- 与正式包同一签名 可直接覆盖安装"
             echo "- 模块内测包 versionCode 与正式版同号 测试版更新只在 App 里提示"
-            echo "- 不改 update.json、不提交版本号；只提交 update-internal.json"
+            echo "- 不改 update.json；提交内测清单与 +1 后的 versionCode"
             echo "- \`internal\` 下始终只有一个 APK + 一个模块包（每次构建先删再建）"
           } >> "$GITHUB_STEP_SUMMARY"

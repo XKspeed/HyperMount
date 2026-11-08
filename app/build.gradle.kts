@@ -22,7 +22,7 @@ android {
         applicationId = "com.xkspeed.HyperMount"
         minSdk = 35
         targetSdk = 37
-        versionCode = 11
+        versionCode = 16
         versionName = "1.4.1"
 
         buildConfigField("String", "BUILD_ID", "\"$internalBuildId\"")
