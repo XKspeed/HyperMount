@@ -64,6 +64,14 @@ object Update {
     private const val REPO = "XKspeed/HyperMount"
     private const val BRANCH = "main"
 
+    // GitHub API：镜像站集体挂掉（raw 被墙、加速站 504、下载入口回源超时）时 这条路通常还活着
+    // 手动检查更新时排在所有镜像前面，避免"镜像一炸就查不到更新"
+    private const val API = "https://api.github.com/repos/$REPO"
+    private const val API_RAW = "application/vnd.github.raw"
+    // 标记这条候选来自 API：它的 host 跟 raw 不是一回事 成功不代表 raw 直连通
+    // 所以不能拿它去覆盖 liveProxy（否则下载链接会退成直连）
+    private const val API_MARK = "api"
+
     // 内测通道补模块信息时额外给正式清单的预算：模块只跟 Release 发 内测清单里没有
     // 拿不到就算了（还有缓存兜着） 不能让这一次附带请求把整个检查拖长
     private const val MODULE_BUDGET_MS = 8_000L
@@ -88,6 +96,10 @@ object Update {
     /** 原始清单（走 GitHub raw） */
     private fun rawManifest(channel: UpdateChannel) =
         "https://raw.githubusercontent.com/$REPO/$BRANCH/${manifestFile(channel)}"
+
+    /** 同一份清单走 GitHub API（返回文件原文 不是 base64 包装） */
+    private fun apiManifest(channel: UpdateChannel) =
+        "$API/contents/${manifestFile(channel)}?ref=$BRANCH"
 
     /**
      * 代理前缀：空串是直连，其余是国内常用的 GitHub 加速站
@@ -115,6 +127,13 @@ object Update {
     /** 本次启动扫通的代理前缀（空串=直连，null=还没查过） */
     @Volatile
     private var liveProxy: String? = null
+
+    /**
+     * 本次进程里 API 已经回 403（匿名配额用完）。
+     * 再点检查就直接跳过它 不让每次手动检查都白等 5 秒。
+     */
+    @Volatile
+    private var apiBlocked = false
 
     private var appContext: Context? = null
 
@@ -199,12 +218,18 @@ object Update {
         return SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault()).format(Date(info.buildTime))
     }
 
-    /** 超时返回 null 与「没有更新」区分开：调用方可以区分"没查到"和"已最新" */
+    /**
+     * 超时返回 null 与「没有更新」区分开：调用方可以区分"没查到"和"已最新"。
+     *
+     * [preferApi] 手动检查时传 true：GitHub API 排在最前面。
+     * 启动那次不传 —— 每台设备每次启动都打一次 API 会很快吃光匿名配额（同出口 IP 共享 60 次/小时）。
+     */
     suspend fun check(
         channel: UpdateChannel = UpdateChannel.RELEASE,
+        preferApi: Boolean = false,
         timeoutMs: Long = 15_000,
     ): UpdateInfo? = withContext(Dispatchers.IO) {
-        runCatching { fetch(channel, timeoutMs) }.getOrNull()
+        runCatching { fetch(channel, timeoutMs, preferApi) }.getOrNull()
     }
 
     /**
@@ -318,20 +343,116 @@ object Update {
         return proxy + url
     }
 
+    // ---------------- 下载兜底 ----------------
+    // releases/download 那一跳要回源 GitHub 主站 镜像站全挂的时候它也跟着 504
+    // （资产本身没丢 走 API 就能拿到）。这里把它换成 API 给出的签名直链：
+    //   GET /releases/tags/<tag>        找到 asset id
+    //   GET /releases/assets/<id>       302 → release-assets.githubusercontent.com 的签名地址
+    // 签名地址能直接丢给浏览器 有效期约一小时 所以每次点下载现取一次
+
+    /** releases/download/<tag>/<asset> */
+    private val RELEASE_ASSET =
+        Regex("""^https://github\.com/[^/]+/[^/]+/releases/download/([^/]+)/(.+)$""")
+
+    @Serializable
+    private data class ApiRelease(val assets: List<ApiAsset> = emptyList())
+
+    @Serializable
+    private data class ApiAsset(val id: Long = 0, val name: String = "")
+
+    /**
+     * 拿一个「现在点就能下」的地址。
+     *
+     * 优先走 API 换签名直链（绕开 504 的 releases/download）；
+     * 换不到（API 限流 / 断网 / 不是 releases 链接）就退回原来的地址，行为与之前一致。
+     */
+    suspend fun resolveDownload(raw: String, timeoutMs: Long = 8_000): String =
+        withContext(Dispatchers.IO) {
+            val fallback = downloadUrl(raw)
+            runCatching { apiDownload(raw, timeoutMs) }.getOrNull() ?: fallback
+        }
+
+    /** 查 tag 下的资产列表 找到同名资产 再换它的签名直链；任何一步不成都返回 null */
+    private fun apiDownload(raw: String, timeoutMs: Long): String? {
+        val m = RELEASE_ASSET.find(stripProxy(raw)) ?: return null
+        val tag = m.groupValues[1]
+        val asset = m.groupValues[2]
+        val deadline = System.currentTimeMillis() + timeoutMs
+        val text = httpGet("$API/releases/tags/$tag", "application/vnd.github+json", deadline)
+            ?: return null
+        val release = runCatching { json.decodeFromString<ApiRelease>(text) }.getOrNull() ?: return null
+        val id = release.assets.firstOrNull { it.name == asset }?.id ?: return null
+        return redirectLocation("$API/releases/assets/$id", deadline)
+    }
+
+    /** 去掉可能已经套上的加速站前缀：清单里存的是原始 github 链接 保险起见还是剥一层 */
+    private fun stripProxy(url: String): String {
+        var u = url.trim()
+        PROXIES.forEach { p -> if (p.isNotEmpty() && u.startsWith(p)) u = u.removePrefix(p) }
+        return u
+    }
+
+    private fun httpGet(url: String, accept: String, deadline: Long): String? = runCatching {
+        val left = (deadline - System.currentTimeMillis()).coerceAtMost(6_000L).toInt()
+        if (left <= 0) return@runCatching null
+        val conn = (URL(url).openConnection() as HttpURLConnection).apply {
+            connectTimeout = left
+            readTimeout = left
+            requestMethod = "GET"
+            setRequestProperty("Accept", accept)
+            setRequestProperty("User-Agent", "HyperMount")
+            setRequestProperty("Cache-Control", "no-cache")
+        }
+        try {
+            if (conn.responseCode != HttpURLConnection.HTTP_OK) {
+                // 403 = 匿名配额用完：本轮之后的检查就别再试 API 了
+                if (conn.responseCode == 403) apiBlocked = true
+                return@runCatching null
+            }
+            conn.inputStream.bufferedReader().use { it.readText() }
+        } finally {
+            runCatching { conn.disconnect() }
+        }
+    }.getOrNull()
+
+    /** 只读 302 的 Location：不跟随 否则会把整个 zip 拉进内存 */
+    private fun redirectLocation(url: String, deadline: Long): String? = runCatching {
+        val left = (deadline - System.currentTimeMillis()).coerceAtMost(6_000L).toInt()
+        if (left <= 0) return@runCatching null
+        val conn = (URL(url).openConnection() as HttpURLConnection).apply {
+            connectTimeout = left
+            readTimeout = left
+            requestMethod = "GET"
+            instanceFollowRedirects = false
+            setRequestProperty("Accept", "application/octet-stream")
+            setRequestProperty("User-Agent", "HyperMount")
+        }
+        try {
+            val code = conn.responseCode
+            if (code !in 300..399) return@runCatching null
+            conn.getHeaderField("Location")?.takeIf { it.startsWith("http") }
+        } finally {
+            runCatching { conn.disconnect() }
+        }
+    }.getOrNull()
+
     private suspend fun fetch(
         channel: UpdateChannel,
         timeoutMs: Long,
+        preferApi: Boolean,
     ): UpdateInfo? = withContext(Dispatchers.IO) {
-        val info = pull(channel, timeoutMs)
-        if (info == null) {
+        val hit = pull(channel, timeoutMs, preferApi)
+        if (hit == null) {
             AppLog.log("更新", "${channel.label} 所有镜像都没拿到 ${manifestFile(channel)}")
             return@withContext null
         }
+        val (info, from) = hit
         // 内测清单自己带模块（build-internal 会打一份 -debug 包） 直接用它；
         // 老内测清单没有模块那几项 才补一次正式清单 免得装上内测包的人收不到模块更新
         // 拉不到（断网）就用上次缓存的那份 至少别把已经提示过的模块更新弄丢
         val merged = if (channel == UpdateChannel.INTERNAL && !hasModule(info)) {
-            val release = pull(UpdateChannel.RELEASE, MODULE_BUDGET_MS) ?: cached(UpdateChannel.RELEASE)
+            val release = pull(UpdateChannel.RELEASE, MODULE_BUDGET_MS, preferApi)?.first
+                ?: cached(UpdateChannel.RELEASE)
             info.withModule(release)
         } else {
             info
@@ -341,7 +462,7 @@ object Update {
         val result = if (save(merged, channel)) merged else cached(channel) ?: merged
         AppLog.log(
             "更新",
-            "${channel.label} 远端 ${result.versionName}(${result.versionCode}) " +
+            "${channel.label} 来源 ${from} 远端 ${result.versionName}(${result.versionCode}) " +
                 (result.buildId.takeIf { it.isNotBlank() }?.let { "构建 $it " } ?: "") +
                 (if (hasModule(result)) "模块 ${moduleLabel(result)} " else "") +
                 "本地 ${currentName}($currentCode)",
@@ -368,45 +489,70 @@ object Update {
         )
     }
 
+    /** 一条候选源：proxy 用于记住"哪条能通" 下载链接跟着它走 */
+    private class Source(
+        val label: String,
+        val proxy: String,
+        val url: String,
+        val accept: String = "application/json",
+    )
+
     /**
-     * 按「直连 → 代理 → 镜像」逐条试到拿回一份清单为止。
+     * 按「API → 直连 → 代理 → 镜像」逐条试到拿回一份清单为止。
      *
      * 阻塞式 HttpURLConnection 不响应协程取消，超时只能自己在每条之前掐：
      * 预算用完就停，免得一串死链把启动后的后台任务拖到半分钟。
+     *
+     * 返回清单和它的来源标签（日志里写出来 出问题一眼能看出是哪条通/哪条挂）。
      */
-    private fun pull(channel: UpdateChannel, timeoutMs: Long): UpdateInfo? {
+    private fun pull(channel: UpdateChannel, timeoutMs: Long, preferApi: Boolean): Pair<UpdateInfo, String>? {
         val manifest = rawManifest(channel)
-        val candidates = buildList {
-            PROXIES.forEach { proxy -> add(proxy to proxy + manifest) }
-            mirrors(channel).forEach { add("" to it) }
+        val sources = buildList {
+            // 手动检查：API 排最前。镜像整片挂掉时（现在 releases/download 就在 504）它是唯一还有戏的一条
+            if (preferApi && !apiBlocked) add(Source("API", API_MARK, apiManifest(channel), API_RAW))
+            PROXIES.forEach { proxy ->
+                add(Source(proxy.ifEmpty { "直连" }, proxy, proxy + manifest))
+            }
+            mirrors(channel).forEach { add(Source("镜像", "", it)) }
         }.let { list ->
             // 本次已经扫通过一条 就把它排到最前：手动重查时不用再从死链开始试
+            // API 那条不动 它跟 raw 是两套 host 成功与否互不说明
             val known = liveProxy ?: return@let list
-            list.sortedByDescending { if (it.first == known) 1 else 0 }
+            val (api, rest) = list.partition { it.proxy == API_MARK }
+            api + rest.sortedByDescending { if (it.proxy == known) 1 else 0 }
         }
         val deadline = System.currentTimeMillis() + timeoutMs
-        for ((proxy, url) in candidates) {
+        for (source in sources) {
             if (System.currentTimeMillis() >= deadline) break
-            val info = fetchOne(url) ?: continue
-            liveProxy = proxy
-            return info
+            val info = fetchOne(source.url, source.accept, source.proxy == API_MARK) ?: continue
+            // API 通了不代表 raw 直连通 别拿它覆盖下载要用的代理前缀
+            if (source.proxy != API_MARK) liveProxy = source.proxy
+            return info to source.label
         }
         return null
     }
 
-    /** 单条地址拉一次：解析失败（被劫持成 HTML 之类）也算失败 继续试下一条 */
-    private fun fetchOne(url: String): UpdateInfo? = runCatching {
+    /**
+     * 单条地址拉一次：解析失败（被劫持成 HTML 之类）也算失败 继续试下一条。
+     *
+     * [isApi] 只影响超时和限流处理：API 在境外 给宽一点；403 是匿名配额用完 本轮不再试。
+     */
+    private fun fetchOne(url: String, accept: String, isApi: Boolean = false): UpdateInfo? = runCatching {
         val conn = (URL(url).openConnection() as HttpURLConnection).apply {
             // 每条只给 3 秒：挂了就赶紧换下一条，别让一条死链吃掉整个预算
-            connectTimeout = 3_000
-            readTimeout = 3_000
+            connectTimeout = if (isApi) 5_000 else 3_000
+            readTimeout = if (isApi) 5_000 else 3_000
             requestMethod = "GET"
-            setRequestProperty("Accept", "application/json")
+            setRequestProperty("Accept", accept)
+            // GitHub API 要求带 User-Agent（默认的 Java/… 有时会被挡）
+            setRequestProperty("User-Agent", "HyperMount")
             // 走 CDN 不能吃到旧清单 否则刚发的版本永远查不到
             setRequestProperty("Cache-Control", "no-cache")
         }
         try {
-            if (conn.responseCode != HttpURLConnection.HTTP_OK) return@runCatching null
+            val code = conn.responseCode
+            if (code == 403 && isApi) apiBlocked = true
+            if (code != HttpURLConnection.HTTP_OK) return@runCatching null
             val text = conn.inputStream.bufferedReader().use { it.readText() }
             // 代理挂了常返回一段 HTML，decode 会抛 正好当失败处理
             val info = json.decodeFromString<UpdateInfo>(text)

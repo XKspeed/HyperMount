@@ -275,10 +275,29 @@ fun App() {
         }
     }
 
+    /**
+     * 打开一个下载地址。
+     *
+     * 先跟 API 换一条签名直链再交给浏览器：镜像站整片挂掉的时候
+     * releases/download 那一跳会 504（资产本身是好的 走 API 就能下）。
+     * 换得慢就提示一句，免得用户以为点了没反应；换不到会自己退回原地址。
+     */
+    fun openDownload(raw: String, slowHint: String, onOpened: (() -> Unit)? = null) {
+        scope.launch {
+            val hint = launch {
+                delay(1_500)
+                toast(context, slowHint)
+            }
+            val url = Update.resolveDownload(raw)
+            hint.cancel()
+            val ok = runCatching { uriHandler.openUri(url) }.isSuccess
+            if (ok) onOpened?.invoke() else toast(context, "打开下载链接失败")
+        }
+    }
+
     fun openRelease() {
         // 下载地址跟着本次扫通的镜像走：查更新时 GitHub 直连不通 这里就不能还给直连链接
-        val url = Update.downloadUrl(latest?.url.orEmpty())
-        runCatching { uriHandler.openUri(url) }
+        openDownload(latest?.url.orEmpty(), "正在获取下载地址")
     }
 
     /**
@@ -288,12 +307,10 @@ fun App() {
      * 给个 zip 链接交给浏览器下载就够了，装不装、什么时候装由用户自己决定。
      */
     fun downloadModule() {
-        val url = Update.moduleDownloadUrl(manifest)
         val hasFile = Update.hasModuleFile(manifest)
-        val ok = runCatching { uriHandler.openUri(url) }.isSuccess
-        when {
-            !ok -> toast(context, "打开下载链接失败")
-            hasFile -> toast(context, "开始下载模块 zip 刷入后重启手机")
+        val slowHint = if (hasFile) "正在获取模块下载地址" else "正在打开 Release 页"
+        openDownload(manifest?.moduleUrl.orEmpty(), slowHint) {
+            if (hasFile) toast(context, "开始下载模块 zip 刷入后重启手机")
         }
     }
 
@@ -303,7 +320,8 @@ fun App() {
         scope.launch {
             checkingUpdate = true
             // 多镜像轮询 给足时间（内部每条 3.5s 就放弃 不会死等）
-            val info = Update.check(channel)
+            // 手动检查时 API 排最前：镜像站整片挂掉也能查到（启动那次不打 免得吃光匿名配额）
+            val info = Update.check(channel, preferApi = manual)
             checkingUpdate = false
             if (info == null) {
                 // 超时/断网：手动点才提示 启动那次安静失败
