@@ -212,7 +212,13 @@ jobs:
           # 传基础版本 打包脚本自己加 -debug.<构建号>
           sh module/打包.sh "${{ steps.v.outputs.module_base }}" --debug \
             --build "${GITHUB_RUN_NUMBER}"
-          SRC=$(ls -1 module/dist/*-debug.zip | tail -1)
+          # 产物名带构建号（…_v1.5.7-debug.14.zip）glob 要放宽
+          SRC=$(ls -1t module/dist/*-debug*.zip 2>/dev/null | head -1)
+          if [ -z "${SRC}" ]; then
+            echo "::error::没找到模块内测包"
+            ls -l module/dist || true
+            exit 1
+          fi
           mkdir -p dist
           cp "$SRC" dist/module-internal.zip
           MP=$(unzip -p dist/module-internal.zip module.prop)
