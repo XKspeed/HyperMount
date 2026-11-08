@@ -35,17 +35,28 @@ object Downloader {
      * 下载 [candidates] 里任意一条能用的地址到 [dest]。
      *
      * @param sha256 清单里给的摘要，空串表示这次不校验（只能退化成比大小）
+     * @param onProbe 筛源进度（已探完 / 总数）：这一段最慢 界面要能看见在干嘛
      * @throws IOException 所有源都失败 / 校验不通过
      */
     suspend fun fetch(
         candidates: List<String>,
         dest: File,
         sha256: String = "",
+        onProbe: (Int, Int) -> Unit = { _, _ -> },
         onProgress: (Long, Long) -> Unit = { _, _ -> },
     ): File = withContext(Dispatchers.IO) {
+        val list = candidates.distinct()
+        val probeTotal = list.size
+        val probeDone = java.util.concurrent.atomic.AtomicInteger(0)
+        // 先报一次 0：卡片立刻切到「查询镜像中」 不用干等第一条回来
+        if (probeTotal > 0) onProbe(0, probeTotal)
         val probes = coroutineScope {
-            candidates.distinct().map { url ->
-                async(Dispatchers.IO) { url to Mirrors.probe(url, 5_000) }
+            list.map { url ->
+                async(Dispatchers.IO) {
+                    val r = url to Mirrors.probe(url, 5_000)
+                    onProbe(probeDone.incrementAndGet(), probeTotal)
+                    r
+                }
             }.awaitAll()
         }
         val usable = probes.filter { it.second.ok }

@@ -51,6 +51,14 @@ android {
     }
 
     buildTypes {
+        debug {
+            // 默认还是 debug 签名 日常调试不碰正式 keystore。
+            // 加 -PreleaseSign=true 时换成正式签名：自测包能直接覆盖已装的正式版，
+            // 用来完整验证「下载线上包 → 交给系统安装器」这条流程。
+            if (findProperty("releaseSign") == "true") {
+                signingConfig = signingConfigs.getByName("release")
+            }
+        }
         release {
             isMinifyEnabled = true
             isShrinkResources = true

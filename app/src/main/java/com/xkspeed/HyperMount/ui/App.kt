@@ -277,45 +277,74 @@ fun App() {
         }
     }
 
-    /** 下载进度：null 表示没在下，0f..1f 表示进行中（更新卡片里显示） */
-    var downloadProgress by remember { mutableStateOf<Float?>(null) }
-    /** 正在下的是哪一份：app / module，用来让两张卡片各自显示自己的进度 */
-    var downloadKind by remember { mutableStateOf<String?>(null) }
+    /** App 更新卡当前形态：下载与安装全程都在这张卡里原地切换 */
+    var appStage by remember { mutableStateOf<UpdateStage>(UpdateStage.Idle) }
+    /** 模块卡当前形态 */
+    var moduleStage by remember { mutableStateOf<UpdateStage>(UpdateStage.Idle) }
 
     /**
-     * 下载 App 更新包。
+     * 下好之后直接交给系统安装器（不再 root 静默安装）。
      *
-     * 多镜像并发分段拉（谁快用谁，单段挂了换下一条），下完按清单里的 sha256 校验，
-     * 然后拉起系统安装界面。3.7MB 的包通常十几秒。
+     * `pm install` 在部分机型上装不上，用户点更新还得再手动点一次安装器；
+     * 干脆一步到位。拉起失败也停在安装卡上，点卡片能再试。
      */
-    fun openRelease() {
-        if (downloadProgress != null) return
+    fun openInstaller(path: String) {
+        val ok = Installer.openInstaller(context, path)
+        appStage = UpdateStage.ReadyToInstall(path)
+        if (!ok) toast(context, "打不开安装器 到 $path 手动安装")
+    }
+
+    /**
+     * 下载 App 更新包：多镜像并发分段拉 → 校验 → root 搬到公共目录 → 拉起系统安装器。
+     *
+     * 卡片形态全程跟着走，不再单独弹进度框。
+     */
+    fun downloadApp() {
+        val cur = appStage
+        if (cur is UpdateStage.Downloading || cur is UpdateStage.Probing) return
         val info = latest ?: return
+        val sources = Update.apkSources(info)
         scope.launch {
-            downloadKind = "app"
-            downloadProgress = 0f
+            // 先摆出筛源这一步：探测最慢 干等着像卡死
+            appStage = UpdateStage.Probing(0, sources.size)
             val name = "HyperMount-${Update.label(info)}.apk"
-            val dest = File(Installer.updateDir(context), name)
+            val tmp = File(Installer.stagingDir(context), name)
             val result = runCatching {
                 Downloader.fetch(
-                    candidates = Update.apkSources(info),
-                    dest = dest,
+                    candidates = sources,
+                    dest = tmp,
                     sha256 = info.sha256,
+                    onProbe = { done, total -> appStage = UpdateStage.Probing(done, total) },
                 ) { done, total ->
                     if (total > 0) {
                         val p = (done.toFloat() / total).coerceIn(0f, 1f)
-                        scope.launch { downloadProgress = p }
+                        scope.launch {
+                            // 第一次进度回调要把卡片从「查询镜像」切到进度态；
+                            // 之后分段回调不保证顺序 进度只许涨 不许回退
+                            val now = appStage
+                            if (now !is UpdateStage.Downloading || p > now.progress) {
+                                appStage = UpdateStage.Downloading(p)
+                            }
+                        }
                     }
                 }
             }
-            downloadProgress = null
-            downloadKind = null
-            if (result.isSuccess) {
-                if (!Installer.installApk(context, dest)) toast(context, "无法打开安装界面")
-            } else {
+            if (result.isFailure) {
                 val why = result.exceptionOrNull()?.message ?: "网络异常"
-                toast(context, "下载失败：$why")
+                appStage = UpdateStage.Failed(why)
+                // 卡片上不写失败原因了 用 toast 交代一句
+                toast(context, "更新包下载失败 ${why.take(50)}")
+                return@launch
             }
+            appStage = UpdateStage.Downloading(1f)
+            val path = Installer.publish(tmp, name)
+            if (path == null) {
+                appStage = UpdateStage.Failed("无法写入 /sdcard/Download")
+                toast(context, "更新包存不进 /sdcard/Download")
+                return@launch
+            }
+            runCatching { tmp.delete() }
+            openInstaller(path)
         }
     }
 
@@ -323,10 +352,10 @@ fun App() {
      * 模块只给下载，不代装。
      *
      * 刷模块要重启手机、要用户在 Root 管理器里确认，App 这边直接装上去风险太大；
-     * 下到本地目录交给用户自己刷就够了。
+     * 下到公共目录交给用户自己刷就够了。
      */
     fun downloadModule() {
-        if (downloadProgress != null) return
+        if (moduleStage is UpdateStage.Downloading || moduleStage is UpdateStage.Probing) return
         val info = manifest ?: return
         val sources = Update.moduleSources(info)
         if (sources.isEmpty()) {
@@ -335,26 +364,37 @@ fun App() {
             return
         }
         scope.launch {
-            downloadKind = "module"
-            downloadProgress = 0f
-            val ver = Update.moduleLabel(info)
-            val dest = File(Installer.updateDir(context), "module-$ver.zip")
+            moduleStage = UpdateStage.Probing(0, sources.size)
+            val name = "module-${Update.moduleLabel(info)}.zip"
+            val tmp = File(Installer.stagingDir(context), name)
             val result = runCatching {
-                Downloader.fetch(sources, dest, info.moduleSha256) { done, total ->
+                Downloader.fetch(
+                    candidates = sources,
+                    dest = tmp,
+                    sha256 = info.moduleSha256,
+                    onProbe = { done, total -> moduleStage = UpdateStage.Probing(done, total) },
+                ) { done, total ->
                     if (total > 0) {
                         val p = (done.toFloat() / total).coerceIn(0f, 1f)
-                        scope.launch { downloadProgress = p }
+                        scope.launch {
+                            val now = moduleStage
+                            if (now !is UpdateStage.Downloading || p > now.progress) {
+                                moduleStage = UpdateStage.Downloading(p)
+                            }
+                        }
                     }
                 }
             }
-            downloadProgress = null
-            downloadKind = null
-            if (result.isSuccess) {
-                toast(context, "模块已保存：${dest.absolutePath}")
-            } else {
+            if (result.isFailure) {
                 val why = result.exceptionOrNull()?.message ?: "网络异常"
-                toast(context, "模块下载失败：$why")
+                moduleStage = UpdateStage.Failed(why)
+                toast(context, "模块包下载失败 ${why.take(50)}")
+                return@launch
             }
+            moduleStage = UpdateStage.Downloading(1f)
+            val path = Installer.publish(tmp, name) ?: tmp.absolutePath
+            moduleStage = UpdateStage.Saved(path)
+            toast(context, "模块已保存到 $path")
         }
     }
 
@@ -908,9 +948,10 @@ fun App() {
                 latest = latest,
                 channel = UiConfigState.updateChannel,
                 moduleLatest = moduleLatest,
-                appProgress = if (downloadKind == "app") downloadProgress else null,
-                moduleProgress = if (downloadKind == "module") downloadProgress else null,
-                onOpenRelease = { openRelease() },
+                appStage = appStage,
+                moduleStage = moduleStage,
+                onInstallApp = { downloadApp() },
+                onOpenInstaller = { path -> openInstaller(path) },
                 onDownloadModule = { downloadModule() },
                 onOpenThirdPartyLicenses = { push(Route.ThirdPartyLicenses) },
                 onBack = { backStack.removeLastOrNull() },

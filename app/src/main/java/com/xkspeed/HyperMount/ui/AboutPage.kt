@@ -5,13 +5,21 @@ import android.content.Intent
 import android.net.Uri
 import android.widget.Toast
 import androidx.annotation.DrawableRes
+import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBars
@@ -27,12 +35,14 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -85,13 +95,15 @@ fun AboutPage(
     // 已安装的模块版本：state 还没读回来时调用方会用 module.prop 里的值顶上
     moduleVersion: String,
     latest: UpdateInfo?,
-    // 这份清单来自哪个来源：内测包的版本号跟正式版一模一样 卡片上得写清楚
+    // 这份清单来自哪个来源：内测包版本号可能跟手上装的一样 卡片上得写清楚
     channel: UpdateChannel = UpdateChannel.RELEASE,
     moduleLatest: UpdateInfo?,
-    // 下载进度：null 表示没在下，0f..1f 表示进行中（按钮上显示百分比）
-    appProgress: Float? = null,
-    moduleProgress: Float? = null,
-    onOpenRelease: () -> Unit,
+    // 更新卡当前形态：下载与安装全程都在这张卡里原地切换
+    appStage: UpdateStage = UpdateStage.Idle,
+    moduleStage: UpdateStage = UpdateStage.Idle,
+    onInstallApp: () -> Unit,
+    /** 静默安装失败后点安装卡：用真实路径把系统安装器叫起来 */
+    onOpenInstaller: (String) -> Unit = {},
     onDownloadModule: () -> Unit,
     onOpenThirdPartyLicenses: () -> Unit,
     onBack: () -> Unit,
@@ -184,114 +196,43 @@ fun AboutPage(
             }
         }
 
-        // ---- 有更新时的变更说明 ----
+        // ---- 有更新时的变更说明：点下载后整张卡原地变进度条 下完变安装卡 ----
         if (latest != null) {
             item {
-                FrostedCard(backdrop = backdrop) {
-                    Column(Modifier.padding(horizontal = 16.dp, vertical = 14.dp)) {
-                        MiuixText(
-                            "v${Update.label(latest)} 更新内容",
-                            color = colorScheme.onSurface,
-                            fontWeight = FontWeight.SemiBold,
-                            fontSize = 15.sp,
-                        )
-                        // 内测包的版本号可能跟手上装的一模一样（只是重新构建过）
-                        // 不写清楚「内测版 / 发布时间」用户会以为检查更新坏了
-                        if (channel == UpdateChannel.INTERNAL) {
-                            val built = Update.buildTimeLabel(latest)
-                            Spacer(Modifier.height(4.dp))
-                            MiuixText(
-                                if (built.isEmpty()) "内测版" else "内测版 · 发布于 $built",
-                                color = colorScheme.primary,
-                                fontSize = 12.sp,
-                            )
-                        }
-                        Spacer(Modifier.height(8.dp))
-                        val notes = Update.changelogLines(latest)
-                        if (notes.isEmpty()) {
-                            MiuixText(
-                                "作者没有写变更说明",
-                                color = colorScheme.onSurfaceVariantSummary,
-                                fontSize = 13.sp,
-                            )
-                        } else {
-                            notes.forEach { line ->
-                                MiuixText(
-                                    "· $line",
-                                    color = colorScheme.onSurfaceVariantSummary,
-                                    fontSize = 13.sp,
-                                    lineHeight = 19.sp,
-                                    modifier = Modifier.padding(bottom = 3.dp),
-                                )
-                            }
-                        }
-                        Spacer(Modifier.height(12.dp))
-                        Button(
-                            onClick = onOpenRelease,
-                            enabled = appProgress == null,
-                            colors = ButtonDefaults.buttonColorsPrimary(),
-                            modifier = Modifier.fillMaxWidth(),
-                        ) {
-                            MiuixText(
-                                if (appProgress == null) "下载并安装"
-                                else "下载中 ${(appProgress * 100).toInt()}%",
-                            )
-                        }
-                    }
-                }
+                UpdateCard(
+                    backdrop = backdrop,
+                    headline = "v${Update.label(latest)}",
+                    subline = if (channel == UpdateChannel.INTERNAL) {
+                        val built = Update.buildTimeLabel(latest)
+                        if (built.isEmpty()) "内测版" else "内测版 · 发布于 $built"
+                    } else {
+                        null
+                    },
+                    notes = Update.changelogLines(latest),
+                    emptyNote = "作者没有写变更说明",
+                    stage = appStage,
+                    idleAction = "下载并安装",
+                    onAction = onInstallApp,
+                    onOpenInstaller = onOpenInstaller,
+                    failedAction = "点击重试",
+                )
             }
         }
 
         // ---- 模块有新版：和 App 更新卡同款 但只给 zip 下载 不代装 ----
         if (moduleLatest != null) {
             item {
-                FrostedCard(backdrop = backdrop) {
-                    Column(Modifier.padding(horizontal = 16.dp, vertical = 14.dp)) {
-                        MiuixText(
-                            "模块 v${Update.moduleLabel(moduleLatest)} 更新内容",
-                            color = colorScheme.onSurface,
-                            fontWeight = FontWeight.SemiBold,
-                            fontSize = 15.sp,
-                        )
-                        Spacer(Modifier.height(8.dp))
-                        val notes = Update.moduleChangelogLines(moduleLatest)
-                        if (notes.isEmpty()) {
-                            MiuixText(
-                                "模块 zip 与 App 同一个 Release 发布 详细说明见 Release 页面",
-                                color = colorScheme.onSurfaceVariantSummary,
-                                fontSize = 13.sp,
-                            )
-                        } else {
-                            notes.forEach { line ->
-                                MiuixText(
-                                    "· $line",
-                                    color = colorScheme.onSurfaceVariantSummary,
-                                    fontSize = 13.sp,
-                                    lineHeight = 19.sp,
-                                    modifier = Modifier.padding(bottom = 3.dp),
-                                )
-                            }
-                        }
-                        Spacer(Modifier.height(12.dp))
-                        Button(
-                            onClick = onDownloadModule,
-                            enabled = moduleProgress == null,
-                            colors = ButtonDefaults.buttonColorsPrimary(),
-                            modifier = Modifier.fillMaxWidth(),
-                        ) {
-                            MiuixText(
-                                if (moduleProgress == null) "下载模块压缩包"
-                                else "下载中 ${(moduleProgress * 100).toInt()}%",
-                            )
-                        }
-                        Spacer(Modifier.height(6.dp))
-                        MiuixText(
-                            "只下载 zip 不自动安装 到 Root 管理器刷入后重启手机",
-                            color = colorScheme.onSurfaceVariantSummary,
-                            fontSize = 12.sp,
-                        )
-                    }
-                }
+                UpdateCard(
+                    backdrop = backdrop,
+                    headline = "模块 v${Update.moduleLabel(moduleLatest)}",
+                    subline = null,
+                    notes = Update.moduleChangelogLines(moduleLatest),
+                    emptyNote = "模块 zip 与 App 同一个 Release 发布 详细说明见 Release 页面",
+                    stage = moduleStage,
+                    idleAction = "下载模块压缩包",
+                    onAction = onDownloadModule,
+                    failedAction = "点击重试",
+                )
             }
         }
 
@@ -355,6 +296,195 @@ fun AboutPage(
                     .height(52.dp),
                 colors = ButtonDefaults.textButtonColors(textColor = colorScheme.error),
             )
+        }
+    }
+}
+
+/**
+ * 更新卡片：一张卡走完「更新说明 → 下载进度 → 安装」。
+ *
+ * 下载时不收起更新说明：只把底部按钮换成进度条，整卡底色同时按比例铺。
+ * 下完卡片原地变安装卡，点了直接拉起系统安装器。
+ */
+@Composable
+private fun UpdateCard(
+    backdrop: top.yukonga.miuix.kmp.blur.LayerBackdrop?,
+    headline: String,
+    subline: String?,
+    notes: List<String>,
+    emptyNote: String,
+    stage: UpdateStage,
+    idleAction: String,
+    onAction: () -> Unit,
+    onOpenInstaller: (String) -> Unit = {},
+    failedAction: String,
+) {
+    val shape = RoundedCornerShape(16.dp)
+
+    // 目标填充量：下载中按实时进度，下好一次铺满
+    val target = when (stage) {
+        is UpdateStage.Downloading -> stage.progress.coerceIn(0f, 1f)
+        is UpdateStage.ReadyToInstall,
+        is UpdateStage.Saved -> 1f
+        else -> 0f
+    }
+    // 分段回调是跳着来的：补一层线性动画 填充不一顿一顿 状态切换也不会突然跳满
+    val fill by animateFloatAsState(
+        targetValue = target,
+        animationSpec = tween(durationMillis = 420, easing = LinearEasing),
+        label = "updateFill",
+    )
+
+    // 只有「失败」和「已下载」整卡可点，其余状态点了会误触
+    val tappable = stage is UpdateStage.Failed || stage is UpdateStage.ReadyToInstall
+
+    FrostedCard(backdrop = backdrop) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(shape)
+                .then(
+                    if (tappable) {
+                        Modifier.clickable {
+                            // 已下载：点卡片是把系统安装器再叫起来
+                            if (stage is UpdateStage.ReadyToInstall) {
+                                onOpenInstaller(stage.path)
+                            } else {
+                                onAction()
+                            }
+                        }
+                    } else {
+                        Modifier
+                    },
+                ),
+        ) {
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .animateContentSize()
+                    .padding(horizontal = 16.dp, vertical = 14.dp),
+            ) {
+                MiuixText(
+                    "$headline 更新内容",
+                    color = colorScheme.onSurface,
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 15.sp,
+                )
+                if (subline != null) {
+                    Spacer(Modifier.height(4.dp))
+                    MiuixText(subline, color = colorScheme.primary, fontSize = 12.sp)
+                }
+                Spacer(Modifier.height(8.dp))
+                if (notes.isEmpty()) {
+                    MiuixText(
+                        emptyNote,
+                        color = colorScheme.onSurfaceVariantSummary,
+                        fontSize = 13.sp,
+                    )
+                } else {
+                    notes.forEach { line ->
+                        MiuixText(
+                            "· $line",
+                            color = colorScheme.onSurfaceVariantSummary,
+                            fontSize = 13.sp,
+                            lineHeight = 19.sp,
+                            modifier = Modifier.padding(bottom = 3.dp),
+                        )
+                    }
+                }
+                Spacer(Modifier.height(12.dp))
+
+                when (stage) {
+                    UpdateStage.Idle -> {
+                        Button(
+                            onClick = onAction,
+                            colors = ButtonDefaults.buttonColorsPrimary(),
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            MiuixText(idleAction)
+                        }
+                    }
+
+                    // 下载前筛源：还没进度可言 只报探到第几条
+                    // 数字用等宽字体 否则 x/13 变 10/13 时整行宽度变了会抖
+                    is UpdateStage.Probing -> {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(46.dp)
+                                .clip(RoundedCornerShape(14.dp))
+                                .background(colorScheme.primary.copy(alpha = 0.10f)),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            MiuixText(
+                                "查询镜像中 ${stage.done}/${stage.total}",
+                                color = colorScheme.primary,
+                                fontWeight = FontWeight.SemiBold,
+                                fontSize = 13.sp,
+                                fontFamily = FontFamily.Monospace,
+                            )
+                        }
+                    }
+
+                    // 下载中：按钮原地换成进度条 百分比落在条的中心
+                    is UpdateStage.Downloading -> {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(46.dp)
+                                .clip(RoundedCornerShape(14.dp))
+                                .background(colorScheme.primary.copy(alpha = 0.10f)),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Box(
+                                Modifier
+                                    .align(Alignment.CenterStart)
+                                    .fillMaxHeight()
+                                    .fillMaxWidth(fill)
+                                    .background(colorScheme.primary.copy(alpha = 0.38f)),
+                            )
+                            MiuixText(
+                                "${(fill * 100).toInt()}%",
+                                color = colorScheme.onSurface,
+                                fontWeight = FontWeight.SemiBold,
+                                fontSize = 13.sp,
+                            )
+                        }
+                    }
+
+                    // 下好：进度条原地变成安装按钮 点了拉起系统安装器
+                    is UpdateStage.ReadyToInstall -> {
+                        Button(
+                            onClick = { onOpenInstaller(stage.path) },
+                            colors = ButtonDefaults.buttonColorsPrimary(),
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            MiuixText("安装")
+                        }
+                    }
+
+                    is UpdateStage.Failed -> {
+                        Button(
+                            onClick = onAction,
+                            colors = ButtonDefaults.buttonColorsPrimary(),
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            MiuixText(failedAction)
+                        }
+                    }
+
+                    is UpdateStage.Saved -> {
+                        Button(
+                            onClick = {},
+                            enabled = false,
+                            colors = ButtonDefaults.buttonColorsPrimary(),
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            MiuixText("已保存")
+                        }
+                    }
+                }
+            }
         }
     }
 }
