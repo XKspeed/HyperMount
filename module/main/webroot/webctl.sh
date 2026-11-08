@@ -94,6 +94,12 @@ case "${1:-}" in
         echo "$APID" > "$ACTION_PID"
         sleep 1
         if ! kill -0 "$APID" 2>/dev/null; then
+            # 守护在跑时 action.sh 只做替换就退出 这是正常收尾 不是启动失败
+            if grep -q "交给全局守护" "$ACTION_LOG" 2>/dev/null; then
+                echo "STEP 2/2 界面已替换 交给全局守护"
+                echo "OK 测试已启动"
+                exit 0
+            fi
             echo "FAIL action.sh 启动失败"
             tail -10 "$ACTION_LOG" 2>/dev/null
             rm -f "$ACTION_PID"
@@ -134,8 +140,13 @@ case "${1:-}" in
         fi
         ;;
     output)
+        # 只回 action.sh 自己的 stdout：日志目录里的 *.log 是 logcat 抓的崩溃堆栈
+        # 第二个参数是要多少行 不传按 50
+        _n="${2:-50}"
+        case "$_n" in ''|*[!0-9]*) _n=50 ;; esac
+        [ "$_n" -gt 400 ] && _n=400
         if [ -f "$ACTION_LOG" ]; then
-            tail -50 "$ACTION_LOG" 2>/dev/null
+            tail -n "$_n" "$ACTION_LOG" 2>/dev/null
         fi
         ;;
     stop)
@@ -178,6 +189,93 @@ case "${1:-}" in
                 ;;
             *)
                 echo "FAIL 未知操作: $ACTION"
+                exit 1
+                ;;
+        esac
+        ;;
+    watch)
+        # 全局常驻救砖：App 负责起停，脚本只在这儿落地
+        # start <秒>  0 表示无限制；有 timeout 就让 timeout 到点收尾
+        WATCH_PID="${WORK_DIR}/watch.pid"
+        WATCH_STATE="${WORK_DIR}/watch.state"
+        WATCH_OUT="${WORK_DIR}/watch.out"
+        WATCH_LIMIT="${WORK_DIR}/watch.limit"
+        ensure_work
+        WACTION="${2:-status}"
+        case "$WACTION" in
+            start)
+                SEC="${3:-0}"
+                case "$SEC" in ''|*[!0-9]*) SEC=0 ;; esac
+                _wp=$(cat "$WATCH_PID" 2>/dev/null | tr -d ' \r\n')
+                if [ -n "$_wp" ] && kill -0 "$_wp" 2>/dev/null; then
+                    echo "OK 常驻救砖已在运行 (PID $_wp)"
+                    exit 0
+                fi
+                rm -f "$WATCH_PID"
+                echo "$SEC" > "$WATCH_LIMIT"
+                if [ "$SEC" -gt 0 ] && command -v timeout >/dev/null 2>&1; then
+                    setsid timeout "$SEC" sh "${WEB_DIR}/watch.sh" >/dev/null 2>&1 &
+                else
+                    setsid sh "${WEB_DIR}/watch.sh" >/dev/null 2>&1 &
+                    # 没有 timeout 的机器自己起个定时器收尾
+                    if [ "$SEC" -gt 0 ]; then
+                        ( sleep "$SEC"; sh "${WEB_DIR}/webctl.sh" watch stop >/dev/null 2>&1 ) &
+                    fi
+                fi
+                # 等它把 pid 写出来 最多 3 秒
+                _i=0
+                while [ "$_i" -lt 30 ]; do
+                    _wp=$(cat "$WATCH_PID" 2>/dev/null | tr -d ' \r\n')
+                    [ -n "$_wp" ] && kill -0 "$_wp" 2>/dev/null && break
+                    sleep 0.1
+                    _i=$((_i + 1))
+                done
+                _wp=$(cat "$WATCH_PID" 2>/dev/null | tr -d ' \r\n')
+                if [ -n "$_wp" ] && kill -0 "$_wp" 2>/dev/null; then
+                    echo "OK 常驻救砖已启动 (PID $_wp)"
+                else
+                    echo "FAIL 常驻救砖没能启动"
+                    tail -n 5 "$WATCH_OUT" 2>/dev/null
+                    exit 1
+                fi
+                ;;
+            stop)
+                _wp=$(cat "$WATCH_PID" 2>/dev/null | tr -d ' \r\n')
+                if [ -n "$_wp" ] && kill -0 "$_wp" 2>/dev/null; then
+                    kill "$_wp" 2>/dev/null
+                    sleep 0.4
+                    kill -9 "$_wp" 2>/dev/null
+                fi
+                rm -f "$WATCH_PID"
+                pkill -f "webroot/watch.sh" 2>/dev/null
+                pkill -f "am_proc_start -T 1" 2>/dev/null
+                echo "running=0" > "$WATCH_STATE"
+                echo "OK 已停止"
+                ;;
+            status)
+                _wp=$(cat "$WATCH_PID" 2>/dev/null | tr -d ' \r\n')
+                _run=0
+                if [ -n "$_wp" ] && kill -0 "$_wp" 2>/dev/null; then
+                    _run=1
+                else
+                    rm -f "$WATCH_PID"
+                fi
+                _since=$(grep '^since=' "$WATCH_STATE" 2>/dev/null | cut -d= -f2-)
+                _count=$(grep '^count=' "$WATCH_STATE" 2>/dev/null | cut -d= -f2-)
+                _limit=$(cat "$WATCH_LIMIT" 2>/dev/null | tr -d ' \r\n')
+                case "$_since" in ''|*[!0-9]*) _since=0 ;; esac
+                case "$_count" in ''|*[!0-9]*) _count=0 ;; esac
+                case "$_limit" in ''|*[!0-9]*) _limit=0 ;; esac
+                [ "$_run" = "0" ] && _since=0
+                # App 靠这一行判断模块带不带常驻守护 老模块没有这条命令
+                echo "support=1"
+                echo "running=$_run"
+                echo "since=$_since"
+                echo "limit=$_limit"
+                echo "count=$_count"
+                ;;
+            *)
+                echo "FAIL 未知操作: $WACTION"
                 exit 1
                 ;;
         esac

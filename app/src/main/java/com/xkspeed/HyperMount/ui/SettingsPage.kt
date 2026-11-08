@@ -24,8 +24,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -33,7 +31,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.rememberVectorPainter
 import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.dp
-import com.xkspeed.HyperMount.core.CRASH_LIMIT_MANUAL
 import com.xkspeed.HyperMount.core.AppLog
 import com.xkspeed.HyperMount.core.BuildVariant
 import com.xkspeed.HyperMount.core.LogLevel
@@ -42,7 +39,6 @@ import com.xkspeed.HyperMount.core.UpdateChannel
 import com.xkspeed.HyperMount.ui.component.glass.ScrollPage
 import com.xkspeed.HyperMount.ui.component.glass.TopBarTuning
 import com.xkspeed.HyperMount.ui.components.SectionCard
-import com.xkspeed.HyperMount.ui.components.SliderInputPreference
 import top.yukonga.miuix.kmp.basic.ButtonDefaults
 import top.yukonga.miuix.kmp.basic.SmallTitle
 import top.yukonga.miuix.kmp.basic.Text
@@ -57,16 +53,6 @@ import com.xkspeed.HyperMount.ui.components.LiquidSelectPreference
 import com.xkspeed.HyperMount.ui.components.rememberLiquidSelectState
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.window.WindowDialog
-import kotlin.math.roundToInt
-
-private val LOG_MODE_LABELS = listOf("完全禁用", "仅日志", "日志 + 救砖")
-private val LOG_MODE_SUMMARIES = listOf(
-    "不记录日志 也不启动守护",
-    "只记录日志 不执行救砖",
-    "音量+ 触发救砖 音量- 取消",
-)
-
-// 增强救砖每次开启都会弹警告
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -74,29 +60,15 @@ fun SettingsPage(
     padding: PaddingValues,
     state: ModuleState,
     onSetConf: (String, String) -> Unit,
-    onRescueToggle: (Boolean) -> Unit,
-    onSetCrashLimit: (Int) -> Unit,
     onOpenUiSettings: () -> Unit = {},
     onOpenDebug: () -> Unit = {},
     onOpenAppLog: () -> Unit = {},
-    onOpenVolumeCheck: () -> Unit = {},
     onOpenCache: () -> Unit = {},
     onOpenAbout: () -> Unit = {},
     onCheckUpdate: () -> Unit = {},
     checkingUpdate: Boolean = false,
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
-
-    // 下拉只有 0 1 2 三档 增强救砖把 2 提到 3
-    var logModeIndex by remember(state.logMode) {
-        mutableIntStateOf(
-            (state.logMode.toIntOrNull() ?: 0).coerceIn(0, 3).let { if (it >= 2) 2 else it }
-        )
-    }
-    var enhanced by remember(state.logMode) {
-        mutableStateOf((state.logMode.toIntOrNull() ?: 0) >= 3)
-    }
-    var askEnhance by remember { mutableStateOf(false) }
 
     // MT 不交目录时的兜底：手动填路径（默认填当前值）
     var showManualDir by remember { mutableStateOf(false) }
@@ -139,49 +111,6 @@ fun SettingsPage(
             }
     }
 
-    fun applyMode(value: Int) {
-        logModeIndex = if (value >= 2) 2 else value
-        enhanced = value >= 3
-        onSetConf("LOG_MODE", value.toString())
-        when {
-            // 增强救砖自己就是靠崩溃次数自动救的
-            // 系统救援不屏蔽 阈值还没到 SystemUI 就被系统收走了
-            value >= 3 -> onRescueToggle(true)
-            // 日志 + 救砖靠音量键：上限抬到 30 才等得到人按下去
-            value >= 2 -> onSetCrashLimit(CRASH_LIMIT_MANUAL)
-        }
-    }
-
-    // 老配置兜底：模式已经是「增强救砖」或「日志 + 救砖」 上限却还是旧的 12
-    // 进设置页纠正一次 之后用户手动改不再干预
-    var synced by remember { mutableStateOf(false) }
-    LaunchedEffect(state.logMode, state.crashLimit, state.rescueOff) {
-        if (synced) return@LaunchedEffect
-        val mode = state.logMode.toIntOrNull() ?: 0
-        when {
-            // 增强救砖必须处于屏蔽状态
-            mode >= 3 && !state.rescueOff -> {
-                synced = true
-                onRescueToggle(true)
-            }
-            // 日志 + 救砖回到 30
-            mode == 2 && !state.rescueOff &&
-                state.crashLimit !in listOf("", "unknown", CRASH_LIMIT_MANUAL.toString()) -> {
-                synced = true
-                onSetCrashLimit(CRASH_LIMIT_MANUAL)
-            }
-            state.crashLimit.isNotBlank() -> synced = true
-        }
-    }
-
-    // 拖动过程中只改本地值 松手才落盘 避免每帧一次 sed
-    var keyTimeout by remember(state.keyTimeout) {
-        mutableFloatStateOf((state.keyTimeout.toIntOrNull() ?: 30).coerceIn(10, 60).toFloat())
-    }
-    var fatalThreshold by remember(state.fatalThreshold) {
-        mutableFloatStateOf((state.fatalThreshold.toIntOrNull() ?: 3).coerceIn(1, 10).toFloat())
-    }
-
     val select = rememberLiquidSelectState()
 
     ScrollPage(
@@ -203,14 +132,7 @@ fun SettingsPage(
                 item { SmallTitle("运行") }
                 item {
                     SectionCard {
-                        LiquidSelectPreference(
-                            title = "运行模式",
-                            summary = LOG_MODE_SUMMARIES[logModeIndex],
-                            items = LOG_MODE_LABELS,
-                            selectedIndex = logModeIndex,
-                            onSelectedIndexChange = { applyMode(it) },
-                            state = select,
-                        )
+                        // 运行模式挪到「界面 → 界面设置」了 这里只留路径与缓存
                         // 日志目录不再跟着运行模式收起：主页测试也往这里写日志
                         // 模式 0（完全禁用）还得能选 否则主页永远开不了测试
                         ArrowPreference(
@@ -233,107 +155,10 @@ fun SettingsPage(
                             title = "缓存大小",
                             onClick = onOpenCache,
                         )
-                        // 等待超时只在仅日志模式有意义 救砖模式一直等到按键
-                        AnimatedVisibility(
-                            visible = logModeIndex == 1,
-                            enter = fadeIn() + expandVertically(),
-                            exit = fadeOut() + shrinkVertically(),
-                        ) {
-                            Column {
-                                SliderInputPreference(
-                                    title = "等待超时",
-                                    summary = "替换界面后等 SystemUI 重启的秒数",
-                                    value = keyTimeout,
-                                    // settings.conf 里 KEY_TIMEOUT 的出厂值
-                                    defaultValue = 30f,
-                                    onValueChange = { keyTimeout = it },
-                                    onValueChangeFinished = {
-                                        onSetConf("KEY_TIMEOUT", keyTimeout.roundToInt().toString())
-                                    },
-                                    valueRange = 10f..60f,
-                                    steps = 9,
-                                    valueText = "${keyTimeout.roundToInt()} 秒",
-                                    inputUnit = "秒",
-                                )
-                            }
-                        }
                     }
                 }
 
-                // 选了日志 + 救砖才出现 和主题页选莫奈后多出的那块一样
-                item {
-                    AnimatedVisibility(
-                        visible = logModeIndex == 2,
-                        enter = fadeIn() + expandVertically(),
-                        exit = fadeOut() + shrinkVertically(),
-                    ) {
-                        Column {
-                            SmallTitle("自动救砖")
-                            SectionCard {
-                                // 救砖靠音量键触发 校验入口就放这一组最上面
-                                ArrowPreference(
-                                    title = "音量键校验",
-                                    summary = if (state.volumeAssessed)
-                                        "已识别"
-                                    else "未校验 · 救砖时音量键可能没反应",
-                                    onClick = onOpenVolumeCheck,
-                                )
-                                SwitchPreference(
-                                    checked = enhanced,
-                                    onCheckedChange = { on ->
-                                        if (on) {
-                                            askEnhance = true
-                                        } else {
-                                            applyMode(2)
-                                        }
-                                    },
-                                    title = "增强救砖",
-                                    summary = "崩溃达到阈值自动替换 SystemUI",
-                                )
-                                SliderInputPreference(
-                                    title = "崩溃阈值",
-                                    summary = if (enhanced)
-                                        "累计多少条 fatal 日志后自动救砖"
-                                    else
-                                        "开启增强救砖后生效",
-                                    value = fatalThreshold,
-                                    // settings.conf 里 FATAL_THRESHOLD 的出厂值
-                                    defaultValue = 3f,
-                                    onValueChange = { fatalThreshold = it },
-                                    onValueChangeFinished = {
-                                        onSetConf(
-                                            "FATAL_THRESHOLD",
-                                            fatalThreshold.roundToInt().toString(),
-                                        )
-                                    },
-                                    enabled = enhanced,
-                                    valueRange = 1f..10f,
-                                    steps = 8,
-                                    valueText = "${fatalThreshold.roundToInt()} 次",
-                                    inputUnit = "次",
-                                )
-                                // 增强救砖和屏蔽系统救援绑死：开了增强就必须屏蔽
-                                // 否则系统先崩到上限 自动救砖还没轮到就已经把界面收了
-                                SwitchPreference(
-                                    checked = enhanced || state.rescueOff,
-                                    onCheckedChange = { on ->
-                                        if (!enhanced) {
-                                            if (on) onRescueToggle(true)
-                                            else onSetCrashLimit(CRASH_LIMIT_MANUAL)
-                                        }
-                                    },
-                                    enabled = !enhanced,
-                                    title = "屏蔽系统救援",
-                                    summary = if (enhanced)
-                                        "增强救砖已开启 强制屏蔽不可关闭"
-                                    else
-                                        "拉高 AMS 崩溃次数上限 关闭后回到 $CRASH_LIMIT_MANUAL",
-                                )
-                            }
-                        }
-                    }
-                }
-
+                // 自动救砖整组已经挪到「界面」页
                 item { SmallTitle("调试") }
                 item {
                     SectionCard {
@@ -412,41 +237,6 @@ fun SettingsPage(
                     }
                 }
             }
-
-    // 警告用宽对话框 标题和副标题走 Miuix 自己的样式
-    WindowDialog(
-        show = askEnhance,
-        title = "警告",
-        summary = "该功能安全性未知 谨慎开启",
-        maxWidth = 560.dp,
-        onDismissRequest = { askEnhance = false },
-    ) {
-        Text(
-            "开启后崩溃次数达到阈值会自动替换 SystemUI 不需要按音量键\n" +
-                "替换失败可能导致无法开机 建议先确认救援 APK 可用",
-            color = MiuixTheme.colorScheme.onSurface,
-            style = MiuixTheme.textStyles.subtitle,
-        )
-        Spacer(Modifier.height(20.dp))
-        // 按钮用 Miuix 的 TextButton 和示例 dialog 一致 圆角卡片观感
-        Row(modifier = Modifier.fillMaxWidth()) {
-            TextButton(
-                text = "取消",
-                onClick = { askEnhance = false },
-                modifier = Modifier.weight(1f),
-            )
-            Spacer(Modifier.width(20.dp))
-            TextButton(
-                text = "继续开启",
-                onClick = {
-                    askEnhance = false
-                    applyMode(3)
-                },
-                modifier = Modifier.weight(1f),
-                colors = ButtonDefaults.textButtonColorsPrimary(),
-            )
-        }
-    }
 
     // MT 回不来目录路径时的兜底：手动填（默认带上当前配置值）
     WindowDialog(

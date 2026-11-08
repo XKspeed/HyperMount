@@ -2,6 +2,7 @@ package com.xkspeed.HyperMount
 
 import android.Manifest
 import android.content.pm.PackageManager
+import android.content.Intent
 import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -20,11 +21,23 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.theme.ThemeColorSpec
 import top.yukonga.miuix.kmp.theme.ThemeController
 import top.yukonga.miuix.kmp.theme.ThemePaletteStyle
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.SharedFlow
 
 class MainActivity : ComponentActivity() {
 
     private val notifPermission =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { /* 拒绝也不影响守护 */ }
+
+    /** 通知点进来要看日志：Activity 已经在跑时不重建 走这里把请求递进去 */
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        if (intent.getBooleanExtra(EXTRA_OPEN_LOGS, false)) {
+            intent.removeExtra(EXTRA_OPEN_LOGS)
+            _openLogs.tryEmit(Unit)
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -87,5 +100,13 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+    }
+
+    companion object {
+        /** 守护通知带过来的标记：进 App 直接翻到应用日志 */
+        const val EXTRA_OPEN_LOGS = "open_logs"
+
+        private val _openLogs = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
+        val openLogs: SharedFlow<Unit> = _openLogs
     }
 }

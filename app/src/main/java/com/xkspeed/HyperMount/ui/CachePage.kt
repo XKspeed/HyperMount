@@ -32,7 +32,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.ui.platform.LocalContext
@@ -40,14 +39,13 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.state.ToggleableState
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.xkspeed.HyperMount.core.CacheConfig
 import com.xkspeed.HyperMount.core.Logcat
 import com.xkspeed.HyperMount.core.Module
 import com.xkspeed.HyperMount.ui.component.glass.ScrollPage
 import com.xkspeed.HyperMount.ui.components.SectionCard
+import com.xkspeed.HyperMount.ui.components.sliderTapSeek
 import top.yukonga.miuix.kmp.basic.ButtonDefaults
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.Checkbox
@@ -67,14 +65,18 @@ private const val MB = 1024L * 1024L
 /**
  * 缓存上限的五个档位（MB）
  *
- * 0 表示不限制 滑条上这五个点等距排开 下标是 0..4 值再换算成实际容量
+ * 100 MB / 200 MB / 500 MB / 1 GB / 无限制 —— 无限制放最右边 滑条上五个点等距排开
  * 1 GB 按 1024 MB 存 显示时再换算 免得滑条上出现 1024 MB 这种别扭的数
  */
-private val LIMIT_OPTIONS_MB = listOf(0L, 100L, 200L, 500L, 1024L)
+private val LIMIT_OPTIONS_MB = listOf(100L, 200L, 500L, 1024L, 0L)
 
-/** 老配置里可能存着 300 MB 这种中间值 进来时落到最近的一档 */
-private fun nearestOptionIndex(limitMb: Long): Int =
-    LIMIT_OPTIONS_MB.indices.minByOrNull { abs(LIMIT_OPTIONS_MB[it] - limitMb) } ?: 0
+/** 老配置里可能存着 300 MB 这种中间值 进来时落到最近的一档；0 就是最右的无限制 */
+private fun nearestOptionIndex(limitMb: Long): Int {
+    if (limitMb <= 0L) return LIMIT_OPTIONS_MB.lastIndex
+    return LIMIT_OPTIONS_MB.indices
+        .filter { LIMIT_OPTIONS_MB[it] > 0L }
+        .minByOrNull { abs(LIMIT_OPTIONS_MB[it] - limitMb) } ?: 0
+}
 
 /** 档位文字：单位全大写 1024 MB 写成 1 GB */
 private fun optionLabel(mb: Long): String = when {
@@ -95,7 +97,7 @@ fun CachePage(onBack: () -> Unit) {
     var files by remember { mutableStateOf<List<File>>(emptyList()) }
     var total by remember { mutableStateOf(0L) }
     var marked by remember { mutableStateOf<Set<String>>(emptySet()) }
-    // 滑条值是档位下标 0..4：无限制 / 100 MB / 200 MB / 500 MB / 1 GB 点与点等距
+    // 滑条值是档位下标 0..4：100 MB / 200 MB / 500 MB / 1 GB / 无限制 点与点等距
     // 老配置不在档位上时先对齐到最近的一档 用户动过一次才落盘
     var limitIndex by remember {
         mutableFloatStateOf(nearestOptionIndex(CacheConfig.limit / MB).toFloat())
@@ -120,6 +122,12 @@ fun CachePage(onBack: () -> Unit) {
         CacheConfig.set(context, LIMIT_OPTIONS_MB[idx] * MB)
         Logcat.pruneStage()
         reload()
+    }
+
+    /** 点滑条上的某一档：先跳到那个点 再落盘 */
+    fun chooseLimit(i: Int) {
+        limitIndex = i.coerceIn(0, LIMIT_OPTIONS_MB.lastIndex).toFloat()
+        persistLimit()
     }
 
     LaunchedEffect(Unit) { reload() }
@@ -261,15 +269,8 @@ fun CachePage(onBack: () -> Unit) {
                         hapticEffect = SliderDefaults.SliderHapticEffect.Step,
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(top = 6.dp),
-                    )
-                    // 档位文字直接可点：点哪档就跳哪档 不用非得拖过去
-                    LimitTicks(
-                        selected = limitIndex.roundToInt(),
-                        onSelect = { i ->
-                            limitIndex = i.toFloat()
-                            persistLimit()
-                        },
+                            .padding(top = 6.dp)
+                            .sliderTapSeek(LIMIT_OPTIONS_MB.lastIndex) { chooseLimit(it) },
                     )
                 }
             }
@@ -358,49 +359,3 @@ fun CachePage(onBack: () -> Unit) {
     }
 }
 
-/**
- * 滑条下面的五个档位文字
- *
- * 位置按滑轨来算：滑轨两端各让出半个 thumb 才能放圆钮 所以文字中心也照这个内缩
- * 摆出来正好对着上面的关键点 点哪段就跳到哪档 不用非得把圆钮拖过去
- */
-@Composable
-private fun LimitTicks(
-    selected: Int,
-    onSelect: (Int) -> Unit,
-) {
-    val density = LocalDensity.current
-    val inset = with(density) { SliderDefaults.MinHeight.toPx() / 2f }
-    val active = MiuixTheme.colorScheme.primary
-    val idle = MiuixTheme.colorScheme.onSurfaceVariantSummary
-
-    Layout(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(top = 2.dp),
-        content = {
-            LIMIT_OPTIONS_MB.forEachIndexed { i, mb ->
-                Text(
-                    text = optionLabel(mb),
-                    color = if (i == selected) active else idle,
-                    fontSize = 11.sp,
-                    modifier = Modifier
-                        .clickable { onSelect(i) }
-                        .padding(horizontal = 4.dp, vertical = 4.dp),
-                )
-            }
-        },
-    ) { measurables, constraints ->
-        val width = constraints.maxWidth
-        val placeables = measurables.map { it.measure(Constraints()) }
-        val height = placeables.maxOfOrNull { it.height } ?: 0
-        layout(width, height) {
-            val last = placeables.lastIndex
-            placeables.forEachIndexed { i, p ->
-                val center = if (last <= 0) width / 2f else inset + (width - 2 * inset) * i / last
-                val x = (center - p.width / 2f).roundToInt().coerceIn(0, (width - p.width).coerceAtLeast(0))
-                p.place(x, 0)
-            }
-        }
-    }
-}

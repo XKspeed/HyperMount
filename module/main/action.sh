@@ -11,6 +11,25 @@ CONFIG_DIR="${MODDIR}/config"
 
 [ -f "${CONFIG_DIR}/settings.conf" ] && . "${CONFIG_DIR}/settings.conf"
 
+# ---------- 模块自身引起的重启 ----------
+# 测试模式覆盖、守护救砖替换 都会让界面自己重启一次。那次不是崩溃，
+# 不能算进 watch.sh 的窗口计数（点一次测试就把阈值顶掉 会误触发救砖）。
+# 覆盖/替换完成后写一个时间戳，watch.sh 读到紧随其后的第一条 systemui 启动
+# 跳过并把它删掉。
+WEB_DIR="${MODDIR}/webroot"
+WATCH_PID="${WEB_DIR}/.work/watch.pid"
+SELF_MARK="${CONFIG_DIR}/.self_restart"
+
+watch_running() {
+    [ -f "${WATCH_PID}" ] || return 1
+    _wr=$(cat "${WATCH_PID}" 2>/dev/null | tr -d ' \r\n')
+    [ -n "${_wr}" ] && kill -0 "${_wr}" 2>/dev/null
+}
+
+mark_self_restart() {
+    date +%s > "${SELF_MARK}" 2>/dev/null
+}
+
 MISSING=""
 for v in TIME_FORMAT LOG_DIR LOG_RETENTION_DAYS KEY_TIMEOUT LINE LOG_MODE VOLUME_CHECK_ASSESS PROTECT_COUNT FATAL_THRESHOLD; do
     eval "[ -z \"\${$v+x}\" ]" && MISSING="${MISSING} ${v}"
@@ -39,7 +58,10 @@ done
 
 # ---------- 参数解析 ----------
 # --test <apk>  测试模式：记录基线后自动把该 APK 换进挂载点
+# --now         全局常驻救砖触发的一轮：界面已经重启过了，跳过「替换 + 等 PID」，
+#               直接从抓日志开始判定。由 webroot/watch.sh 调用
 TEST_APK=""
+NOW_MODE=0
 while [ $# -gt 0 ]; do
     case "$1" in
         --test)
@@ -48,6 +70,10 @@ while [ $# -gt 0 ]; do
             ;;
         --test=*)
             TEST_APK="${1#--test=}"
+            shift
+            ;;
+        --now)
+            NOW_MODE=1
             shift
             ;;
         *)
@@ -64,8 +90,14 @@ fi
 # ---------- 防止救砖进程重复 ----------
 # 同一时间只跑一个实例：按 PID 文件把旧实例杀掉，再写入自己的 PID
 # 只杀本模块记录的进程，不误伤别的脚本
-ACTION_PID_FILE="${CONFIG_DIR}/action.pid"
-if [ -f "${ACTION_PID_FILE}" ]; then
+# --now 用独立文件：这一轮由守护脚本发起，既不能抢用户手点的测试，
+# 也不能反过来把守护自己顶掉
+if [ "${NOW_MODE}" = "1" ]; then
+    ACTION_PID_FILE="${CONFIG_DIR}/action-now.pid"
+else
+    ACTION_PID_FILE="${CONFIG_DIR}/action.pid"
+fi
+if [ -f "${ACTION_PID_FILE}" ] && [ "${NOW_MODE}" != "1" ]; then
     _old_pid=$(cat "${ACTION_PID_FILE}" 2>/dev/null | tr -d ' \r\n')
     if [ -n "$_old_pid" ] && [ "$_old_pid" != "$$" ]; then
         if kill -0 "$_old_pid" 2>/dev/null; then
@@ -103,7 +135,7 @@ cleanup() {
     [ -n "${tmp_up}" ] && rm -f "${tmp_up}" "${tmp_up}.done"
     [ -n "${tmp_down}" ] && rm -f "${tmp_down}" "${tmp_down}.done"
     [ -n "${fatal_ts}" ] && rm -f "${fatal_ts}" "${fatal_ts}.tmp"
-    rm -f "${CONFIG_DIR}/action.pid" 2>/dev/null
+    rm -f "${ACTION_PID_FILE}" 2>/dev/null
 }
 trap cleanup EXIT INT TERM
 
@@ -349,7 +381,47 @@ fi
 # 模块自己不再单独留 debug.log 一套
 debug(){ printf '%s %s\n' "$(date +%H:%M:%S)" "$1"; }
 
-[ "${LOG_MODE}" -eq 0 ] && { echo "日志已禁用"; sleep 1; exit 0; }
+# 测试模式：把待测界面覆盖进挂载点（就地基底覆盖，保住 inode 才有挂载效果）
+# 守护在跑时也要用同一套，所以抽出来 两条路共用
+cover_test_apk() {
+    echo "开始替换界面…"
+    _cv_tmp="/data/adb/tmp/_test_$$.apk"
+    mkdir -p /data/adb/tmp 2>/dev/null
+    _cv_aim="${MODDIR}/system_ext/priv-app/MiuiSystemUI/MiuiSystemUI.apk"
+    mkdir -p "$(dirname "$_cv_aim")" 2>/dev/null
+
+    if ! cp -f "$TEST_APK" "$_cv_tmp" 2>/dev/null; then
+        echo "错误：复制到临时目录失败"
+        return 1
+    fi
+
+    _cv_new=$(stat -c%s "$_cv_tmp" 2>/dev/null || echo 0)
+    _cv_old=$([ -f "$_cv_aim" ] && stat -c%s "$_cv_aim" 2>/dev/null || echo 0)
+    echo "大小: ${_cv_old} -> ${_cv_new}"
+
+    if [ "$_cv_new" = "$_cv_old" ] && [ "$_cv_new" -gt 0 ]; then
+        dd if="$_cv_tmp" of="$_cv_aim" bs=1M conv=notrunc 2>/dev/null
+        echo "已覆盖（大小相同，inode 不变）"
+    else
+        cp -f "$_cv_tmp" "$_cv_aim" 2>/dev/null
+        echo "已覆盖（大小变化）"
+    fi
+
+    _cv_actual=$(stat -c%s "$_cv_aim" 2>/dev/null || echo 0)
+    rm -f "$_cv_tmp" 2>/dev/null
+
+    if [ "$_cv_actual" != "$_cv_new" ]; then
+        echo "错误：覆盖后大小不符（期望 ${_cv_new}，实际 ${_cv_actual}）"
+        return 1
+    fi
+    chmod 644 "$_cv_aim" 2>/dev/null
+    echo "替换完成，等待界面重启"
+    return 0
+}
+
+if [ "${LOG_MODE}" -eq 0 ]; then
+    echo "日志已禁用"; sleep 1; exit 0
+fi
 
 # 整套模块都围绕日志转：崩溃计数、日志疯长、超阈救砖全读 LOG_FILE
 # 没有目录就没有判据 直接拒绝 别让人以为流程跑起来了
@@ -391,9 +463,35 @@ CNT=$(find "${LOG_DIR}" -maxdepth 1 -name "*.log" -type f -mtime +${LOG_RETENTIO
 [ "${CNT}" -gt 0 ] && echo "清理 ${CNT} 个 ${LOG_RETENTION_DAYS} 天前的日志"
 
 # 记录当前 PID 作为基线（能手动运行本脚本，SystemUI 必然在跑）
-# 记录当前 PID 作为基线（能手动运行本脚本，SystemUI 必然在跑）
 OLD=$(pidof com.android.systemui 2>/dev/null | awk '{print $1}')
 debug "基线 PID: ${OLD:-未运行}"
+
+if [ "${NOW_MODE}" = "1" ]; then
+    # 全局常驻救砖这一轮：界面已经重启过了（watch.sh 就是靠 PID 变化叫醒的），
+    # 不替换任何文件，也不等 PID，直接进抓日志判定
+    echo "${LINE}"
+    echo "常驻救砖：检测到界面重启，开始判定"
+    echo "${LINE}"
+else
+
+# 守护在跑：这一轮只负责把界面换进去
+# 抓日志、崩溃计数、救砖都在 watch.sh 里，这边再跑一套只会两边抢着抓日志、抢着替换
+if [ -n "$TEST_APK" ] && watch_running; then
+    echo "${LINE}"
+    echo "常驻救砖已开启：本轮只替换界面"
+    echo "${LINE}"
+    if cover_test_apk; then
+        mark_self_restart
+        echo "${LINE}"
+        echo "替换完成，后续交给全局守护"
+        echo "界面重启后由守护继续观察，达到阈值自动救砖"
+        debug "测试：仅替换，交给守护"
+        exit 0
+    fi
+    echo "替换失败，本轮未交给守护"
+    debug "测试：替换失败"
+    exit 1
+fi
 
 echo "${LINE}"
 if [ -n "$TEST_APK" ]; then
@@ -405,40 +503,7 @@ echo "${LINE}"
 
 # 测试模式：立刻替换界面，主线程继续往下等 PID 变化
 if [ -n "$TEST_APK" ]; then
-    (
-        echo "开始替换界面…"
-        TMP_APK="/data/adb/tmp/_test_$$.apk"
-        mkdir -p /data/adb/tmp 2>/dev/null
-        AIM="${MODDIR}/system_ext/priv-app/MiuiSystemUI/MiuiSystemUI.apk"
-        mkdir -p "$(dirname "$AIM")" 2>/dev/null
-
-        if ! cp -f "$TEST_APK" "$TMP_APK" 2>/dev/null; then
-            echo "错误：复制到临时目录失败"
-            exit 0
-        fi
-
-        NEW_SZ=$(stat -c%s "$TMP_APK" 2>/dev/null || echo 0)
-        OLD_SZ=$([ -f "$AIM" ] && stat -c%s "$AIM" 2>/dev/null || echo 0)
-        echo "大小: ${OLD_SZ} -> ${NEW_SZ}"
-
-        if [ "$NEW_SZ" = "$OLD_SZ" ] && [ "$NEW_SZ" -gt 0 ]; then
-            dd if="$TMP_APK" of="$AIM" bs=1M conv=notrunc 2>/dev/null
-            echo "已覆盖（大小相同，inode 不变）"
-        else
-            cp -f "$TMP_APK" "$AIM" 2>/dev/null
-            echo "已覆盖（大小变化）"
-        fi
-
-        ACTUAL=$(stat -c%s "$AIM" 2>/dev/null || echo 0)
-        rm -f "$TMP_APK" 2>/dev/null
-
-        if [ "$ACTUAL" != "$NEW_SZ" ]; then
-            echo "错误：覆盖后大小不符（期望 ${NEW_SZ}，实际 ${ACTUAL}）"
-        else
-            chmod 644 "$AIM" 2>/dev/null
-            echo "替换完成，等待界面重启"
-        fi
-    ) &
+    cover_test_apk &
 fi
 
 # 等待界面重启（PID 变化），超时则退出
@@ -454,10 +519,17 @@ done
     exit 0
 }
 
+fi   # NOW_MODE 分支结束
+
 # ===== 启动日志抓取 =====
 touch "${LOG_FILE}"
-# 修改 5：清空 crash 缓冲，避免上次运行的旧日志干扰本次判定
-logcat -c -b crash
+# 正常测试：清空 crash 缓冲，避免上次运行的旧日志干扰本次判定
+# --now：崩溃已经发生过了，缓冲里就是这次的证据，绝不能清
+if [ "${NOW_MODE}" = "1" ]; then
+    debug "常驻救砖：保留现有 crash 缓冲"
+else
+    logcat -c -b crash
+fi
 # 用 setsid 让 logcat 脱离进程组，防止父进程退出时被清理
 if command -v setsid >/dev/null 2>&1; then
     setsid logcat -b crash > "${LOG_FILE}" 2>&1 < /dev/null &
@@ -479,10 +551,22 @@ T=-1; key=""
 tmp_up="/data/local/tmp/vol_up.$$"; tmp_down="/data/local/tmp/vol_down.$$"
 fatal_ts="/data/local/tmp/fatal_ts.$$"; > "${fatal_ts}"
 
+# 常驻模式跟手点测试用的是同一套判定：崩溃次数就是设置里那个 FATAL_THRESHOLD，
+# 不在这里改阈值。真崩的时候界面会被反复拉起又反复崩，几次 fatal 很快就齐；
+# 反倒是用户误杀进程那种「只崩一次」的情况不该被当成死循环，等窗口过去放行就好。
+WATCH_DEADLINE=0
+if [ "${NOW_MODE}" = "1" ]; then
+    WATCH_DEADLINE=$(($(date +%s) + KEY_TIMEOUT))
+    debug "常驻救砖：观察窗口 ${KEY_TIMEOUT}s，阈值 ${FATAL_THRESHOLD}"
+fi
+
 # fatal 监控（setsid 独立进程组，便于整组杀）
-_FA_LOG="${LOG_FILE}"; _FA_TS="${fatal_ts}"; export _FA_LOG _FA_TS
+# --now 要从文件头读：崩溃日志是 logcat 启动时一次性灌进文件开头的，
+# 只 tail 新行会把它全漏掉
+if [ "${NOW_MODE}" = "1" ]; then TAIL_FROM="-n +1"; else TAIL_FROM="-n 0"; fi
+_FA_LOG="${LOG_FILE}"; _FA_TS="${fatal_ts}"; export _FA_LOG _FA_TS TAIL_FROM
 if command -v setsid >/dev/null 2>&1; then
-    setsid sh -c 'tail -n 0 -F "$_FA_LOG" 2>/dev/null | while IFS= read -r _l; do
+    setsid sh -c 'tail $TAIL_FROM -F "$_FA_LOG" 2>/dev/null | while IFS= read -r _l; do
         case "$_l" in
             *"Process: com.android.systemui"*|*"Fatal signal"*"systemui"*|*"FATAL SIGNAL"*"systemui"*|*"WATCHDOG KILLING"*|*"ANR in com.android.systemui"*|*"Process com.android.systemui has died"*)
                 echo x >> "$_FA_TS" ;;
@@ -490,7 +574,7 @@ if command -v setsid >/dev/null 2>&1; then
     done' >/dev/null 2>&1 &
     FATAL_PID=$!; FATAL_PGRP=1
 else
-    tail -n 0 -F "${LOG_FILE}" 2>/dev/null | while IFS= read -r _l; do
+    tail $TAIL_FROM -F "${LOG_FILE}" 2>/dev/null | while IFS= read -r _l; do
         case "$_l" in
             *"Process: com.android.systemui"*|*"Fatal signal"*"systemui"*|*"FATAL SIGNAL"*"systemui"*|*"WATCHDOG KILLING"*|*"ANR in com.android.systemui"*|*"Process com.android.systemui has died"*)
                 echo x >> "${fatal_ts}" ;;
@@ -542,6 +626,15 @@ LAST_CNT=0
 LAST_SIZE=0
 FLOOD_HITS=0
 while :; do
+    # 常驻这一轮只看 KEY_TIMEOUT 秒：窗口内没等到 fatal 就放行 回去继续数重启
+    # 不退出的话守护会被卡在这里 后面再崩也数不到
+    if [ "${WATCH_DEADLINE}" -gt 0 ] && [ "$(date +%s)" -ge "${WATCH_DEADLINE}" ]; then
+        debug "常驻观察窗口 ${KEY_TIMEOUT} 秒结束，未判定到崩溃"
+        kill_fatal_monitor
+        stop_log
+        finish "常驻窗口结束"
+    fi
+
     # 自动救砖：累计 FATAL 达到 FATAL_THRESHOLD 就触发
     if [ "${LOG_MODE}" -ge 3 ] && [ -s "$fatal_ts" ]; then
         cnt=$(wc -l < "$fatal_ts" 2>/dev/null | tr -d ' '); [ -z "$cnt" ] && cnt=0
@@ -658,6 +751,8 @@ if cp -f "${APK}" "${AIM_APK}" 2>/dev/null; then
     chmod 644 "${AIM_APK}" 2>/dev/null
     rm -f "${BAK_APK}" 2>/dev/null
     echo "替换成功"; debug "替换完成"
+    # 这次界面重启是救砖自己拉起来的 不算崩溃 watch.sh 那边跳过这一条
+    watch_running && mark_self_restart
     NEW=$((SAVE+1))
     set_conf "PROTECT_COUNT" "${NEW}" "${CONFIG_DIR}/settings.conf"
     echo "累计救砖: ${NEW}次"; debug "救砖次数: ${NEW}"

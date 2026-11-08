@@ -50,6 +50,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import com.xkspeed.HyperMount.MainActivity
 import com.xkspeed.HyperMount.R
 import com.xkspeed.HyperMount.core.AppLog
 import com.xkspeed.HyperMount.core.DaemonService
@@ -75,6 +76,8 @@ import com.xkspeed.HyperMount.ui.util.shouldShowSplitPane
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import top.yukonga.miuix.kmp.basic.Button
 import top.yukonga.miuix.kmp.basic.ButtonDefaults
@@ -115,6 +118,14 @@ sealed interface Route : NavKey {
     @Serializable
     data object UiSettings : Route
 
+    /** 界面设置：界面页右上角齿轮进入 常驻救砖 + 救砖逻辑 */
+    @Serializable
+    data object InterfaceSettings : Route
+
+    /** 配置：主页右上角三点进入 目标包名 / 抓取时长 / 日志大小判定 */
+    @Serializable
+    data object Config : Route
+
     @Serializable
     data object VolumeCheck : Route
 
@@ -147,11 +158,18 @@ fun App() {
 
     // 首次启动先走引导：欢迎 / 须知 / 环境 / 音量键 / 完成
     // 校验收在这里做 装完模块第一次打开就能确认按键读得到
-    var onboarded by remember { mutableStateOf(UiConfigState.onboarded) }
+    // 引导页自己带版本号（ONBOARD_VERSION）：内容改了就把版本 +1 老用户重开也会进来
+    val onboardFresh = UiConfigState.onboardVersion != ONBOARD_VERSION
+    var onboarded by remember {
+        mutableStateOf(UiConfigState.onboarded && !onboardFresh)
+    }
     // 系统版本变了（升级/刷机）：旧校验里的 /dev/input/eventN 不一定还在
     // 启动就直接把校验面板拉起来 同时把模块侧的 VOLUME_CHECK_ASSESS 归零
+    // 引导版本变了就先完整走一遍 别从音量页半路开始
     var volumeStale by remember {
-        mutableStateOf(UiConfigState.onboarded && UiConfigState.needsVolumeRecheck())
+        mutableStateOf(
+            UiConfigState.onboarded && !onboardFresh && UiConfigState.needsVolumeRecheck()
+        )
     }
     // 调试页的「重新查看引导」：只影响本轮显示 不改 onboarded 标记
     var showOnboarding by remember { mutableStateOf(false) }
@@ -162,6 +180,7 @@ fun App() {
             onCancel = if (showOnboarding) ({ showOnboarding = false }) else null,
             onDone = {
                 UiConfigState.onboarded = true
+                UiConfigState.onboardVersion = ONBOARD_VERSION
                 UiConfigState.save(context)
                 onboarded = true
                 // 跳过也算本次已提醒过 下次启动版本仍不一致会再拉起
@@ -181,12 +200,33 @@ fun App() {
     fun push(route: Route) {
         if (backStack.lastOrNull() != route) backStack.add(route)
     }
+
+    // 守护通知点进来：直接翻到应用日志 用户能看到这一轮为什么救砖
+    LaunchedEffect(Unit) {
+        val act = context as? Activity
+        if (act?.intent?.getBooleanExtra(MainActivity.EXTRA_OPEN_LOGS, false) == true) {
+            act.intent.removeExtra(MainActivity.EXTRA_OPEN_LOGS)
+            push(Route.AppLogs)
+        }
+        MainActivity.openLogs.collect { push(Route.AppLogs) }
+    }
     var state by remember { mutableStateOf(ModuleState()) }
     // 乐观更新：改配置时界面先走一步，写盘在后台跑
     // 1 秒后回读 settings.conf，实际值对不上就把界面拉回去
     var pendingConf by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
     val uiState = remember(state, pendingConf) {
         pendingConf.entries.fold(state) { acc, e -> acc.withConf(e.key, e.value) }
+    }
+    // settings.conf 的写入不能并发：连点几下会同时跑好几条 sed 互相踩。
+    // 回读也要认人 —— 每次写入带一个序号，只有「我还是这个 key 的最新一次」才收尾，
+    // 否则先前那次的回读会把后一次刚点的值连同 pending 一起冲掉（表现就是闪回旧值）。
+    val confWriteLock = remember { Mutex() }
+    val confSeq = remember { mutableMapOf<String, Int>() }
+
+    fun nextConfSeq(key: String): Int {
+        val n = (confSeq[key] ?: 0) + 1
+        confSeq[key] = n
+        return n
     }
     var rootOk by remember { mutableStateOf<Boolean?>(null) }
     var busy by remember { mutableStateOf(false) }
@@ -387,11 +427,14 @@ fun App() {
      */
     fun writeConf(key: String, value: String) {
         pendingConf = pendingConf + (key to value)
+        val seq = nextConfSeq(key)
         scope.launch {
             AppLog.i("配置", "写入 $key=$value")
-            val ok = Module.setConf(key, value)
+            val ok = confWriteLock.withLock { Module.setConf(key, value) }
             // 留出落盘时间：sed 刚写完立刻 cat 偶尔还能读到旧内容
             delay(1000)
+            // 这一秒里又点过别的值：这次的回读作废 收尾交给最后一次
+            if (confSeq[key] != seq) return@launch
             val fresh = runCatching { Module.readState() }.getOrNull()
             if (fresh != null) state = fresh
             pendingConf = pendingConf - key
@@ -431,8 +474,11 @@ fun App() {
     }
 
     // 守护状态与前台服务保持一致：运行就挂服务 停了就撤 避免进程被冻结
+    // 测试停了不代表守护停了：全局常驻守护是独立脚本 要再问一次
     LaunchedEffect(state.daemonRunning) {
-        if (state.daemonRunning) DaemonService.start(context) else DaemonService.stop(context)
+        val active = state.daemonRunning ||
+            runCatching { Module.daemonStatus().active }.getOrDefault(false)
+        if (active) DaemonService.start(context) else DaemonService.stop(context)
     }
 
     // 选文件：固定拉 MT 管理器 不再弹来源选择
@@ -541,7 +587,28 @@ fun App() {
                 return@launch
             }
 
-            // 界面页：两份 apk 要交给模块脚本 这里仍落一份到私有目录
+            // 界面页的待测：同样不留副本 只记真实路径
+            // 开跑那一刻再去找 原文件被挪走 / 删掉 就当场提示重选
+            if (target == PickerTarget.TARGET) {
+                val real = withContext(Dispatchers.IO) { folderPathOf(context, uri) }
+                if (real.isNullOrBlank()) {
+                    toast(context, "这个管理器没给出真实路径 换 MT 的 root 模式再选一次")
+                    return@launch
+                }
+                // 只读一次做校验：不是系统界面的一律不收
+                val pkg = withContext(Dispatchers.IO) { packageOfUri(context, uri, real) }
+                if (pkg != SYSTEMUI_PACKAGE) {
+                    toast(
+                        context,
+                        if (pkg == null) "这个文件不是有效的 apk" else "包名是 $pkg 不是系统界面",
+                    )
+                    return@launch
+                }
+                applyPicked(target, real)
+                return@launch
+            }
+
+            // 界面页：救砖要留副本，交给模块脚本
             val file = withContext(Dispatchers.IO) { copyPickedFile(context, uri) }
             if (file == null) {
                 toast(context, "读取失败 这个文件管理器给的地址打不开 换一个再试")
@@ -593,6 +660,52 @@ fun App() {
             }
     }
 
+    // 救砖配置的写入：主界面和「界面设置」二级页共用同一套回调
+    // 原来直接写在 MainScaffold 参数里 二级页拿不到 所以提到这儿
+    val setConfCb: (String, String) -> Unit = { k, v -> writeConf(k, v) }
+    val rescueToggleCb: (Boolean) -> Unit = { off ->
+        pendingConf = pendingConf + ("RESCUE_OFF" to if (off) "1" else "0")
+        val seq = nextConfSeq("RESCUE_OFF")
+        scope.launch {
+            val out = confWriteLock.withLock { Module.setRescueOff(off) }
+            delay(1000)
+            if (confSeq["RESCUE_OFF"] != seq) return@launch
+            val fresh = runCatching { Module.readState() }.getOrNull()
+            if (fresh != null) state = fresh
+            pendingConf = pendingConf - "RESCUE_OFF"
+            // 命令本身报错才提示；只是没生效的那种 界面已按回读值还原 记日志就够
+            if (!out.contains("OK")) {
+                toast(context, firstLine(out))
+            } else if (fresh != null && fresh.rescueOff != off) {
+                AppLog.e(
+                    "配置",
+                    "写入失败 已按实际配置显示 RESCUE_OFF 期望=$off 实际=${fresh.rescueOff}",
+                )
+            }
+        }
+    }
+    val crashLimitCb: (Int) -> Unit = { limit ->
+        pendingConf = pendingConf + ("CRASH_LIMIT" to limit.toString())
+        val seq = nextConfSeq("CRASH_LIMIT")
+        scope.launch {
+            val out = confWriteLock.withLock { Module.setCrashLimit(limit) }
+            delay(1000)
+            if (confSeq["CRASH_LIMIT"] != seq) return@launch
+            val fresh = runCatching { Module.readState() }.getOrNull()
+            if (fresh != null) state = fresh
+            pendingConf = pendingConf - "CRASH_LIMIT"
+            if (!out.contains("OK")) {
+                toast(context, firstLine(out))
+            } else if (fresh != null && fresh.crashLimit != limit.toString()) {
+                AppLog.e(
+                    "配置",
+                    "写入失败 已按实际配置显示 CRASH_LIMIT " +
+                        "期望=$limit 实际=${fresh.crashLimit}",
+                )
+            }
+        }
+    }
+
     NavDisplay(
         backStack = backStack,
         // 转场用 MiuixDefault 圆角裁剪直接读系统圆角 和 LiftArc 一致
@@ -618,6 +731,11 @@ fun App() {
                     val target = state.targetPath
                     if (target.isBlank()) {
                         toast(context, "请先选择待测界面")
+                        return@start
+                    }
+                    // 只记了原路径 没有副本：开跑前现找 找不到就明确说 别让脚本空跑
+                    if (!java.io.File(target).exists()) {
+                        toast(context, "待测apk不见了 重新选一次")
                         return@start
                     }
                     // 完全禁用时 action.sh 会直接退出，webctl 却先回了 OK
@@ -659,6 +777,8 @@ fun App() {
                     }
                 },
                 onOpenUiSettings = { push(Route.UiSettings) },
+                onOpenInterfaceSettings = { push(Route.InterfaceSettings) },
+                onOpenConfig = { push(Route.Config) },
                 onOpenVolumeCheck = { push(Route.VolumeCheck) },
                 onOpenDebug = { push(Route.Debug) },
                 onOpenAppLog = { push(Route.AppLogs) },
@@ -673,50 +793,31 @@ fun App() {
                     checkUpdate(manual = true)
                 },
                 checkingUpdate = checkingUpdate,
-                onSetConf = { k, v -> writeConf(k, v) },
-                onRescueToggle = { off ->
-                    pendingConf = pendingConf + ("RESCUE_OFF" to if (off) "1" else "0")
-                    scope.launch {
-                        val out = Module.setRescueOff(off)
-                        delay(1000)
-                        val fresh = runCatching { Module.readState() }.getOrNull()
-                        if (fresh != null) state = fresh
-                        pendingConf = pendingConf - "RESCUE_OFF"
-                        // 命令本身报错才提示；只是没生效的那种 界面已按回读值还原 记日志就够
-                        if (!out.contains("OK")) {
-                            toast(context, firstLine(out))
-                        } else if (fresh != null && fresh.rescueOff != off) {
-                            AppLog.e(
-                                "配置",
-                                "写入失败 已按实际配置显示 RESCUE_OFF 期望=$off 实际=${fresh.rescueOff}",
-                            )
-                        }
-                    }
-                },
-                onSetCrashLimit = { limit ->
-                    pendingConf = pendingConf + ("CRASH_LIMIT" to limit.toString())
-                    scope.launch {
-                        val out = Module.setCrashLimit(limit)
-                        delay(1000)
-                        val fresh = runCatching { Module.readState() }.getOrNull()
-                        if (fresh != null) state = fresh
-                        pendingConf = pendingConf - "CRASH_LIMIT"
-                        if (!out.contains("OK")) {
-                            toast(context, firstLine(out))
-                        } else if (fresh != null && fresh.crashLimit != limit.toString()) {
-                            AppLog.e(
-                                "配置",
-                                "写入失败 已按实际配置显示 CRASH_LIMIT " +
-                                    "期望=$limit 实际=${fresh.crashLimit}",
-                            )
-                        }
-                    }
-                },
+                onSetConf = setConfCb,
+                onRescueToggle = rescueToggleCb,
+                onSetCrashLimit = crashLimitCb,
             )
+        }
+
+        entry<Route.Config> {
+            ConfigPage(onBack = { backStack.removeLastOrNull() })
         }
 
         entry<Route.UiSettings> {
             UiSettingsPage(onBack = { backStack.removeLastOrNull() })
+        }
+
+        entry<Route.InterfaceSettings> {
+            // 必须传 uiState：它叠了 pendingConf（刚点下去还没写盘的值）
+            // 传裸 state 的话 写盘那一秒里回读到的还是旧值 连着点几次就会被甩回去
+            InterfaceSettingsPage(
+                state = uiState,
+                onBack = { backStack.removeLastOrNull() },
+                onOpenVolumeCheck = { push(Route.VolumeCheck) },
+                onSetConf = setConfCb,
+                onRescueToggle = rescueToggleCb,
+                onSetCrashLimit = crashLimitCb,
+            )
         }
 
         entry<Route.Debug> {
@@ -1009,6 +1110,8 @@ private fun MainScaffold(
     onStart: () -> Unit,
     onStop: () -> Unit,
     onOpenUiSettings: () -> Unit,
+    onOpenInterfaceSettings: () -> Unit,
+    onOpenConfig: () -> Unit,
     onOpenVolumeCheck: () -> Unit,
     onOpenDebug: () -> Unit,
     onOpenAppLog: () -> Unit,
@@ -1123,6 +1226,7 @@ private fun MainScaffold(
                             onPickTarget = onPickTarget,
                             onStart = onStart,
                             onStop = onStop,
+                            onOpenSettings = onOpenInterfaceSettings,
                         )
 
                         // 主页：自己的测试脚本 自带开抓与救砖 不碰模块守护
@@ -1134,6 +1238,7 @@ private fun MainScaffold(
                             onOpenAbout = onOpenAbout,
                             onPickRescue = onPickMainRescue,
                             onPickTarget = onPickMainTarget,
+                            onOpenConfig = onOpenConfig,
                         )
 
                         // 设置：运行 / 自动救砖 / 外观 / 调试 / 关于入口
@@ -1141,13 +1246,10 @@ private fun MainScaffold(
                             padding = pagePadding,
                             state = state,
                             onSetConf = onSetConf,
-                            onRescueToggle = onRescueToggle,
-                            onSetCrashLimit = onSetCrashLimit,
                             onOpenUiSettings = onOpenUiSettings,
                             onOpenDebug = onOpenDebug,
                             onOpenAppLog = onOpenAppLog,
                             onOpenCache = onOpenCache,
-                            onOpenVolumeCheck = onOpenVolumeCheck,
                             onOpenAbout = onOpenAbout,
                             onCheckUpdate = onCheckUpdate,
                             checkingUpdate = checkingUpdate,

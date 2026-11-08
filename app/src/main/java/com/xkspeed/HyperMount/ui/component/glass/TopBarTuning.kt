@@ -7,10 +7,11 @@ import androidx.compose.runtime.setValue
 /**
  * 顶栏按钮的图标尺寸与位置（dp）。
  *
- * 目前只作用于右上角那个动作键（设置页的主题入口）——左上角返回键还写死
- * 18dp + 左移 2dp，那是照 Sonify 的箭头调的，不跟着这几个值变。
+ * `action*` 是设置页右上角那个主题入口（Miuix Theme 图标），调试页里调。
+ * 界面页右上角那个三点键已经定稿，写死 [MENU_ICON_SIZE]、不偏移。
+ * 左上角返回键写死 18dp + 左移 2dp，照 Sonify 的箭头调，不跟这两套走。
  *
- * 位置单独可调是因为 Miuix 的 Theme 图标本身重心偏上，摆在 42dp 圆钮正中
+ * 位置单独可调是因为这些图标本身重心偏上，摆在 42dp 圆钮正中
  * 看着头重脚轻，得往下压一点才像居中。
  *
  * **只在内存里**：调试页进得去才有意义 进程重启就回默认值。
@@ -62,6 +63,11 @@ object TopBarTuning {
         actionOffsetX = 0f
         actionOffsetY = DEFAULT_ACTION_OFFSET_Y
     }
+
+    // ---------- 界面页右上角三点键 ----------
+
+    /** 定稿值：三点图标比 Theme 图标占地小 26dp 会显得虚 24dp 正好 */
+    const val MENU_ICON_SIZE = 24f
 
     /** 夹到范围内并取到 0.5 的整数倍 输入框手填 1.2 之类也能落到档位上 */
     private fun snapOffset(offset: Float): Float {

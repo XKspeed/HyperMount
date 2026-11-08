@@ -178,8 +178,28 @@ jobs:
           path: dist/*.apk
           retention-days: 30
 
+      # 内测也带一份模块包：模块改了不用等正式版 刷 internal 这个就行
+      # 版本名带 -debug，清单指内测那份 装完 Magisk 里还会继续提示更新
+      - name: Build module zip
+        id: module
+        run: |
+          set -euo pipefail
+          sh module/打包.sh --debug
+          SRC=$(ls -1 module/dist/*-debug.zip | tail -1)
+          mkdir -p dist
+          cp "$SRC" dist/module-internal.zip
+          MP=$(unzip -p dist/module-internal.zip module.prop)
+          MV=$(printf '%s\n' "$MP" | grep '^version=' | head -1 | cut -d= -f2 | tr -d '\r')
+          MC=$(printf '%s\n' "$MP" | grep '^versionCode=' | head -1 | cut -d= -f2 | tr -d '\r')
+          {
+            echo "module_version=${MV}"
+            echo "module_code=${MC}"
+          } >> "$GITHUB_OUTPUT"
+          echo "模块包: v${MV}（versionCode ${MC}）"
+          ls -l dist/module-internal.zip
+
       # 固定 tag 的 prerelease：App 的内测通道就从这里下
-      # 每次先删掉整个 release 再建：保证这个 tag 下永远只有一个 APK 不会越堆越多
+      # 每次先删掉整个 release 再建：保证这个 tag 下永远只有一 APK + 一模块包
       - name: Publish internal prerelease
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -209,15 +229,15 @@ jobs:
           } > /tmp/internal-notes.md
           cat /tmp/internal-notes.md
           gh release delete internal --repo "$REPO" --yes --cleanup-tag 2>/dev/null || true
-          gh release create internal "dist/${ASSET}" \
+          gh release create internal "dist/${ASSET}" "dist/module-internal.zip" \
             --repo "$REPO" \
             --prerelease \
             --title "内测版 ${NAME}" \
             --notes-file /tmp/internal-notes.md
           COUNT=$(gh release view internal --repo "$REPO" --json assets --jq '.assets | length')
           echo "internal 下的资产数：${COUNT}"
-          if [ "${COUNT}" -ne 1 ]; then
-            echo "::error::internal 下应该只有一个 APK 实际是 ${COUNT} 个"
+          if [ "${COUNT}" -ne 2 ]; then
+            echo "::error::internal 下应该有 APK + 模块包两个资产 实际是 ${COUNT} 个"
             exit 1
           fi
 
@@ -229,6 +249,8 @@ jobs:
           CODE: ${{ steps.v.outputs.version_code }}
           BUILD: ${{ github.run_number }}
           BT: ${{ steps.v.outputs.build_time }}
+          MVN: ${{ steps.module.outputs.module_version }}
+          MC: ${{ steps.module.outputs.module_code }}
         run: |
           set -euo pipefail
           # 更新说明与发版页同一份内容（上一步已经落到 /tmp/internal-latest.md）
@@ -237,11 +259,22 @@ jobs:
           sed -E '/^[[:space:]]*###/d; s/^[-*][[:space:]]*//' /tmp/internal-latest.md \
             > /tmp/internal-changelog.txt
           URL="https://github.com/${REPO}/releases/download/internal/HyperMount-arm64-internal.apk"
-          export URL
+          MURL="https://github.com/${REPO}/releases/download/internal/module-internal.zip"
+          export URL MURL
+          # 模块这版改了什么：取 module/main/update.md 的 latest 段
+          if sh scripts/changelog.sh has module/main/update.md latest; then
+            sh scripts/changelog.sh extract module/main/update.md latest > /tmp/internal-module-latest.md
+            sed -E '/^[[:space:]]*###/d; s/^[-*][[:space:]]*//' /tmp/internal-module-latest.md \
+              > /tmp/internal-module-changelog.txt
+          else
+            : > /tmp/internal-module-changelog.txt
+          fi
           python3 - <<'PY'
           import json, os
 
-          lines = [l.strip() for l in open("/tmp/internal-changelog.txt", encoding="utf-8") if l.strip()]
+          def lines(path):
+              return [l.strip() for l in open(path, encoding="utf-8") if l.strip()]
+
           data = {
               "versionCode": int(os.environ["CODE"]),
               "versionName": os.environ["NAME"],
@@ -249,12 +282,30 @@ jobs:
               "buildTime": int(os.environ["BT"]),
               "buildId": os.environ["BUILD"],
               "url": os.environ["URL"],
-              "changelog": "\n".join(lines),
+              "changelog": "\n".join(lines("/tmp/internal-changelog.txt")),
+              # 内测也带模块：App 的内测通道直接读这几项 不用再回正式清单里找
+              "moduleVersionCode": int(os.environ["MC"]),
+              "moduleVersionName": os.environ["MVN"],
+              "moduleUrl": os.environ["MURL"],
+              "moduleChangelog": "\n".join(lines("/tmp/internal-module-changelog.txt")),
           }
           with open("update-internal.json", "w", encoding="utf-8") as f:
               json.dump(data, f, ensure_ascii=False, indent=2)
               f.write("\n")
           print(open("update-internal.json", encoding="utf-8").read())
+
+          # Magisk 自己的更新清单：刷了内测模块之后 在 Magisk 里也能继续收到内测更新
+          magisk = {
+              "version": os.environ["MVN"],
+              "versionCode": int(os.environ["MC"]),
+              "zipUrl": os.environ["MURL"],
+              "changelog": "https://raw.githubusercontent.com/%s/main/module/main/update.md"
+                           % os.environ["REPO"],
+          }
+          with open("module-update-internal.json", "w", encoding="utf-8") as f:
+              json.dump(magisk, f, ensure_ascii=False, indent=2)
+              f.write("\n")
+          print(open("module-update-internal.json", encoding="utf-8").read())
           PY
 
       - name: Commit internal manifest
@@ -264,7 +315,7 @@ jobs:
           set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add update-internal.json
+          git add update-internal.json module-update-internal.json
           if git diff --cached --quiet; then
             echo "清单没有变化 跳过提交"
             exit 0
@@ -297,10 +348,14 @@ jobs:
             echo ""
             echo "https://github.com/${REPO}/releases/download/internal/${ASSET}"
             echo ""
+            echo "模块内测包（版本名带 \`-debug\`，清单指向内测那份）："
+            echo ""
+            echo "https://github.com/${REPO}/releases/download/internal/module-internal.zip"
+            echo ""
             echo "本次运行页底部 **Artifacts** 也能手动下载。"
             echo ""
             echo "- 只有 arm64-v8a"
             echo "- 与正式包同一签名 可直接覆盖安装"
-            echo "- 不改 update.json、不提交版本号；只提交 update-internal.json"
-            echo "- \`internal\` 下始终只有一个 APK（每次构建先删再建）"
+            echo "- 不改 update.json、不提交版本号；只提交 update-internal.json 与 module-update-internal.json"
+            echo "- \`internal\` 下始终只有一个 APK + 一个模块包（每次构建先删再建）"
           } >> "$GITHUB_STEP_SUMMARY"

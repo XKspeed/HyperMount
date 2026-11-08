@@ -90,6 +90,17 @@ object UiConfigState {
     var onboarded by mutableStateOf(false)
 
     /**
+     * 走完引导时的引导版本（[ONBOARD_VERSION]）
+     *
+     * 只看 [onboarded] 的话老用户永远进不去新引导页。引导页每改一次就把
+     * ONBOARD_VERSION +1，这里对不上就重新走一遍；0 = 老版本没记过 同样重走。
+     */
+    var onboardVersion by mutableStateOf(0)
+
+    /** 引导页点过「去开启」自启动。系统那边的真实开关读不准，这里只记这一笔拿来显示状态 */
+    var autostartPrompted by mutableStateOf(false)
+
+    /**
      * 上次校验音量键时的系统版本（见 [SystemVersion]：ROM 的 OTA 版本串，如 4.0.24.0.WOCCNXM）
      *
      * 系统升级后 /dev/input/eventN 与按键能力位都可能变 旧的校验结果不能再用，
@@ -116,6 +127,8 @@ object UiConfigState {
         // 老用户升级上来时 ui_config 里已经有键 不再弹一次引导
         // 全新安装时 prefs 是空的 才会走引导
         onboarded = p.getBoolean("onboarded", p.contains("auto_check_update"))
+        onboardVersion = p.getInt("onboard_version", 0)
+        autostartPrompted = p.getBoolean("autostart_prompted", false)
         volCheckedVersion = p.getString("vol_checked_version", "").orEmpty()
         // 上一版只记了 SDK + Android 版本：能对上就按当前 ROM 版本认账，
         // 对不上就拿旧值当指纹（必然 != 当前）-> 升级上来照常触发一次重验
@@ -143,6 +156,8 @@ object UiConfigState {
             putBoolean("auto_check_update", autoCheckUpdate)
             putInt("update_channel", updateChannel.ordinal)
             putBoolean("onboarded", onboarded)
+            putInt("onboard_version", onboardVersion)
+            putBoolean("autostart_prompted", autostartPrompted)
             putString("vol_checked_version", volCheckedVersion)
         }.apply()
     }
@@ -210,13 +225,12 @@ fun UiSettingsPage(onBack: () -> Unit) {
     val select = rememberLiquidSelectState()
 
     ScrollPage(
-        title = "界面",
+        title = "主题",
         onBack = onBack,
         bottomPadding = WindowInsets.navigationBars.asPaddingValues()
             .calculateBottomPadding() + 24.dp,
         overlay = { bd -> LiquidSelectHost(select, bd) },
     ) {
-                item { SmallTitle("主题") }
                 // 三样都在一张卡里：明暗三档 / 莫奈取色 / 种子色
                 item {
                     SectionCard {
@@ -381,7 +395,6 @@ fun UiSettingsPage(onBack: () -> Unit) {
                     SectionCard {
                         SwitchPreference(
                             title = "预测性返回手势",
-                            summary = "根据手势预览上一级",
                             checked = UiConfigState.predictiveBack,
                             onCheckedChange = {
                                 UiConfigState.predictiveBack = it

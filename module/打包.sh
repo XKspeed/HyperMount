@@ -6,6 +6,8 @@
 #                              （versionCode 自动 +1），产出 zip
 #    sh 打包.sh --keep         只打包当前版本 不改任何文件
 #    sh 打包.sh 1.6.0 --keep   用指定版本打包 但不写回
+#    sh 打包.sh --debug        内测包：版本名加 -debug、versionCode +1
+#                              清单指向 module-update-internal.json 不改源码
 #    sh 打包.sh --out DIR ...  自定义输出目录（默认 module/dist）
 #
 #  不传版本号且不是 --keep 时 → 交互式输入（直接回车取消）
@@ -20,6 +22,10 @@ MODDIR=$(cd "$(dirname "$0")" && pwd) || exit 1
 MAIN="${MODDIR}/main"
 OUT_DIR="${MODDIR}/dist"
 KEEP=0
+DEBUG=0
+
+# 内测包的更新清单：刷了内测模块之后 Magisk 里继续提示内测更新
+DEBUG_UPDATE_JSON="https://raw.githubusercontent.com/XKspeed/HyperMount/main/module-update-internal.json"
 
 # ---------- 参数 ----------
 VER=""
@@ -27,6 +33,7 @@ while [ $# -gt 0 ]; do
     case "$1" in
         -h|--help) sed -n '2,20p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
         --keep) KEEP=1 ;;
+        --debug) DEBUG=1; KEEP=1 ;;
         --out) [ $# -ge 2 ] || { echo "错误: --out 后面要跟目录"; exit 1; }; OUT_DIR="$2"; shift ;;
         --out=*) OUT_DIR="${1#--out=}" ;;
         -*) echo "错误: 未知参数 $1"; exit 1 ;;
@@ -119,7 +126,8 @@ fi
 [ -n "${VER}" ] || { VER="${OLDVER}"; KEEP=1; }
 
 # ---------- versionCode：版本号没变就保持原值，出了新版本才 +1 ----------
-if [ "${VER}" = "${OLDVER}" ]; then
+# 内测包固定 +1：比正式版大 Magisk 才会提示「有更新」
+if [ "${VER}" = "${OLDVER}" ] && [ "${DEBUG}" -eq 0 ]; then
     case "${OLDCODE}" in
         ''|*[!0-9]*) VERCODE=1
                      CODE_NOTE="版本号未变，原 versionCode 缺失，初始化为 1" ;;
@@ -135,16 +143,21 @@ else
     esac
 fi
 
-# 写回只发生在本地发版（没带 --keep）：CI 里源码不能被脚本改脏
+# 写回只发生在本地发版（没带 --keep / --debug）：CI 里源码不能被脚本改脏
 WRITEBACK=0
-if [ "${KEEP}" -eq 0 ] && { [ "${VER}" != "${OLDVER}" ] || [ "${VERCODE}" != "${OLDCODE}" ]; }; then
+if [ "${KEEP}" -eq 0 ] && [ "${DEBUG}" -eq 0 ] \
+    && { [ "${VER}" != "${OLDVER}" ] || [ "${VERCODE}" != "${OLDCODE}" ]; }; then
     WRITEBACK=1
 fi
 
-mkdir -p "${OUT_DIR}" 2>/dev/null
-OUT="${OUT_DIR}/log挂载(配置版)_v${VER}.zip"
+# 内测包只在产物里改名 源码里的版本号不动
+DISPLAY_VER="${VER}"
+[ "${DEBUG}" -eq 1 ] && DISPLAY_VER="${VER}-debug"
 
-printf "v%s (versionCode %s)  →  %s\n" "${VER}" "${VERCODE}" "${OUT##*/}"
+mkdir -p "${OUT_DIR}" 2>/dev/null
+OUT="${OUT_DIR}/log挂载(配置版)_v${DISPLAY_VER}.zip"
+
+printf "v%s (versionCode %s)  →  %s\n" "${DISPLAY_VER}" "${VERCODE}" "${OUT##*/}"
 printf "          %s\n" "${CODE_NOTE}"
 
 # ---------- 语法检查（main 下所有 .sh，含 webroot） ----------
@@ -237,8 +250,10 @@ trap 'rm -rf "$PACK" "$STRIP_DIR"' EXIT INT TERM
 cp -r "${MAIN}/." "${PACK}/" || { echo "错误: 复制到临时目录失败"; exit 1; }
 
 # 副本里的版本与发布时间：打包产物永远和本次一致，源码是否改脏不影响
-set_prop_in "${PACK}/module.prop" version "${VER}"
+set_prop_in "${PACK}/module.prop" version "${DISPLAY_VER}"
 set_prop_in "${PACK}/module.prop" versionCode "${VERCODE}"
+# 内测包指向内测清单：装完之后 Magisk 里继续提示内测更新
+[ "${DEBUG}" -eq 1 ] && set_prop_in "${PACK}/module.prop" updateJson "${DEBUG_UPDATE_JSON}"
 
 PKG_TIME_FMT=$(grep '^TIME_FORMAT=' "${PACK}/config/settings.conf" 2>/dev/null \
     | head -1 | cut -d= -f2- | tr -d '"' | tr -d '\r')

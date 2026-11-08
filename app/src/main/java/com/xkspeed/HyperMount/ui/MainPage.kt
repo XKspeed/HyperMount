@@ -27,9 +27,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -43,6 +41,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.rememberVectorPainter
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
@@ -58,8 +57,8 @@ import com.xkspeed.HyperMount.core.Logcat
 import com.xkspeed.HyperMount.core.Module
 import com.xkspeed.HyperMount.core.UpdateInfo
 import com.xkspeed.HyperMount.ui.component.glass.ScrollPage
+import com.xkspeed.HyperMount.ui.component.glass.TopBarTuning
 import com.xkspeed.HyperMount.ui.components.SectionCard
-import com.xkspeed.HyperMount.ui.components.SliderInputPreference
 import com.xkspeed.HyperMount.ui.components.StatusDot
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -72,8 +71,8 @@ import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.SmallTitle
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextButton
-import top.yukonga.miuix.kmp.basic.TextField
 import top.yukonga.miuix.kmp.icon.MiuixIcons
+import top.yukonga.miuix.kmp.icon.extended.More
 import top.yukonga.miuix.kmp.icon.extended.Update
 import top.yukonga.miuix.kmp.preference.ArrowPreference
 import top.yukonga.miuix.kmp.preference.SwitchPreference
@@ -105,6 +104,7 @@ fun MainPage(
     onOpenAbout: () -> Unit,
     onPickRescue: () -> Unit,
     onPickTarget: () -> Unit,
+    onOpenConfig: () -> Unit,
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -112,7 +112,6 @@ fun MainPage(
     // 自动替换是主页自己的开关 存在本地 不读也不改模块的 LOG_MODE
     val autoReplace = LogConfig.autoReplace
 
-    var showConfig by remember { mutableStateOf(false) }
     var showStartConfirm by remember { mutableStateOf(false) }
     var starting by remember { mutableStateOf(false) }
     // 会话与输出放单例：切到设置/关于再回来 还在跑的那一轮不会“凭空消失”
@@ -326,6 +325,11 @@ fun MainPage(
             }
         },
         bottomPadding = padding.calculateBottomPadding() + 16.dp,
+        // 右上角三点：进配置页（目标包名 / 抓取时长 / 日志大小判定）
+        onTopAction = onOpenConfig,
+        topActionIcon = rememberVectorPainter(MiuixIcons.More),
+        topActionDescription = "配置",
+        topActionIconSize = TopBarTuning.MENU_ICON_SIZE.dp,
     ) {
         // ---- 状态卡 ----
         item {
@@ -533,19 +537,6 @@ fun MainPage(
             }
         }
 
-        // ---- 配置项：目标包名 / 抓取时长 / 日志大小判定 ----
-        item { SmallTitle("配置") }
-        item {
-            SectionCard {
-                ArrowPreference(
-                    title = "配置项",
-                    summary = LogConfig.pkg.ifBlank { "全部进程" } +
-                        " · 抓取 " + LogConfig.seconds + " 秒" +
-                        " · 大小 " + LogConfig.sizeLimitKb + "KB",
-                    onClick = { showConfig = true },
-                )
-            }
-        }
     }
 
     // 开始前二次确认：确认完立刻装待测 apk 不再等
@@ -580,69 +571,6 @@ fun MainPage(
                     colors = ButtonDefaults.textButtonColorsPrimary(),
                 )
             }
-        }
-    }
-
-    // 和设置里的增强救砖弹窗同款：底部滑入的宽对话框
-    WindowDialog(
-        show = showConfig,
-        title = "配置项",
-        summary = "目标包名 · 抓取时长 · 日志大小判定",
-        maxWidth = 560.dp,
-        onDismissRequest = { showConfig = false },
-    ) {
-        Column(
-            Modifier
-                .fillMaxWidth()
-                .verticalScroll(rememberScrollState()),
-        ) {
-            TextField(
-                value = LogConfig.pkg,
-                onValueChange = {
-                    LogConfig.pkg = it.trim()
-                    LogConfig.save(context)
-                },
-                // 空时居中、输入后上浮缩小：和示例里的 With title 同款
-                label = "目标包名",
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth(),
-            )
-            Spacer(Modifier.height(4.dp))
-            SliderInputPreference(
-                title = "抓取时长",
-                summary = "装完 2 秒后开始算 下一轮生效",
-                value = LogConfig.seconds.toFloat(),
-                defaultValue = Logcat.DEFAULT_SECONDS.toFloat(),
-                onValueChange = { LogConfig.seconds = it.roundToInt() },
-                onValueChangeFinished = { LogConfig.save(context) },
-                valueRange = Logcat.MIN_SECONDS.toFloat()..Logcat.MAX_SECONDS.toFloat(),
-                steps = Logcat.MAX_SECONDS - Logcat.MIN_SECONDS - 1,
-                valueText = "${LogConfig.seconds} 秒",
-                inputUnit = "秒",
-                insideMargin = PaddingValues(horizontal = 0.dp, vertical = 14.dp),
-            )
-            SliderInputPreference(
-                title = "日志大小判定",
-                summary = "crash 日志超过这个大小也算崩",
-                value = LogConfig.sizeLimitKb.toFloat(),
-                defaultValue = Logcat.DEFAULT_SIZE_KB.toFloat(),
-                onValueChange = { LogConfig.sizeLimitKb = it.roundToInt() },
-                onValueChangeFinished = { LogConfig.save(context) },
-                valueRange = Logcat.MIN_SIZE_KB.toFloat()..Logcat.MAX_SIZE_KB.toFloat(),
-                steps = Logcat.MAX_SIZE_KB - Logcat.MIN_SIZE_KB - 1,
-                valueText = "${LogConfig.sizeLimitKb} KB",
-                inputUnit = "KB",
-                insideMargin = PaddingValues(horizontal = 0.dp, vertical = 14.dp),
-            )
-        }
-        Spacer(Modifier.height(20.dp))
-        Row(modifier = Modifier.fillMaxWidth()) {
-            TextButton(
-                text = "完成",
-                onClick = { showConfig = false },
-                modifier = Modifier.weight(1f),
-                colors = ButtonDefaults.textButtonColorsPrimary(),
-            )
         }
     }
 }

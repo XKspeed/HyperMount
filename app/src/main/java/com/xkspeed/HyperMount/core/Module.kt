@@ -6,6 +6,56 @@ import kotlinx.coroutines.withContext
 /** 日志 + 救砖模式的崩溃上限 比系统默认的 12 宽 给音量键留出反应时间 */
 const val CRASH_LIMIT_MANUAL = 30
 
+/**
+ * 全局常驻救砖的当前状态（对应 webctl.sh watch status）
+ *
+ * [since] 是守护启动时的秒级时间戳，[limit] 是这一轮的时长（0 表示无限制）。
+ * 剩余时间由界面自己用 since + limit - now 算 脚本不维护倒计时 ——
+ * 这样 App 杀掉重开也能接上，不用脚本再写一份到期时间。
+ */
+data class WatchStatus(
+    /** 模块里有没有 watch 这条命令：老模块只会回「未知操作」 界面要能说清 */
+    val supported: Boolean = false,
+    val running: Boolean = false,
+    val since: Long = 0L,
+    val limit: Long = 0L,
+    val count: Int = 0,
+) {
+    /** 剩余秒数；无限制返回 -1，已经到点返回 0 */
+    fun remaining(nowSec: Long = System.currentTimeMillis() / 1000): Long = when {
+        !running -> 0L
+        limit <= 0L -> -1L
+        else -> (since + limit - nowSec).coerceAtLeast(0L)
+    }
+}
+
+/**
+ * 守护通知要用的轻量状态
+ *
+ * 通知每秒都要刷时长，走 [Module.readState] 那套（boot + 两次 cat）太贵；
+ * 这里一条命令只取四个数：全局守护在不在跑、它从哪秒开始、测试进程在不在跑、累计救砖几次。
+ */
+data class DaemonStatus(
+    val watching: Boolean = false,
+    val watchSince: Long = 0L,
+    val testing: Boolean = false,
+    val testSince: Long = 0L,
+    val protectCount: Int = 0,
+) {
+    /** 有任一守护在跑：通知留着，两个都停了就该收掉 */
+    val active: Boolean get() = watching || testing
+
+    /** 标题：全局守护点明对象，App 里点测试就短一点 */
+    val title: String get() = if (watching) "SystemUI守护中" else "守护中"
+
+    /** 时长从哪秒开始算：两个都在跑时以全局守护为准（它才是长时间那个） */
+    val since: Long get() = when {
+        watching && watchSince > 0L -> watchSince
+        testing && testSince > 0L -> testSince
+        else -> 0L
+    }
+}
+
 /** 一次 boot 取回的全部状态（对应 webctl.sh boot 的 ## 分节输出 + settings.conf） */
 data class ModuleState(
     // ##VERSION
@@ -222,6 +272,73 @@ object Module {
     suspend fun stop(): String = logged("stop") { Root.webctl("stop") }
 
     /**
+     * 拉起全局常驻救砖
+     *
+     * [seconds] 0 表示不限制；其余交给 timeout 到点收尾。
+     * 脚本只负责监测 PID 变化，崩够次数才抓日志、交给 action.sh
+     */
+    suspend fun watchStart(seconds: Int): String =
+        logged("watch start ${if (seconds > 0) "${seconds}s" else "无限制"}") {
+            Root.webctl("watch start ${seconds.coerceAtLeast(0)}")
+        }
+
+    suspend fun watchStop(): String = logged("watch stop") { Root.webctl("watch stop") }
+
+    suspend fun watchStatus(): WatchStatus = withContext(Dispatchers.IO) {
+        val out = runCatching { Root.webctl("watch status") }.getOrDefault("")
+        var st = WatchStatus()
+        out.lineSequence().forEach { line ->
+            val key = line.substringBefore('=', "")
+            val value = line.substringAfter('=', "").trim()
+            st = when (key) {
+                "support" -> st.copy(supported = value == "1")
+                "running" -> st.copy(supported = true, running = value == "1")
+                "since" -> st.copy(since = value.toLongOrNull() ?: 0L)
+                "limit" -> st.copy(limit = value.toLongOrNull() ?: 0L)
+                "count" -> st.copy(count = value.toIntOrNull() ?: 0)
+                else -> st
+            }
+        }
+        st
+    }
+
+    /**
+     * 守护通知用的轻量查询
+     *
+     * 通知每秒都要刷时长，走 [readState] 那套（boot + 两次 cat）太贵，
+     * 这里一条命令只取四个数：watch / action 在不在跑、各自从哪秒开始、累计救砖几次。
+     */
+    suspend fun daemonStatus(): DaemonStatus = withContext(Dispatchers.IO) {
+        val work = "${Root.MODULE_DIR}/webroot/.work"
+        val wp = Root.q("$work/watch.pid")
+        val ws = Root.q("$work/watch.state")
+        val ap = Root.q("$work/action.pid")
+        val cmd = buildString {
+            append("W=\$(cat $wp 2>/dev/null | tr -d ' \\r\\n'); ")
+            append("if [ -n \"\$W\" ] && kill -0 \$W 2>/dev/null; then echo watching=1; else echo watching=0; fi; ")
+            append("grep '^since=' $ws 2>/dev/null; ")
+            append("A=\$(cat $ap 2>/dev/null | tr -d ' \\r\\n'); ")
+            append("if [ -n \"\$A\" ] && kill -0 \$A 2>/dev/null; then echo testing=1; ")
+            append("echo atest=\$(stat -c%Y $ap 2>/dev/null); else echo testing=0; fi; ")
+            append("grep '^PROTECT_COUNT=' ${Root.q(Root.CONF)} 2>/dev/null")
+        }
+        var st = DaemonStatus()
+        Root.exec(cmd).lineSequence().forEach { line ->
+            val key = line.substringBefore('=', "")
+            val value = line.substringAfter('=', "").trim()
+            st = when (key) {
+                "watching" -> st.copy(watching = value == "1")
+                "since" -> st.copy(watchSince = value.toLongOrNull() ?: st.watchSince)
+                "testing" -> st.copy(testing = value == "1")
+                "atest" -> st.copy(testSince = value.toLongOrNull() ?: st.testSince)
+                "PROTECT_COUNT" -> st.copy(protectCount = value.toIntOrNull() ?: 0)
+                else -> st
+            }
+        }
+        st
+    }
+
+    /**
      * 音量键校验（webroot/check.sh）
      * up / down 会阻塞到用户按键或 10 秒超时 所以必须放在 IO 线程
      */
@@ -292,15 +409,14 @@ object Module {
         }.sortedWith(compareBy({ !it.isDir }, { it.name.lowercase() })).toList()
     }
 
-    /** 最近日志：优先读最新日志文件的尾部 拿不到就退回 webctl output */
+    /**
+     * 运行流水：只读 action.sh 自己的 stdout（`action.out`）
+     *
+     * 不要拿日志目录里最新的 `*.log`：那是 logcat 抓下来的崩溃堆栈，
+     * 当成运行输出显示会把「跑到哪一步」冲掉，翻半天找不到流程走到哪。
+     */
     suspend fun tailLog(lines: Int = 400): String = withContext(Dispatchers.IO) {
-        // 日志目录可能是空串或带引号：先剥引号 空着就不找了 直接让调用方回退 webctl
-        val cmd = "d=\$(grep '^LOG_DIR=' ${Root.q(Root.CONF)} 2>/dev/null | cut -d= -f2- | tr -d '\"'); " +
-            "[ -z \"\$d\" ] && exit 0; " +
-            "f=\$(ls -t \"\$d\"/*.log 2>/dev/null | head -1); " +
-            "[ -n \"\$f\" ] && tail -n $lines \"\$f\""
-        val out = Root.exec(cmd)
-        if (out.isNotBlank()) out else Root.webctl("output")
+        Root.webctl("output $lines")
     }
 
     fun fmtSize(bytes: Long): String = when {

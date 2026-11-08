@@ -54,6 +54,12 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.state.ToggleableState
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import android.content.ComponentName
+import android.content.Context
+import android.content.Intent
+import android.net.Uri
+import android.provider.Settings
+import android.widget.Toast
 import androidx.core.graphics.drawable.toBitmap
 import com.xkspeed.HyperMount.core.Module
 import com.xkspeed.HyperMount.core.ModuleState
@@ -66,6 +72,7 @@ import top.yukonga.miuix.kmp.basic.Checkbox
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.icon.MiuixIcons
+import top.yukonga.miuix.kmp.preference.ArrowPreference
 import top.yukonga.miuix.kmp.icon.extended.Backup
 import top.yukonga.miuix.kmp.icon.extended.Info
 import top.yukonga.miuix.kmp.icon.extended.Layers
@@ -75,6 +82,16 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 /** 引导总步数：欢迎 / 须知 / 环境 / 音量键 / 完成 */
 private const val ONBOARD_STEPS = 5
+
+/**
+ * 引导页版本
+ *
+ * 引导内容一改就把这个数 +1（加一步、换文案、加权限引导都算），
+ * App 里记着用户走完时的版本，对不上就再走一遍 —— 不跟着 App 版本号走，
+ * 普通发版不会平白把老用户拉回引导页，只有真的改了引导才打扰一次。
+ * 1 = 环境页加自启动权限引导这一版。
+ */
+const val ONBOARD_VERSION = 1
 
 /** 音量键单步状态 */
 private sealed interface KeyState {
@@ -318,7 +335,23 @@ fun OnboardingPage(
                 when (index) {
                     0 -> WelcomeStep(appIcon)
                     1 -> NoticeStep()
-                    2 -> EnvStep(env, envChecking) { envRetry++ }
+                    2 -> EnvStep(
+                        env = env,
+                        checking = envChecking,
+                        onRetry = { envRetry++ },
+                        onOpenAutostart = {
+                            if (openAutostart(context)) {
+                                UiConfigState.autostartPrompted = true
+                                UiConfigState.save(context)
+                            } else {
+                                Toast.makeText(
+                                    context,
+                                    "没找到自启动管理页 去手机管家里手动允许",
+                                    Toast.LENGTH_SHORT,
+                                ).show()
+                            }
+                        },
+                    )
                     3 -> VolumeStep(upState, downState, volHint, canSkip = !volAlready) {
                         volSkip = false
                         volRetry++
@@ -539,8 +572,47 @@ private fun NoticeItem(title: String, desc: String) {
 
 // ---------------- 第 3 页：环境检查 ----------------
 
+/**
+ * 打开系统的自启动管理页
+ *
+ * HyperOS / MIUI 直接点名 AutoStartManagementActivity，其他家给几个常见入口；
+ * 都不认就退到应用详情页 至少用户能在「权限」里自己找。
+ * 注意不能用 resolveActivity 预判：Android 11 起没在 queries 里声明的包看不见，
+ * 直接 startActivity 再捕异常更准。
+ */
+private fun openAutostart(context: Context): Boolean {
+    val pages = listOf(
+        ComponentName("com.miui.securitycenter", "com.miui.permcenter.autostart.AutoStartManagementActivity"),
+        ComponentName("com.huawei.systemmanager", "com.huawei.systemmanager.startupmgr.ui.StartupNormalAppListActivity"),
+        ComponentName("com.coloros.safecenter", "com.coloros.safecenter.permission.startup.StartupAppListActivity"),
+        ComponentName("com.oppo.safe", "com.oppo.safe.permission.startup.StartupAppListActivity"),
+        ComponentName("com.vivo.permissionmanager", "com.vivo.permissionmanager.activity.BgStartUpManagerActivity"),
+        ComponentName("com.letv.android.letvsafe", "com.letv.android.letvsafe.AutobootManageActivity"),
+    )
+    for (page in pages) {
+        val ok = runCatching {
+            context.startActivity(
+                Intent().setComponent(page).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            )
+        }.isSuccess
+        if (ok) return true
+    }
+    return runCatching {
+        context.startActivity(
+            Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS)
+                .setData(Uri.parse("package:${context.packageName}"))
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        )
+    }.isSuccess
+}
+
 @Composable
-private fun EnvStep(env: EnvResult, checking: Boolean, onRetry: () -> Unit) {
+private fun EnvStep(
+    env: EnvResult,
+    checking: Boolean,
+    onRetry: () -> Unit,
+    onOpenAutostart: () -> Unit,
+) {
     Column(
         Modifier
             .fillMaxSize()
@@ -578,6 +650,12 @@ private fun EnvStep(env: EnvResult, checking: Boolean, onRetry: () -> Unit) {
                 style = MiuixTheme.textStyles.subtitle,
                 color = MiuixTheme.colorScheme.primary,
             )
+        }
+
+        // 自启动：守护要在后台常驻 光有前台服务不够 系统照样清
+        Spacer(Modifier.height(10.dp))
+        Card(Modifier.fillMaxWidth()) {
+            ArrowPreference(title = "自启动", onClick = onOpenAutostart)
         }
 
         Spacer(Modifier.height(8.dp))

@@ -693,6 +693,14 @@ object Logcat {
         runSynced = 0L
     }
 
+    /**
+     * logcat 抓下来的行：`08-12 12:34:56.789  1234  5678 E AndroidRuntime: ...`
+     *
+     * 这类行只应该待日志文件里，不能进运行流水——崩一次几百行，
+     * 界面上的进度会被冲得一点不剩。
+     */
+    private val CAPTURED_LINE = Regex("""^\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}\.\d{3}\s+\d+\s+\d+""")
+
     suspend fun poll(file: String, lines: Int = 300): Poll = withContext(Dispatchers.IO) {
         if (file.isBlank()) return@withContext Poll(false, 0L, "")
         val PID_FILE = pidFile()
@@ -706,7 +714,10 @@ object Logcat {
         val p = Poll(
             running = ls.firstOrNull()?.trim() == "RUN",
             size = ls.getOrNull(1)?.trim()?.toLongOrNull() ?: 0L,
-            text = ls.drop(2).joinToString("\n"),
+            // 万一 logcat 的 stderr 漏进流水 也在这里挡掉 界面上只留步骤输出
+            text = ls.drop(2)
+                .filterNot { CAPTURED_LINE.containsMatchIn(it.trimStart()) }
+                .joinToString("\n"),
         )
         // 只抄脚本自己的流水：抓到的 logcat 已经写进设置里的日志目录，不再重复抄一份
         runSynced = drainToAppLog(RUN_LOG, runSynced, "脚本", "运行流水")

@@ -1029,6 +1029,12 @@ fun LiquidSelectPreference(
                             right = pos.x.toInt() + size.width,
                             bottom = pos.y.toInt() + size.height,
                         )
+                        // 选中之后行尾文字就换了 收起动画得落在这块新矩形上
+                        // 只在「本行开着弹层 / 正在收」时同步：平时滚页面不该跟着改
+                        // 否则面板会缩回旧选项的宽度 末尾还有旧字压在新字上
+                        if (state.owner === rowKey && (state.expanded || state.fraction > 0f)) {
+                            state.contentBounds = contentRect
+                        }
                     }
                     .graphicsLayer { alpha = rowAlpha },
             ) {
@@ -1122,6 +1128,9 @@ fun LiquidSelectHost(
                     text = item,
                     selected = index == state.selected,
                     onClick = {
+                        // 先认下新选中项：勾选位置和收起态那份副本都按它走
+                        // 不写这一句 收起动画会一路飞回旧选项
+                        state.selected = index
                         state.onSelect(index)
                         state.close()
                     },

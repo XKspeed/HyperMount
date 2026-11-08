@@ -340,10 +340,10 @@ object Update {
             AppLog.log("更新", "${channel.label} 所有镜像都没拿到 ${manifestFile(channel)}")
             return@withContext null
         }
-        // 模块只跟正式版一起发 内测清单里根本没有模块那几项：
-        // 装上内测包的人就永远收不到模块更新 所以内测通道额外补一次正式清单
+        // 内测清单自己带模块（build-internal 会打一份 -debug 包） 直接用它；
+        // 老内测清单没有模块那几项 才补一次正式清单 免得装上内测包的人收不到模块更新
         // 拉不到（断网）就用上次缓存的那份 至少别把已经提示过的模块更新弄丢
-        val merged = if (channel == UpdateChannel.INTERNAL) {
+        val merged = if (channel == UpdateChannel.INTERNAL && !hasModule(info)) {
             val release = pull(UpdateChannel.RELEASE, MODULE_BUDGET_MS) ?: cached(UpdateChannel.RELEASE)
             info.withModule(release)
         } else {
@@ -365,11 +365,13 @@ object Update {
     /**
      * 把正式清单里的模块信息搬到这份上。
      *
-     * 模块挂在 Release 里 内测包不带模块 所以模块的新旧跟「更新来源」无关：
-     * 不管当前选的是正式版还是内测版 都按正式清单里的模块版本判断。
+     * 老内测清单里没有模块信息 只能从正式清单里借：
+     * 内测清单自带模块时不会走到这里。
      * 对方没有模块信息（老清单）时原样返回。
      */
     private fun UpdateInfo.withModule(release: UpdateInfo?): UpdateInfo {
+        // 自己已经带模块了就以自己为准 别被正式清单盖回去
+        if (hasModule(this)) return this
         if (release == null || !hasModule(release)) return this
         return copy(
             moduleVersionCode = release.moduleVersionCode,

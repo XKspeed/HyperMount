@@ -49,6 +49,8 @@ import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.graphics.vector.rememberVectorPainter
+import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -58,6 +60,7 @@ import com.xkspeed.HyperMount.core.SystemVersion
 import com.xkspeed.HyperMount.core.UpdateInfo
 import kotlinx.coroutines.delay
 import com.xkspeed.HyperMount.ui.component.glass.ScrollPage
+import com.xkspeed.HyperMount.ui.component.glass.TopBarTuning
 import com.xkspeed.HyperMount.ui.components.InfoRow
 import com.xkspeed.HyperMount.ui.components.SectionCard
 import com.xkspeed.HyperMount.ui.components.StatusDot
@@ -76,6 +79,7 @@ import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.blur.layerBackdrop
 import top.yukonga.miuix.kmp.icon.MiuixIcons
+import top.yukonga.miuix.kmp.icon.extended.More
 import top.yukonga.miuix.kmp.icon.extended.Update
 import top.yukonga.miuix.kmp.preference.ArrowPreference
 import top.yukonga.miuix.kmp.theme.MiuixTheme
@@ -98,6 +102,7 @@ fun HomePage(
     onPickTarget: () -> Unit,
     onStart: () -> Unit,
     onStop: () -> Unit,
+    onOpenSettings: () -> Unit = {},
 ) {
     val isWideScreen = LocalIsWideScreen.current
     val scrollBehavior = MiuixScrollBehavior()
@@ -107,7 +112,8 @@ fun HomePage(
 
     val backdrop = rememberBlurBackdrop()
 
-    val canStart = rootOk == true && state.rescueReady && state.targetOk &&
+    // 只要求「选过」：文件在不在留给开始那一刻判断，删了也能点出提示
+    val canStart = rootOk == true && state.rescueReady && state.targetPath.isNotBlank() &&
         !state.daemonRunning && !busy
 
     // 和主页同一条标准：模块默认不带日志目录 没选就不让开始
@@ -161,6 +167,13 @@ fun HomePage(
     ScrollPage(
         title = "界面",
         subtitle = if (state.version.isNotBlank()) "救砖与界面替换 · 模块 v${state.version}" else "救砖与界面替换",
+        // 右上角三点：进界面设置（常驻救砖 + 救砖逻辑）
+        // 不用齿轮：底栏「设置」和设置页右上角都是齿轮 再放一个就重复了
+        // 尺寸定稿 24dp 不偏移 不再进调试页
+        onTopAction = onOpenSettings,
+        topActionIcon = rememberVectorPainter(MiuixIcons.More),
+        topActionDescription = "界面设置",
+        topActionIconSize = TopBarTuning.MENU_ICON_SIZE.dp,
         // 和主页同款：版本号右边冒一颗绿色胶囊 只有清单里的模块版本比本地新才出现
         subtitleExtra = {
             AnimatedVisibility(
@@ -312,7 +325,7 @@ fun HomePage(
                         ArrowPreference(
                             title = "待测界面",
                             summary = when {
-                                !state.targetOk -> "未选择 · 点击选择要测试的 APK"
+                                state.targetPath.isBlank() -> "未选择 · 点击选择要测试的 APK"
                                 else -> state.targetPath.substringAfterLast('/') +
                                     " · " + Module.fmtSize(state.targetSize)
                             },
@@ -431,7 +444,6 @@ fun HomePage(
     }
 }
 
-/** 界面页这一轮的状态：切页回来还在 */
 private object HomeUiState {
     var logLines by mutableStateOf<List<String>>(emptyList())
     var hasRun by mutableStateOf(false)

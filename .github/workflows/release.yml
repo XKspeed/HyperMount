@@ -532,6 +532,19 @@ jobs:
               json.dump(data, f, ensure_ascii=False, indent=2)
               f.write("\n")
           print(open("update.json", encoding="utf-8").read())
+          # Magisk 自己的更新清单：module.prop 里的 updateJson 指向这份
+          # 装过正式模块的机器在 Magisk 里能直接看到并升级
+          magisk = {
+              "version": os.environ["MODULE_VERSION"],
+              "versionCode": int(os.environ["MODULE_CODE"]),
+              "zipUrl": os.environ["MODULE_URL"],
+              "changelog": "https://raw.githubusercontent.com/%s/main/module/main/update.md"
+                           % os.environ["REPO"],
+          }
+          with open("module-update.json", "w", encoding="utf-8") as f:
+              json.dump(magisk, f, ensure_ascii=False, indent=2)
+              f.write("\n")
+          print(open("module-update.json", encoding="utf-8").read())
           PY
           # 官网也是读同一份清单：页面上「下载 / 版本号」都从这里取
           # 放在站点 public/ 下 部署后同域请求 不受 GitHub 直连影响
@@ -545,7 +558,7 @@ jobs:
           set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add update.json docs/public/update.json
+          git add update.json docs/public/update.json module-update.json
           if git diff --cached --quiet; then
             echo "update.json 没有变化 跳过提交"
             exit 0
