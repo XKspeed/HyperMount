@@ -13,6 +13,10 @@ on:
         description: '模块版本号'
         required: false
         default: ''
+      target:
+        description: '打包内容（0=App+模块 1=只打App 2=只打模块）'
+        required: false
+        default: '0'
 
 permissions:
   contents: write
@@ -122,6 +126,7 @@ jobs:
         env:
           IN_NAME: ${{ github.event.inputs.version }}
           IN_MODULE: ${{ github.event.inputs.module_version }}
+          IN_TARGET: ${{ github.event.inputs.target }}
         run: |
           set -euo pipefail
 
@@ -170,7 +175,20 @@ jobs:
           MK_NAME=$(grep '^version=' module/main/module.prop | head -1 | cut -d= -f2 | tr -d ' \r')
           MK_CODE=$(grep '^versionCode=' module/main/module.prop | head -1 | cut -d= -f2 | tr -d ' \r')
 
+          # ---- 打包内容 ----
+          # 0 全打 / 1 只打 App / 2 只打模块；没打的那一侧版本不动
+          TARGET="${IN_TARGET:-0}"
+          case "$TARGET" in
+            0|1|2) ;;
+            *) echo "::error::打包内容只能是 0 / 1 / 2"; exit 1 ;;
+          esac
+
           # ---- App ----
+          if [ "$TARGET" = "2" ]; then
+            NAME="$CK_NAME"; CODE="$CK_CODE"
+            echo "bump=false" >> "$GITHUB_OUTPUT"
+            echo "只打模块 App 版本保持 ${NAME}(${CODE})"
+          else
           NAME="${IN_NAME#v}"
           if [ -z "$NAME" ]; then
             NAME=$(bump_last "$CK_NAME")
@@ -187,8 +205,14 @@ jobs:
             echo "bump=true" >> "$GITHUB_OUTPUT"
             echo "App ${CK_NAME}(${CK_CODE}) → ${NAME}(${CODE})"
           fi
+          fi
 
           # ---- 模块 ----
+          if [ "$TARGET" = "1" ]; then
+            MNAME="$MK_NAME"; MCODE="$MK_CODE"
+            echo "module_bump=false" >> "$GITHUB_OUTPUT"
+            echo "只打 App 模块版本保持 ${MNAME}(${MCODE})"
+          else
           MNAME="${IN_MODULE#v}"
           if [ -z "$MNAME" ]; then
             MNAME=$(bump_last "$MK_NAME")
@@ -205,11 +229,23 @@ jobs:
             echo "module_bump=true" >> "$GITHUB_OUTPUT"
             echo "模块 ${MK_NAME}(${MK_CODE}) → ${MNAME}(${MCODE})"
           fi
+          fi
+
+          # tag：只打模块时 App 版本没变 不能再用 v<App版本>（会顶掉已有的正式 release）
+          if [ "$TARGET" = "2" ]; then
+            TAG="module-v${MNAME}"
+            RNAME="模块 v${MNAME}"
+          else
+            TAG="v${NAME}"
+            RNAME="v${NAME}"
+          fi
 
           {
+            echo "target=${TARGET}"
             echo "version_name=${NAME}"
             echo "version_code=${CODE}"
-            echo "tag=v${NAME}"
+            echo "tag=${TAG}"
+            echo "release_name=${RNAME}"
             echo "module_name=${MNAME}"
             echo "module_code=${MCODE}"
           } >> "$GITHUB_OUTPUT"
@@ -257,6 +293,7 @@ jobs:
       # 找不到那一行就直接失败 免得机制悄悄失效 —— 改了那行的写法记得同步这里的正则
       - name: Sync README version
         id: readme
+        if: steps.version.outputs.target != '2'
         env:
           VERSION: ${{ steps.version.outputs.version_name }}
           CODE: ${{ steps.version.outputs.version_code }}
@@ -293,10 +330,13 @@ jobs:
         env:
           VERSION: ${{ steps.version.outputs.version_name }}
           MODULE_VERSION: ${{ steps.version.outputs.module_name }}
+          TARGET: ${{ steps.version.outputs.target }}
         run: |
           set -euo pipefail
 
           # ---- 应用 ----
+          # 只打模块时 App 没发版：latest 留着 不要归档成这一版的日志
+          if [ "$TARGET" != "2" ]; then
           if sh scripts/changelog.sh has update.md latest; then
             sh scripts/changelog.sh finalize update.md "${VERSION}"
           elif sh scripts/changelog.sh has update.md "${VERSION}"; then
@@ -306,13 +346,16 @@ jobs:
             echo "::error::update.md 的 ## latest 段没有内容 —— 发布前先把这次改动写进去"
             exit 1
           fi
+          fi
 
           # ---- 模块 ----
           # 模块允许这一版不发：latest 为空且没有对应段落时跳过，不阻断 App 发版
+          if [ "$TARGET" != "1" ]; then
           if sh scripts/changelog.sh has module/main/update.md latest; then
             sh scripts/changelog.sh finalize module/main/update.md "${MODULE_VERSION}"
           else
             echo "模块 update.md 的 latest 为空，本次 Release 不附模块日志"
+          fi
           fi
 
           echo "--- update.md 顶部 ---"
@@ -324,6 +367,7 @@ jobs:
       # 本地跑同一条命令 产出完全一样的 zip（--keep 表示不改源码里的版本号）
       - name: Build module zip
         id: module
+        if: steps.version.outputs.target != '1'
         run: |
           set -euo pipefail
           sh module/打包.sh --keep
@@ -340,6 +384,7 @@ jobs:
 
       # 密码通过环境变量传给 Gradle（build.gradle.kts 读取）
       - name: Build release APK
+        if: steps.version.outputs.target != '2'
         env:
           KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           KEY_STORE_PASSWORD: ${{ secrets.KEY_STORE_PASSWORD }}
@@ -348,6 +393,7 @@ jobs:
 
       # 确认密钥真的用上了：没签名的包也能构建出来 只有验证过才算数
       - name: Verify APK signature
+        if: steps.version.outputs.target != '2'
         run: |
           set -euo pipefail
           APK="app/build/outputs/apk/release/app-release.apk"
@@ -368,6 +414,7 @@ jobs:
       # 产物改名：HyperMount-arm64-<版本>.apk
       # 签名校验用未改名的原文件 校验通过后再复制成发布用的名字
       - name: Rename APK
+        if: steps.version.outputs.target != '2'
         env:
           VERSION: ${{ steps.version.outputs.version_name }}
         run: |
@@ -416,6 +463,7 @@ jobs:
         env:
           VERSION: ${{ steps.version.outputs.version_name }}
           MODULE_VERSION: ${{ steps.version.outputs.module_name }}
+          TARGET: ${{ steps.version.outputs.target }}
         run: |
           set -euo pipefail
 
@@ -436,10 +484,16 @@ jobs:
           # 这里统一降一级 让它正确挂在版本标题下面
           demote() { sed -E 's/^### /#### /'; }
 
-          sh scripts/changelog.sh extract update.md "${VERSION}" | trim | demote > app_changelog.md
-          sh scripts/changelog.sh has module/main/update.md "${MODULE_VERSION}" \
-            && sh scripts/changelog.sh extract module/main/update.md "${MODULE_VERSION}" | trim | demote > module_changelog.md \
-            || : > module_changelog.md
+          if [ "$TARGET" != "2" ]; then
+            sh scripts/changelog.sh extract update.md "${VERSION}" | trim | demote > app_changelog.md
+          else
+            : > app_changelog.md
+          fi
+          if [ "$TARGET" != "1" ] && sh scripts/changelog.sh has module/main/update.md "${MODULE_VERSION}"; then
+            sh scripts/changelog.sh extract module/main/update.md "${MODULE_VERSION}" | trim | demote > module_changelog.md
+          else
+            : > module_changelog.md
+          fi
 
           : > release_notes.md
           if [ -s app_changelog.md ]; then
@@ -466,16 +520,39 @@ jobs:
             echo "update.md 里没有这个版本的段落 本次 Release 不带说明"
           fi
 
+      # 只打一侧时另一个产物根本不存在，files 传不存在的路径会让发布步骤直接失败
+      # 先把本次要发的文件列出来 空的那一行自然不出现
+      - name: Prepare release assets
+        id: assets
+        env:
+          TARGET: ${{ steps.version.outputs.target }}
+          VERSION: ${{ steps.version.outputs.version_name }}
+          MODULE_ZIP: ${{ steps.module.outputs.module_zip }}
+        run: |
+          set -euo pipefail
+          : > files.txt
+          if [ "$TARGET" != "2" ]; then
+            echo "dist/HyperMount-arm64-${VERSION}.apk" >> files.txt
+          fi
+          if [ "$TARGET" != "1" ] && [ -n "${MODULE_ZIP}" ]; then
+            echo "${MODULE_ZIP}" >> files.txt
+          fi
+          echo "--- 本次发布资产 ---"
+          cat files.txt
+          {
+            echo "files<<EOF"
+            cat files.txt
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
       # 构建完直接发布 Release 附带签名 APK 和模块 zip
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ steps.version.outputs.tag }}
-          name: ${{ steps.version.outputs.version_name }}
+          name: ${{ steps.version.outputs.release_name }}
           body_path: release_notes.md
-          files: |
-            dist/HyperMount-arm64-${{ steps.version.outputs.version_name }}.apk
-            ${{ steps.module.outputs.module_zip }}
+          files: ${{ steps.assets.outputs.files }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -493,6 +570,7 @@ jobs:
           MODULE_CODE: ${{ steps.version.outputs.module_code }}
           MODULE_FILE: ${{ steps.module.outputs.module_file }}
           BUILD_TIME: ${{ steps.version.outputs.build_time }}
+          TARGET: ${{ steps.version.outputs.target }}
         run: |
           set -euo pipefail
           CODE=$(grep -oP 'versionCode\s*=\s*\K\d+' app/build.gradle.kts | head -1)
@@ -518,38 +596,54 @@ jobs:
                       lines.append(re.sub(r"^[-*]\s+", "", s))
               return "\n".join(lines)
 
-          data = {
-              "versionCode": int(os.environ["CODE"]),
-              "versionName": os.environ["VERSION"],
-              # 构建时间戳：App 拿它跟手上那份比 比清单晚就是有更新
-              "buildTime": int(os.environ["BUILD_TIME"]),
-              "url": os.environ["URL"],
-              # 应用日志取 update.md 里本次版本的段落（不是从 Release 说明里抠，避免混进模块段）
-              "changelog": read_lines("app_changelog.md"),
-              # 模块挂在同一个 Release 里，官网「先装模块」卡片与关于页模块更新卡读这三项
-              "moduleVersionCode": int(os.environ["MODULE_CODE"]),
-              "moduleVersionName": os.environ["MODULE_VERSION"],
-              "moduleUrl": os.environ["MODULE_URL"],
-              # 模块这版没有日志就是空串，App 端会自动回落到「见 Release 页面」
-              "moduleChangelog": read_lines("module_changelog.md"),
-          }
+          # 只打其中一侧时另一侧的字段原样保留：清单是「当前两边最新」的一份快照
+          # 清空会让另一条通道的更新提示直接消失
+          current = {}
+          if os.path.exists("update.json"):
+              try:
+                  current = json.load(open("update.json", encoding="utf-8"))
+              except Exception:
+                  current = {}
+          target = os.environ["TARGET"]
+          data = dict(current)
+          if target != "2":
+              data.update({
+                  "versionCode": int(os.environ["CODE"]),
+                  "versionName": os.environ["VERSION"],
+                  # 构建时间戳：App 拿它跟手上那份比 比清单晚就是有更新
+                  "buildTime": int(os.environ["BUILD_TIME"]),
+                  "url": os.environ["URL"],
+                  # 应用日志取 update.md 里本次版本的段落（不是从 Release 说明里抠，避免混进模块段）
+                  "changelog": read_lines("app_changelog.md"),
+              })
+          if target != "1":
+              data.update({
+                  # 模块挂在同一个 Release 里，官网「先装模块」卡片与关于页模块更新卡读这三项
+                  "moduleVersionCode": int(os.environ["MODULE_CODE"]),
+                  "moduleVersionName": os.environ["MODULE_VERSION"],
+                  "moduleUrl": os.environ["MODULE_URL"],
+                  # 模块这版没有日志就是空串，App 端会自动回落到「见 Release 页面」
+                  "moduleChangelog": read_lines("module_changelog.md"),
+              })
           with open("update.json", "w", encoding="utf-8") as f:
               json.dump(data, f, ensure_ascii=False, indent=2)
               f.write("\n")
           print(open("update.json", encoding="utf-8").read())
           # Magisk 自己的更新清单：module.prop 里的 updateJson 指向这份
           # 装过正式模块的机器在 Magisk 里能直接看到并升级
-          magisk = {
-              "version": os.environ["MODULE_VERSION"],
-              "versionCode": int(os.environ["MODULE_CODE"]),
-              "zipUrl": os.environ["MODULE_URL"],
-              "changelog": "https://raw.githubusercontent.com/%s/main/module/main/update.md"
-                           % os.environ["REPO"],
-          }
-          with open("module-update.json", "w", encoding="utf-8") as f:
-              json.dump(magisk, f, ensure_ascii=False, indent=2)
-              f.write("\n")
-          print(open("module-update.json", encoding="utf-8").read())
+          # 只打 App 时模块没发版 这份保持原样
+          if target != "1":
+              magisk = {
+                  "version": os.environ["MODULE_VERSION"],
+                  "versionCode": int(os.environ["MODULE_CODE"]),
+                  "zipUrl": os.environ["MODULE_URL"],
+                  "changelog": "https://raw.githubusercontent.com/%s/main/module/main/update.md"
+                               % os.environ["REPO"],
+              }
+              with open("module-update.json", "w", encoding="utf-8") as f:
+                  json.dump(magisk, f, ensure_ascii=False, indent=2)
+                  f.write("\n")
+              print(open("module-update.json", encoding="utf-8").read())
           PY
           # 官网也是读同一份清单：页面上「下载 / 版本号」都从这里取
           # 放在站点 public/ 下 部署后同域请求 不受 GitHub 直连影响
@@ -583,12 +677,14 @@ jobs:
           exit 1
 
       - name: Upload APK artifact
+        if: steps.version.outputs.target != '2'
         uses: actions/upload-artifact@v7
         with:
           name: HyperMount-arm64
           path: dist/HyperMount-arm64-*.apk
 
       - name: Upload module artifact
+        if: steps.version.outputs.target != '1'
         uses: actions/upload-artifact@v7
         with:
           name: systemui_mount-module

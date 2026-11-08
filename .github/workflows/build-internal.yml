@@ -16,6 +16,10 @@ on:
         description: '模块版本号'
         required: false
         default: ''
+      target:
+        description: '打包内容（0=App+模块 1=只打App 2=只打模块）'
+        required: false
+        default: '0'
 
 permissions:
   # 要往固定 tag `internal` 发 prerelease、还要把清单提交回 main
@@ -98,6 +102,7 @@ jobs:
         env:
           IN_NAME: ${{ inputs.version }}
           IN_MODULE: ${{ inputs.module_version }}
+          IN_TARGET: ${{ inputs.target }}
         run: |
           set -euo pipefail
 
@@ -118,35 +123,55 @@ jobs:
           MK_NAME=$(grep '^version=' module/main/module.prop | head -1 | cut -d= -f2 | tr -d ' \r')
           MK_CODE=$(grep '^versionCode=' module/main/module.prop | head -1 | cut -d= -f2 | tr -d ' \r')
 
+          # ---- 打包内容 ----
+          # 0 全打 / 1 只打 App / 2 只打模块；没打的那一侧版本不动
+          TARGET="${IN_TARGET:-0}"
+          case "$TARGET" in
+            0|1|2) ;;
+            *) echo "::error::打包内容只能是 0 / 1 / 2"; exit 1 ;;
+          esac
+
           # ---- App：1.4.1 → 1.4.2 → 1.4.2-debug ----
-          NAME="${IN_NAME#v}"
-          if [ -z "$NAME" ]; then
-            NAME=$(bump_last "$CUR_NAME")
-            echo "App 版本留空 自动 +1：${CUR_NAME} → ${NAME}"
+          if [ "$TARGET" = "2" ]; then
+            NAME="$CUR_NAME"
+            CODE="$CUR_CODE"
+            echo "只打模块 App 版本保持 ${NAME}(${CODE}) 不重编"
+          else
+            NAME="${IN_NAME#v}"
+            if [ -z "$NAME" ]; then
+              NAME=$(bump_last "$CUR_NAME")
+              echo "App 版本留空 自动 +1：${CUR_NAME} → ${NAME}"
+            fi
+            NAME=$(mark_debug "$NAME")
+
+            # 内测代号每次 +1：清单的 versionCode 只涨不跌
+            # 老版本 App 写缓存时「代号更小的清单一律不覆盖」 代号回退过一次（15 → 11）
+            # 就让所有人的缓存卡在旧清单上 更新检查从此一直显示已是最新
+            CODE=$((CUR_CODE + 1))
+
+            sed -i -E "s/versionName\s*=\s*\"[^\"]*\"/versionName = \"${NAME}\"/" app/build.gradle.kts
+            sed -i -E "s/versionCode\s*=\s*[0-9]+/versionCode = ${CODE}/" app/build.gradle.kts
+            grep -nE 'versionCode|versionName' app/build.gradle.kts
           fi
-          NAME=$(mark_debug "$NAME")
 
           # ---- 模块：1.5.6 → 1.5.7 → 1.5.7-debug.<构建号> ----
-          BASE="${IN_MODULE#v}"
-          if [ -z "$BASE" ]; then
-            BASE=$(bump_last "$MK_NAME")
-            echo "模块版本留空 自动 +1：${MK_NAME} → ${BASE}"
+          if [ "$TARGET" = "1" ]; then
+            BASE="$MK_NAME"
+            echo "只打 App 模块版本保持 ${MK_NAME}(${MK_CODE})"
+          else
+            BASE="${IN_MODULE#v}"
+            if [ -z "$BASE" ]; then
+              BASE=$(bump_last "$MK_NAME")
+              echo "模块版本留空 自动 +1：${MK_NAME} → ${BASE}"
+            fi
           fi
           MNAME="$(mark_debug "$BASE").${GITHUB_RUN_NUMBER}"
-
-          # 内测代号每次 +1：清单的 versionCode 只涨不跌
-          # 老版本 App 写缓存时「代号更小的清单一律不覆盖」 代号回退过一次（15 → 11）
-          # 就让所有人的缓存卡在旧清单上 更新检查从此一直显示已是最新
-          CODE=$((CUR_CODE + 1))
           MCODE="${MK_CODE}"
           echo "App ${CUR_NAME}(${CUR_CODE}) → ${NAME}(${CODE})"
           echo "模块 ${MK_NAME}(${MK_CODE}) → ${MNAME}(${MCODE})"
 
-          sed -i -E "s/versionName\s*=\s*\"[^\"]*\"/versionName = \"${NAME}\"/" app/build.gradle.kts
-          sed -i -E "s/versionCode\s*=\s*[0-9]+/versionCode = ${CODE}/" app/build.gradle.kts
-          grep -nE 'versionCode|versionName' app/build.gradle.kts
-
           {
+            echo "target=${TARGET}"
             echo "version_name=${NAME}"
             echo "version_code=${CODE}"
             # 模块基础版本：打包脚本自己拼 -debug.<构建号>
@@ -165,6 +190,7 @@ jobs:
           echo "构建时间戳: ${BT}"
 
       - name: Build release APK
+        if: steps.v.outputs.target != '2'
         env:
           KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           KEY_STORE_PASSWORD: ${{ secrets.KEY_STORE_PASSWORD }}
@@ -174,6 +200,7 @@ jobs:
         run: ./gradlew :app:assembleRelease --no-daemon -PbuildId=${{ github.run_number }} -PbuildTime=${{ steps.v.outputs.build_time }}
 
       - name: Verify APK signature
+        if: steps.v.outputs.target != '2'
         run: |
           set -euo pipefail
           APK="app/build/outputs/apk/release/app-release.apk"
@@ -190,6 +217,7 @@ jobs:
 
       # 命名与发布版本一致：HyperMount-arm64-<版本>.apk
       - name: Rename APK
+        if: steps.v.outputs.target != '2'
         env:
           ASSET: ${{ steps.v.outputs.asset }}
         run: |
@@ -201,6 +229,7 @@ jobs:
           unzip -l "dist/${ASSET}" | awk '/lib\//{print $4}'
 
       - name: Upload APK
+        if: steps.v.outputs.target != '2'
         uses: actions/upload-artifact@v7
         with:
           name: ${{ steps.v.outputs.asset }}
@@ -212,6 +241,7 @@ jobs:
       # Magisk 那边只认正式清单（只能发现正式更新）测试版更新由 App 识别
       - name: Build module zip
         id: module
+        if: steps.v.outputs.target != '1'
         run: |
           set -euo pipefail
           # 传基础版本 打包脚本自己加 -debug.<构建号>
@@ -247,6 +277,8 @@ jobs:
           CODE: ${{ steps.v.outputs.version_code }}
           BUILD: ${{ github.run_number }}
           BT: ${{ steps.v.outputs.build_time }}
+          TARGET: ${{ steps.v.outputs.target }}
+          MODULE_NAME: ${{ steps.module.outputs.module_version }}
         run: |
           set -euo pipefail
           # 打包时间和构建号：内测包版本号可能跟正式版一样 只有这两样能区分谁是谁
@@ -267,15 +299,20 @@ jobs:
           } > /tmp/internal-notes.md
           cat /tmp/internal-notes.md
           gh release delete internal --repo "$REPO" --yes --cleanup-tag 2>/dev/null || true
-          gh release create internal "dist/${ASSET}" "dist/module-internal.zip" \
+          # 只打一侧时另一个产物不存在 传不存在的路径 gh 会直接报错
+          FILES=()
+          if [ "$TARGET" != "2" ]; then FILES+=("dist/${ASSET}"); fi
+          if [ "$TARGET" != "1" ]; then FILES+=("dist/module-internal.zip"); fi
+          if [ "$TARGET" = "2" ]; then TITLE="内测模块 ${MODULE_NAME}"; else TITLE="内测版 ${NAME}"; fi
+          gh release create internal "${FILES[@]}" \
             --repo "$REPO" \
             --prerelease \
-            --title "内测版 ${NAME}" \
+            --title "${TITLE}" \
             --notes-file /tmp/internal-notes.md
           COUNT=$(gh release view internal --repo "$REPO" --json assets --jq '.assets | length')
           echo "internal 下的资产数：${COUNT}"
-          if [ "${COUNT}" -ne 2 ]; then
-            echo "::error::internal 下应该有 APK + 模块包两个资产 实际是 ${COUNT} 个"
+          if [ "${COUNT}" -ne "${#FILES[@]}" ]; then
+            echo "::error::internal 下应该有 ${#FILES[@]} 个资产 实际是 ${COUNT} 个"
             exit 1
           fi
 
@@ -289,18 +326,24 @@ jobs:
           BT: ${{ steps.v.outputs.build_time }}
           MVN: ${{ steps.module.outputs.module_version }}
           MC: ${{ steps.module.outputs.module_code }}
+          TARGET: ${{ steps.v.outputs.target }}
         run: |
           set -euo pipefail
           # 更新说明与发版页同一份内容（上一步已经落到 /tmp/internal-latest.md）
           # 应用内的更新卡片是逐行纯文本渲染：### 分组标题会原样显示成一条内容 这里去掉
-          [ -f /tmp/internal-latest.md ] || sh scripts/changelog.sh extract update.md latest > /tmp/internal-latest.md
-          sed -E '/^[[:space:]]*###/d; s/^[-*][[:space:]]*//' /tmp/internal-latest.md \
-            > /tmp/internal-changelog.txt
+          # 只打模块时 App 没发版：不取 update.md，避免把上一版的日志又贴一遍
+          if [ "$TARGET" != "2" ]; then
+            [ -f /tmp/internal-latest.md ] || sh scripts/changelog.sh extract update.md latest > /tmp/internal-latest.md
+            sed -E '/^[[:space:]]*###/d; s/^[-*][[:space:]]*//' /tmp/internal-latest.md \
+              > /tmp/internal-changelog.txt
+          else
+            : > /tmp/internal-changelog.txt
+          fi
           URL="https://github.com/${REPO}/releases/download/internal/HyperMount-arm64-internal.apk"
           MURL="https://github.com/${REPO}/releases/download/internal/module-internal.zip"
           export URL MURL
           # 模块这版改了什么：取 module/main/update.md 的 latest 段
-          if sh scripts/changelog.sh has module/main/update.md latest; then
+          if [ "$TARGET" != "1" ] && sh scripts/changelog.sh has module/main/update.md latest; then
             sh scripts/changelog.sh extract module/main/update.md latest > /tmp/internal-module-latest.md
             sed -E '/^[[:space:]]*###/d; s/^[-*][[:space:]]*//' /tmp/internal-module-latest.md \
               > /tmp/internal-module-changelog.txt
@@ -313,20 +356,33 @@ jobs:
           def lines(path):
               return [l.strip() for l in open(path, encoding="utf-8") if l.strip()]
 
-          data = {
-              "versionCode": int(os.environ["CODE"]),
-              "versionName": os.environ["NAME"],
-              # 构建时间戳：App 拿它跟手上那份比先后 比手上这份晚才算有更新
-              "buildTime": int(os.environ["BT"]),
-              "buildId": os.environ["BUILD"],
-              "url": os.environ["URL"],
-              "changelog": "\n".join(lines("/tmp/internal-changelog.txt")),
-              # 内测也带模块：App 的内测通道直接读这几项 不用再回正式清单里找
-              "moduleVersionCode": int(os.environ["MC"]),
-              "moduleVersionName": os.environ["MVN"],
-              "moduleUrl": os.environ["MURL"],
-              "moduleChangelog": "\n".join(lines("/tmp/internal-module-changelog.txt")),
-          }
+          # 只打一侧时另一侧字段原样保留：清单是两边的最新快照 清空会让另一条通道的提示消失
+          current = {}
+          if os.path.exists("update-internal.json"):
+              try:
+                  current = json.load(open("update-internal.json", encoding="utf-8"))
+              except Exception:
+                  current = {}
+          target = os.environ["TARGET"]
+          data = dict(current)
+          if target != "2":
+              data.update({
+                  "versionCode": int(os.environ["CODE"]),
+                  "versionName": os.environ["NAME"],
+                  # 构建时间戳：App 拿它跟手上那份比先后 比手上这份晚才算有更新
+                  "buildTime": int(os.environ["BT"]),
+                  "buildId": os.environ["BUILD"],
+                  "url": os.environ["URL"],
+                  "changelog": "\n".join(lines("/tmp/internal-changelog.txt")),
+              })
+          if target != "1":
+              data.update({
+                  # 内测也带模块：App 的内测通道直接读这几项 不用再回正式清单里找
+                  "moduleVersionCode": int(os.environ["MC"]),
+                  "moduleVersionName": os.environ["MVN"],
+                  "moduleUrl": os.environ["MURL"],
+                  "moduleChangelog": "\n".join(lines("/tmp/internal-module-changelog.txt")),
+              })
           with open("update-internal.json", "w", encoding="utf-8") as f:
               json.dump(data, f, ensure_ascii=False, indent=2)
               f.write("\n")
@@ -370,23 +426,35 @@ jobs:
           CODE: ${{ steps.v.outputs.version_code }}
           BUILD: ${{ github.run_number }}
           REPO: ${{ github.repository }}
+          TARGET: ${{ steps.v.outputs.target }}
+          MODULE_NAME: ${{ steps.module.outputs.module_version }}
         run: |
           {
-            echo "## 内测包 ${NAME} (${CODE}) · 构建 ${BUILD}"
+            if [ "$TARGET" = "2" ]; then
+              echo "## 内测模块 ${MODULE_NAME} · 构建 ${BUILD}（只打模块）"
+            elif [ "$TARGET" = "1" ]; then
+              echo "## 内测包 ${NAME} (${CODE}) · 构建 ${BUILD}（只打 App）"
+            else
+              echo "## 内测包 ${NAME} (${CODE}) · 构建 ${BUILD}"
+            fi
             echo ""
             echo "已发到固定 tag \`internal\` 的 prerelease，应用里把「更新来源」切到内测版就能收到："
             echo ""
-            echo "https://github.com/${REPO}/releases/download/internal/${ASSET}"
-            echo ""
-            echo "模块内测包（版本名带 \`-debug.<构建号>\`，Magisk 里只查正式更新）："
-            echo ""
-            echo "https://github.com/${REPO}/releases/download/internal/module-internal.zip"
-            echo ""
+            if [ "$TARGET" != "2" ]; then
+              echo "https://github.com/${REPO}/releases/download/internal/${ASSET}"
+              echo ""
+            fi
+            if [ "$TARGET" != "1" ]; then
+              echo "模块内测包（版本名带 \`-debug.<构建号>\`，Magisk 里只查正式更新）："
+              echo ""
+              echo "https://github.com/${REPO}/releases/download/internal/module-internal.zip"
+              echo ""
+            fi
             echo "本次运行页底部 **Artifacts** 也能手动下载。"
             echo ""
             echo "- 只有 arm64-v8a"
             echo "- 与正式包同一签名 可直接覆盖安装"
             echo "- 模块内测包 versionCode 与正式版同号 测试版更新只在 App 里提示"
             echo "- 不改 update.json；提交内测清单与 +1 后的 versionCode"
-            echo "- \`internal\` 下始终只有一个 APK + 一个模块包（每次构建先删再建）"
+            echo "- \`internal\` 下每次构建先删再建 只放这次打出来的产物"
           } >> "$GITHUB_STEP_SUMMARY"
