@@ -179,12 +179,13 @@ jobs:
           retention-days: 30
 
       # 内测也带一份模块包：模块改了不用等正式版 刷 internal 这个就行
-      # 版本名带 -debug，清单指内测那份 装完 Magisk 里还会继续提示更新
+      # 版本名带 -debug.<构建号>、versionCode 与正式版同号
+      # Magisk 那边只认正式清单（只能发现正式更新）测试版更新由 App 识别
       - name: Build module zip
         id: module
         run: |
           set -euo pipefail
-          sh module/打包.sh --debug
+          sh module/打包.sh --debug --build "${GITHUB_RUN_NUMBER}"
           SRC=$(ls -1 module/dist/*-debug.zip | tail -1)
           mkdir -p dist
           cp "$SRC" dist/module-internal.zip
@@ -294,18 +295,6 @@ jobs:
               f.write("\n")
           print(open("update-internal.json", encoding="utf-8").read())
 
-          # Magisk 自己的更新清单：刷了内测模块之后 在 Magisk 里也能继续收到内测更新
-          magisk = {
-              "version": os.environ["MVN"],
-              "versionCode": int(os.environ["MC"]),
-              "zipUrl": os.environ["MURL"],
-              "changelog": "https://raw.githubusercontent.com/%s/main/module/main/update.md"
-                           % os.environ["REPO"],
-          }
-          with open("module-update-internal.json", "w", encoding="utf-8") as f:
-              json.dump(magisk, f, ensure_ascii=False, indent=2)
-              f.write("\n")
-          print(open("module-update-internal.json", encoding="utf-8").read())
           PY
 
       - name: Commit internal manifest
@@ -315,7 +304,7 @@ jobs:
           set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add update-internal.json module-update-internal.json
+          git add update-internal.json
           if git diff --cached --quiet; then
             echo "清单没有变化 跳过提交"
             exit 0
@@ -348,7 +337,7 @@ jobs:
             echo ""
             echo "https://github.com/${REPO}/releases/download/internal/${ASSET}"
             echo ""
-            echo "模块内测包（版本名带 \`-debug\`，清单指向内测那份）："
+            echo "模块内测包（版本名带 \`-debug.<构建号>\`，Magisk 里只查正式更新）："
             echo ""
             echo "https://github.com/${REPO}/releases/download/internal/module-internal.zip"
             echo ""
@@ -356,6 +345,7 @@ jobs:
             echo ""
             echo "- 只有 arm64-v8a"
             echo "- 与正式包同一签名 可直接覆盖安装"
-            echo "- 不改 update.json、不提交版本号；只提交 update-internal.json 与 module-update-internal.json"
+            echo "- 模块内测包 versionCode 与正式版同号 测试版更新只在 App 里提示"
+            echo "- 不改 update.json、不提交版本号；只提交 update-internal.json"
             echo "- \`internal\` 下始终只有一个 APK + 一个模块包（每次构建先删再建）"
           } >> "$GITHUB_STEP_SUMMARY"

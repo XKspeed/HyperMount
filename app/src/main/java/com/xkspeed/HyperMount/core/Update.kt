@@ -270,7 +270,11 @@ object Update {
      */
     fun isModuleNewer(info: UpdateInfo?, localCode: Int, localName: String): Boolean {
         if (!hasModule(info) || info == null) return false
-        if (info.moduleVersionCode > 0 && localCode > 0) return info.moduleVersionCode > localCode
+        // 内测包与正式版共用同一个 versionCode，只能靠版本名后缀（-debug.42）分新旧
+        // 所以同号时不能直接判「没有更新」 要退化到比名字
+        if (info.moduleVersionCode > 0 && localCode > 0 && info.moduleVersionCode != localCode) {
+            return info.moduleVersionCode > localCode
+        }
         return compareVersion(info.moduleVersionName, localName) > 0
     }
 
