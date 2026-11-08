@@ -8,11 +8,11 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'versionName（如 1.2.2-beta.1；留空沿用 build.gradle.kts）'
+        description: 'App 版本号'
         required: false
         default: ''
-      version_code:
-        description: 'versionCode：可填 +1 这种相对写法 也可填纯数字；留空沿用'
+      module_version:
+        description: '模块版本号'
         required: false
         default: ''
 
@@ -90,40 +90,64 @@ jobs:
           echo "字节数: $(wc -c < app/release-key.jks)"
 
       # 只改本次构建的工作区 不提交 仓库里的版本号保持不动
+      # 两个版本号都可留空：留空就把 x.x.y 的 y 加 1，之后统一加 -debug
+      # versionCode 一律不动：内测与正式版同号 覆盖安装不会冲突
       - name: Resolve version
         id: v
         env:
           IN_NAME: ${{ inputs.version }}
-          IN_CODE: ${{ inputs.version_code }}
+          IN_MODULE: ${{ inputs.module_version }}
         run: |
           set -euo pipefail
+
+          # 1.4.1 → 1.4.2
+          bump_last() {
+            printf '%s' "$1" | awk -F. 'BEGIN{OFS="."} NF>=2 && $NF ~ /^[0-9]+$/ { $NF=$NF+1 } { print }'
+          }
+          # 已经带 -debug 就别叠第二层
+          mark_debug() {
+            case "$1" in
+              *-debug*) printf '%s' "$1" ;;
+              *)         printf '%s-debug' "$1" ;;
+            esac
+          }
+
+          CUR_NAME=$(grep -oP 'versionName\s*=\s*"\K[^"]+' app/build.gradle.kts | head -1)
+          CUR_CODE=$(grep -oP 'versionCode\s*=\s*\K\d+' app/build.gradle.kts | head -1)
+          MK_NAME=$(grep '^version=' module/main/module.prop | head -1 | cut -d= -f2 | tr -d ' \r')
+          MK_CODE=$(grep '^versionCode=' module/main/module.prop | head -1 | cut -d= -f2 | tr -d ' \r')
+
+          # ---- App：1.4.1 → 1.4.2 → 1.4.2-debug ----
           NAME="${IN_NAME#v}"
           if [ -z "$NAME" ]; then
-            NAME=$(grep -oP 'versionName\s*=\s*"\K[^"]+' app/build.gradle.kts | head -1)
-            echo "未填版本名 沿用 ${NAME}"
+            NAME=$(bump_last "$CUR_NAME")
+            echo "App 版本留空 自动 +1：${CUR_NAME} → ${NAME}"
           fi
-          CUR_CODE=$(grep -oP 'versionCode\s*=\s*\K\d+' app/build.gradle.kts | head -1)
-          CODE="${IN_CODE}"
-          if [ -z "$CODE" ]; then
-            CODE="$CUR_CODE"
-            echo "未填 versionCode 沿用 ${CODE}"
-          elif printf '%s' "$CODE" | grep -qE '^\+[0-9]+$'; then
-            CODE=$((CUR_CODE + ${CODE#+}))
-            echo "versionCode 相对写法 ${IN_CODE}：${CUR_CODE} → ${CODE}"
-          elif printf '%s' "$CODE" | grep -qE '^[0-9]+$'; then
-            echo "versionCode 指定为 ${CODE}"
-          else
-            echo "::error::versionCode 只能是 +1 这种相对写法或纯数字：${CODE}"
-            exit 1
+          NAME=$(mark_debug "$NAME")
+
+          # ---- 模块：1.5.6 → 1.5.7 → 1.5.7-debug.<构建号> ----
+          BASE="${IN_MODULE#v}"
+          if [ -z "$BASE" ]; then
+            BASE=$(bump_last "$MK_NAME")
+            echo "模块版本留空 自动 +1：${MK_NAME} → ${BASE}"
           fi
+          MNAME="$(mark_debug "$BASE").${GITHUB_RUN_NUMBER}"
+
+          CODE="${CUR_CODE}"
+          MCODE="${MK_CODE}"
+          echo "App ${CUR_NAME}(${CUR_CODE}) → ${NAME}(${CODE})"
+          echo "模块 ${MK_NAME}(${MK_CODE}) → ${MNAME}(${MCODE})"
 
           sed -i -E "s/versionName\s*=\s*\"[^\"]*\"/versionName = \"${NAME}\"/" app/build.gradle.kts
-          sed -i -E "s/versionCode\s*=\s*[0-9]+/versionCode = ${CODE}/" app/build.gradle.kts
           grep -nE 'versionCode|versionName' app/build.gradle.kts
 
           {
             echo "version_name=${NAME}"
             echo "version_code=${CODE}"
+            # 模块基础版本：打包脚本自己拼 -debug.<构建号>
+            echo "module_base=${BASE}"
+            echo "module_name=${MNAME}"
+            echo "module_code=${MCODE}"
             # 固定名：内测通道的下载链接要永久有效 不能带版本号
             echo "asset=HyperMount-arm64-internal.apk"
           } >> "$GITHUB_OUTPUT"
@@ -185,7 +209,9 @@ jobs:
         id: module
         run: |
           set -euo pipefail
-          sh module/打包.sh --debug --build "${GITHUB_RUN_NUMBER}"
+          # 传基础版本 打包脚本自己加 -debug.<构建号>
+          sh module/打包.sh "${{ steps.v.outputs.module_base }}" --debug \
+            --build "${GITHUB_RUN_NUMBER}"
           SRC=$(ls -1 module/dist/*-debug.zip | tail -1)
           mkdir -p dist
           cp "$SRC" dist/module-internal.zip

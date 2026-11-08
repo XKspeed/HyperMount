@@ -11,6 +11,8 @@
 #    sh 打包.sh --debug --build 42
 #                              内测包再带构建号：1.5.6-debug.42
 #                              只有 App 的内测通道认这个后缀 Magisk 不提示
+#    sh 打包.sh --debug --app-version 1.4.2
+#                              模块描述写 App 版本号 方便对上是哪次内测
 #    sh 打包.sh --out DIR ...  自定义输出目录（默认 module/dist）
 #
 #  不传版本号且不是 --keep 时 → 交互式输入（直接回车取消）
@@ -28,6 +30,8 @@ KEEP=0
 DEBUG=0
 # 内测构建号（CI 传 run_number）：只写进版本名 让 App 能分辨第几次内测
 BUILD_NO=""
+# 内测对应哪版 App：给了就顶掉模块描述里的发布时间
+APP_VER=""
 
 # ---------- 参数 ----------
 VER=""
@@ -38,6 +42,8 @@ while [ $# -gt 0 ]; do
         --debug) DEBUG=1; KEEP=1 ;;
         --build) [ $# -ge 2 ] || { echo "错误: --build 后面要跟构建号"; exit 1; }; BUILD_NO="$2"; shift ;;
         --build=*) BUILD_NO="${1#--build=}" ;;
+        --app-version) [ $# -ge 2 ] || { echo "错误: --app-version 后面要跟版本号"; exit 1; }; APP_VER="$2"; shift ;;
+        --app-version=*) APP_VER="${1#--app-version=}" ;;
         --out) [ $# -ge 2 ] || { echo "错误: --out 后面要跟目录"; exit 1; }; OUT_DIR="$2"; shift ;;
         --out=*) OUT_DIR="${1#--out=}" ;;
         -*) echo "错误: 未知参数 $1"; exit 1 ;;
@@ -275,7 +281,13 @@ PKG_TIME_FMT=$(grep '^TIME_FORMAT=' "${PACK}/config/settings.conf" 2>/dev/null \
 [ -z "${PKG_TIME_FMT}" ] && PKG_TIME_FMT="+%Y年%m月%d日%H:%M:%S"
 PKG_TIME=$(date "${PKG_TIME_FMT}" 2>/dev/null)
 [ -z "${PKG_TIME}" ] && PKG_TIME=$(date "+%Y年%m月%d日%H:%M:%S")
-NEW_DESC="${PKG_TIME} 发布｜状态：待重启"
+# 内测包描述直接写 App 版本号：Magisk 里一眼看出这份模块是给哪版 App 打的
+# 正式包照旧写发布日期与状态
+if [ -n "${APP_VER}" ]; then
+    NEW_DESC="App ${APP_VER}"
+else
+    NEW_DESC="${PKG_TIME} 发布｜状态：待重启"
+fi
 set_prop_in "${PACK}/module.prop" description "${NEW_DESC}"
 
 cat > "${STRIP_DIR}/js.awk" <<'AWKEOF'
