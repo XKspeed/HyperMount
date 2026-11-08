@@ -47,6 +47,10 @@ data class UpdateInfo(
     val moduleVersionName: String = "",
     val moduleUrl: String = "",
     val moduleChangelog: String = "",
+    // 更新包/模块包的 SHA-256：镜像站不可信 下完必须对一遍
+    // 老清单没有这两项（空串）时退化成只比文件大小
+    val sha256: String = "",
+    val moduleSha256: String = "",
 )
 
 /**
@@ -68,13 +72,16 @@ object Update {
     // 手动检查更新时排在所有镜像前面，避免"镜像一炸就查不到更新"
     private const val API = "https://api.github.com/repos/$REPO"
     private const val API_RAW = "application/vnd.github.raw"
-    // 标记这条候选来自 API：它的 host 跟 raw 不是一回事 成功不代表 raw 直连通
-    // 所以不能拿它去覆盖 liveProxy（否则下载链接会退成直连）
-    private const val API_MARK = "api"
 
     // 内测通道补模块信息时额外给正式清单的预算：模块只跟 Release 发 内测清单里没有
     // 拿不到就算了（还有缓存兜着） 不能让这一次附带请求把整个检查拖长
     private const val MODULE_BUDGET_MS = 8_000L
+
+    /** 并发探测单条的超时：镜像站半死不活时 5 秒还没回就当它挂了 */
+    private const val PROBE_MS = 5_000L
+
+    /** 竞速胜出的源记多久：镜像不会半小时内整体复活 这期间不再重复探测 */
+    private const val SESSION_MS = 30 * 60 * 1000L
 
     // ---------------- 清单缓存 ----------------
     // 查到更新之后网络就断了 / 用户重启了应用：之前查到的结果不能凭空消失
@@ -102,22 +109,11 @@ object Update {
         "$API/contents/${manifestFile(channel)}?ref=$BRANCH"
 
     /**
-     * 代理前缀：空串是直连，其余是国内常用的 GitHub 加速站
-     * 这些站同时转发 raw 与 releases/download，下载链接能直接套
+     * 判断一个地址是不是已经套过镜像前缀（避免重复拼接）。
+     * 候选池本身在 [Mirrors] 里，不写死任何单个站点。
      */
-    private val PROXIES = listOf(
-        "",
-        "https://gh-proxy.com/",
-        "https://ghproxy.net/",
-        "https://ghfast.top/",
-        "https://github.moeyy.xyz/",
-    )
-
-    /** 不走代理也能拿到的镜像/CDN：直连被墙时这几条往往还活着（只用于清单，不能转发下载） */
-    private fun mirrors(channel: UpdateChannel) = listOf(
-        "https://cdn.jsdelivr.net/gh/$REPO@$BRANCH/${manifestFile(channel)}",
-        "https://raw.gitmirror.com/$REPO/$BRANCH/${manifestFile(channel)}",
-    )
+    private val PROXY_PREFIXES: List<String> =
+        Mirrors.pool.filter { it.kind == MirrorKind.PREFIX }.map { it.base }
 
     private val json = Json {
         ignoreUnknownKeys = true
@@ -134,6 +130,25 @@ object Update {
      */
     @Volatile
     private var apiBlocked = false
+
+    /**
+     * 本次会话竞速出来的清单源。
+     *
+     * 镜像站不会在半小时内突然全好，所以胜出的一条记 30 分钟：
+     * 这期间再检查直接用，不再让十几条候选重新跑一遍。
+     */
+    private class SessionPick(val label: String, val url: String, val proxy: String)
+
+    private val sessions = java.util.concurrent.ConcurrentHashMap<UpdateChannel, Pair<SessionPick, Long>>()
+
+    private fun sessionPick(channel: UpdateChannel): SessionPick? {
+        val (pick, until) = sessions[channel] ?: return null
+        if (System.currentTimeMillis() > until) {
+            sessions.remove(channel)
+            return null
+        }
+        return pick
+    }
 
     private var appContext: Context? = null
 
@@ -330,6 +345,24 @@ object Update {
     /** 仓库地址的 releases 页（清单里没给下载地址时的兜底） */
     fun releasesPage(): String = downloadUrl("")
 
+    /** App 更新包的原始地址（未套镜像） */
+    fun apkUrl(info: UpdateInfo?): String =
+        info?.url.orEmpty().ifBlank { "https://github.com/$REPO/releases" }
+
+    /**
+     * App 更新包的下载候选：原始地址 + 所有能转发 release 资产的镜像。
+     * 哪条能用、支不支持分段由 [Downloader] 现场探测，这里只负责把候选列出来。
+     */
+    fun apkSources(info: UpdateInfo?): List<String> =
+        Mirrors.fileVariants(apkUrl(info)).map { it.second }.distinct()
+
+    /** 模块 zip 的下载候选：清单里没给地址时返回空列表 */
+    fun moduleSources(info: UpdateInfo?): List<String> {
+        val raw = info?.moduleUrl.orEmpty()
+        if (raw.isBlank()) return emptyList()
+        return Mirrors.fileVariants(raw).map { it.second }.distinct()
+    }
+
     /**
      * 给下载地址套上本次扫通的代理。
      * GitHub 直连能通就不加前缀；通了镜像才查到的更新 这里同样走镜像。
@@ -339,102 +372,10 @@ object Update {
         val proxy = liveProxy.orEmpty()
         if (proxy.isEmpty()) return url
         // 已经是代理/镜像地址就不重复加前缀
-        if (PROXIES.any { it.isNotEmpty() && url.startsWith(it) }) return url
+        if (PROXY_PREFIXES.any { it.isNotEmpty() && url.startsWith(it) }) return url
         return proxy + url
     }
 
-    // ---------------- 下载兜底 ----------------
-    // releases/download 那一跳要回源 GitHub 主站 镜像站全挂的时候它也跟着 504
-    // （资产本身没丢 走 API 就能拿到）。这里把它换成 API 给出的签名直链：
-    //   GET /releases/tags/<tag>        找到 asset id
-    //   GET /releases/assets/<id>       302 → release-assets.githubusercontent.com 的签名地址
-    // 签名地址能直接丢给浏览器 有效期约一小时 所以每次点下载现取一次
-
-    /** releases/download/<tag>/<asset> */
-    private val RELEASE_ASSET =
-        Regex("""^https://github\.com/[^/]+/[^/]+/releases/download/([^/]+)/(.+)$""")
-
-    @Serializable
-    private data class ApiRelease(val assets: List<ApiAsset> = emptyList())
-
-    @Serializable
-    private data class ApiAsset(val id: Long = 0, val name: String = "")
-
-    /**
-     * 拿一个「现在点就能下」的地址。
-     *
-     * 优先走 API 换签名直链（绕开 504 的 releases/download）；
-     * 换不到（API 限流 / 断网 / 不是 releases 链接）就退回原来的地址，行为与之前一致。
-     */
-    suspend fun resolveDownload(raw: String, timeoutMs: Long = 8_000): String =
-        withContext(Dispatchers.IO) {
-            val fallback = downloadUrl(raw)
-            runCatching { apiDownload(raw, timeoutMs) }.getOrNull() ?: fallback
-        }
-
-    /** 查 tag 下的资产列表 找到同名资产 再换它的签名直链；任何一步不成都返回 null */
-    private fun apiDownload(raw: String, timeoutMs: Long): String? {
-        val m = RELEASE_ASSET.find(stripProxy(raw)) ?: return null
-        val tag = m.groupValues[1]
-        val asset = m.groupValues[2]
-        val deadline = System.currentTimeMillis() + timeoutMs
-        val text = httpGet("$API/releases/tags/$tag", "application/vnd.github+json", deadline)
-            ?: return null
-        val release = runCatching { json.decodeFromString<ApiRelease>(text) }.getOrNull() ?: return null
-        val id = release.assets.firstOrNull { it.name == asset }?.id ?: return null
-        return redirectLocation("$API/releases/assets/$id", deadline)
-    }
-
-    /** 去掉可能已经套上的加速站前缀：清单里存的是原始 github 链接 保险起见还是剥一层 */
-    private fun stripProxy(url: String): String {
-        var u = url.trim()
-        PROXIES.forEach { p -> if (p.isNotEmpty() && u.startsWith(p)) u = u.removePrefix(p) }
-        return u
-    }
-
-    private fun httpGet(url: String, accept: String, deadline: Long): String? = runCatching {
-        val left = (deadline - System.currentTimeMillis()).coerceAtMost(6_000L).toInt()
-        if (left <= 0) return@runCatching null
-        val conn = (URL(url).openConnection() as HttpURLConnection).apply {
-            connectTimeout = left
-            readTimeout = left
-            requestMethod = "GET"
-            setRequestProperty("Accept", accept)
-            setRequestProperty("User-Agent", "HyperMount")
-            setRequestProperty("Cache-Control", "no-cache")
-        }
-        try {
-            if (conn.responseCode != HttpURLConnection.HTTP_OK) {
-                // 403 = 匿名配额用完：本轮之后的检查就别再试 API 了
-                if (conn.responseCode == 403) apiBlocked = true
-                return@runCatching null
-            }
-            conn.inputStream.bufferedReader().use { it.readText() }
-        } finally {
-            runCatching { conn.disconnect() }
-        }
-    }.getOrNull()
-
-    /** 只读 302 的 Location：不跟随 否则会把整个 zip 拉进内存 */
-    private fun redirectLocation(url: String, deadline: Long): String? = runCatching {
-        val left = (deadline - System.currentTimeMillis()).coerceAtMost(6_000L).toInt()
-        if (left <= 0) return@runCatching null
-        val conn = (URL(url).openConnection() as HttpURLConnection).apply {
-            connectTimeout = left
-            readTimeout = left
-            requestMethod = "GET"
-            instanceFollowRedirects = false
-            setRequestProperty("Accept", "application/octet-stream")
-            setRequestProperty("User-Agent", "HyperMount")
-        }
-        try {
-            val code = conn.responseCode
-            if (code !in 300..399) return@runCatching null
-            conn.getHeaderField("Location")?.takeIf { it.startsWith("http") }
-        } finally {
-            runCatching { conn.disconnect() }
-        }
-    }.getOrNull()
 
     private suspend fun fetch(
         channel: UpdateChannel,
@@ -489,47 +430,57 @@ object Update {
         )
     }
 
-    /** 一条候选源：proxy 用于记住"哪条能通" 下载链接跟着它走 */
-    private class Source(
-        val label: String,
-        val proxy: String,
-        val url: String,
-        val accept: String = "application/json",
-    )
 
     /**
-     * 按「API → 直连 → 代理 → 镜像」逐条试到拿回一份清单为止。
+     * 拿一份清单。
      *
-     * 阻塞式 HttpURLConnection 不响应协程取消，超时只能自己在每条之前掐：
-     * 预算用完就停，免得一串死链把启动后的后台任务拖到半分钟。
-     *
-     * 返回清单和它的来源标签（日志里写出来 出问题一眼能看出是哪条通/哪条挂）。
+     * 顺序：
+     *  1. 手动检查先问 API（镜像整片挂掉时它通常是唯一还活着的一条）
+     *  2. 30 分钟内竞速胜出的源直接用，不再重新探测
+     *  3. 并发探测全部候选（直连 + 镜像池 + CDN），谁先回来用谁
+     *  4. 全挂 → 回退官方直连再试一次：检查更新这个功能本身不能因为有镜像就失败
      */
-    private fun pull(channel: UpdateChannel, timeoutMs: Long, preferApi: Boolean): Pair<UpdateInfo, String>? {
-        val manifest = rawManifest(channel)
-        val sources = buildList {
-            // 手动检查：API 排最前。镜像整片挂掉时（现在 releases/download 就在 504）它是唯一还有戏的一条
-            if (preferApi && !apiBlocked) add(Source("API", API_MARK, apiManifest(channel), API_RAW))
-            PROXIES.forEach { proxy ->
-                add(Source(proxy.ifEmpty { "直连" }, proxy, proxy + manifest))
-            }
-            mirrors(channel).forEach { add(Source("镜像", "", it)) }
-        }.let { list ->
-            // 本次已经扫通过一条 就把它排到最前：手动重查时不用再从死链开始试
-            // API 那条不动 它跟 raw 是两套 host 成功与否互不说明
-            val known = liveProxy ?: return@let list
-            val (api, rest) = list.partition { it.proxy == API_MARK }
-            api + rest.sortedByDescending { if (it.proxy == known) 1 else 0 }
-        }
+    private suspend fun pull(
+        channel: UpdateChannel,
+        timeoutMs: Long,
+        preferApi: Boolean,
+    ): Pair<UpdateInfo, String>? = withContext(Dispatchers.IO) {
         val deadline = System.currentTimeMillis() + timeoutMs
-        for (source in sources) {
-            if (System.currentTimeMillis() >= deadline) break
-            val info = fetchOne(source.url, source.accept, source.proxy == API_MARK) ?: continue
-            // API 通了不代表 raw 直连通 别拿它覆盖下载要用的代理前缀
-            if (source.proxy != API_MARK) liveProxy = source.proxy
-            return info to source.label
+
+        // 1. API
+        if (preferApi && !apiBlocked) {
+            fetchOne(apiManifest(channel), API_RAW, isApi = true)?.let {
+                return@withContext it to "API"
+            }
         }
-        return null
+
+        // 2. 本次会话已经竞速出来的源
+        sessionPick(channel)?.let { pick ->
+            val info = fetchOne(pick.url, "application/json")
+            if (info != null) return@withContext info to pick.label
+            sessions.remove(channel)
+        }
+
+        // 3. 并发探测：每条 5 秒，并行跑，总耗时就是最慢那条
+        val budget = minOf(PROBE_MS, (deadline - System.currentTimeMillis()).coerceAtLeast(1_000L))
+        val ranked = Mirrors.rank(Mirrors.manifestVariants(rawManifest(channel)), budget)
+        for ((mirror, url) in ranked) {
+            if (System.currentTimeMillis() >= deadline) break
+            val info = fetchOne(url, "application/json") ?: continue
+            val label = mirror?.label ?: "直连"
+            // 域名替换型的镜像只能读文件 转不了 release 资产 下载仍走直连/前缀站
+            val proxy = if (mirror != null && mirror.kind == MirrorKind.PREFIX) mirror.base else ""
+            liveProxy = proxy
+            sessions[channel] = SessionPick(label, url, proxy) to (System.currentTimeMillis() + SESSION_MS)
+            return@withContext info to label
+        }
+
+        // 4. fail-open：探测全挂了也再试一次官方直连
+        fetchOne(rawManifest(channel), "application/json")?.let {
+            liveProxy = ""
+            return@withContext it to "直连"
+        }
+        null
     }
 
     /**

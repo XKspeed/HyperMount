@@ -88,6 +88,9 @@ fun AboutPage(
     // 这份清单来自哪个来源：内测包的版本号跟正式版一模一样 卡片上得写清楚
     channel: UpdateChannel = UpdateChannel.RELEASE,
     moduleLatest: UpdateInfo?,
+    // 下载进度：null 表示没在下，0f..1f 表示进行中（按钮上显示百分比）
+    appProgress: Float? = null,
+    moduleProgress: Float? = null,
     onOpenRelease: () -> Unit,
     onDownloadModule: () -> Unit,
     onOpenThirdPartyLicenses: () -> Unit,
@@ -225,10 +228,14 @@ fun AboutPage(
                         Spacer(Modifier.height(12.dp))
                         Button(
                             onClick = onOpenRelease,
+                            enabled = appProgress == null,
                             colors = ButtonDefaults.buttonColorsPrimary(),
                             modifier = Modifier.fillMaxWidth(),
                         ) {
-                            MiuixText("前往下载")
+                            MiuixText(
+                                if (appProgress == null) "下载并安装"
+                                else "下载中 ${(appProgress * 100).toInt()}%",
+                            )
                         }
                     }
                 }
@@ -268,10 +275,14 @@ fun AboutPage(
                         Spacer(Modifier.height(12.dp))
                         Button(
                             onClick = onDownloadModule,
+                            enabled = moduleProgress == null,
                             colors = ButtonDefaults.buttonColorsPrimary(),
                             modifier = Modifier.fillMaxWidth(),
                         ) {
-                            MiuixText("下载模块压缩包")
+                            MiuixText(
+                                if (moduleProgress == null) "下载模块压缩包"
+                                else "下载中 ${(moduleProgress * 100).toInt()}%",
+                            )
                         }
                         Spacer(Modifier.height(6.dp))
                         MiuixText(

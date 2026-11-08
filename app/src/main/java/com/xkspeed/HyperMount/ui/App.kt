@@ -54,6 +54,8 @@ import com.xkspeed.HyperMount.MainActivity
 import com.xkspeed.HyperMount.R
 import com.xkspeed.HyperMount.core.AppLog
 import com.xkspeed.HyperMount.core.DaemonService
+import com.xkspeed.HyperMount.core.Downloader
+import com.xkspeed.HyperMount.core.Installer
 import com.xkspeed.HyperMount.core.Module
 import com.xkspeed.HyperMount.core.ModuleState
 import com.xkspeed.HyperMount.core.ApkStore
@@ -275,42 +277,84 @@ fun App() {
         }
     }
 
-    /**
-     * 打开一个下载地址。
-     *
-     * 先跟 API 换一条签名直链再交给浏览器：镜像站整片挂掉的时候
-     * releases/download 那一跳会 504（资产本身是好的 走 API 就能下）。
-     * 换得慢就提示一句，免得用户以为点了没反应；换不到会自己退回原地址。
-     */
-    fun openDownload(raw: String, slowHint: String, onOpened: (() -> Unit)? = null) {
-        scope.launch {
-            val hint = launch {
-                delay(1_500)
-                toast(context, slowHint)
-            }
-            val url = Update.resolveDownload(raw)
-            hint.cancel()
-            val ok = runCatching { uriHandler.openUri(url) }.isSuccess
-            if (ok) onOpened?.invoke() else toast(context, "打开下载链接失败")
-        }
-    }
+    /** 下载进度：null 表示没在下，0f..1f 表示进行中（更新卡片里显示） */
+    var downloadProgress by remember { mutableStateOf<Float?>(null) }
+    /** 正在下的是哪一份：app / module，用来让两张卡片各自显示自己的进度 */
+    var downloadKind by remember { mutableStateOf<String?>(null) }
 
+    /**
+     * 下载 App 更新包。
+     *
+     * 多镜像并发分段拉（谁快用谁，单段挂了换下一条），下完按清单里的 sha256 校验，
+     * 然后拉起系统安装界面。3.7MB 的包通常十几秒。
+     */
     fun openRelease() {
-        // 下载地址跟着本次扫通的镜像走：查更新时 GitHub 直连不通 这里就不能还给直连链接
-        openDownload(latest?.url.orEmpty(), "正在获取下载地址")
+        if (downloadProgress != null) return
+        val info = latest ?: return
+        scope.launch {
+            downloadKind = "app"
+            downloadProgress = 0f
+            val name = "HyperMount-${Update.label(info)}.apk"
+            val dest = File(Installer.updateDir(context), name)
+            val result = runCatching {
+                Downloader.fetch(
+                    candidates = Update.apkSources(info),
+                    dest = dest,
+                    sha256 = info.sha256,
+                ) { done, total ->
+                    if (total > 0) {
+                        val p = (done.toFloat() / total).coerceIn(0f, 1f)
+                        scope.launch { downloadProgress = p }
+                    }
+                }
+            }
+            downloadProgress = null
+            downloadKind = null
+            if (result.isSuccess) {
+                if (!Installer.installApk(context, dest)) toast(context, "无法打开安装界面")
+            } else {
+                val why = result.exceptionOrNull()?.message ?: "网络异常"
+                toast(context, "下载失败：$why")
+            }
+        }
     }
 
     /**
      * 模块只给下载，不代装。
      *
      * 刷模块要重启手机、要用户在 Root 管理器里确认，App 这边直接装上去风险太大；
-     * 给个 zip 链接交给浏览器下载就够了，装不装、什么时候装由用户自己决定。
+     * 下到本地目录交给用户自己刷就够了。
      */
     fun downloadModule() {
-        val hasFile = Update.hasModuleFile(manifest)
-        val slowHint = if (hasFile) "正在获取模块下载地址" else "正在打开 Release 页"
-        openDownload(manifest?.moduleUrl.orEmpty(), slowHint) {
-            if (hasFile) toast(context, "开始下载模块 zip 刷入后重启手机")
+        if (downloadProgress != null) return
+        val info = manifest ?: return
+        val sources = Update.moduleSources(info)
+        if (sources.isEmpty()) {
+            // 老清单没给模块直链：退回 Release 页
+            runCatching { uriHandler.openUri(Update.downloadUrl("")) }
+            return
+        }
+        scope.launch {
+            downloadKind = "module"
+            downloadProgress = 0f
+            val ver = Update.moduleLabel(info)
+            val dest = File(Installer.updateDir(context), "module-$ver.zip")
+            val result = runCatching {
+                Downloader.fetch(sources, dest, info.moduleSha256) { done, total ->
+                    if (total > 0) {
+                        val p = (done.toFloat() / total).coerceIn(0f, 1f)
+                        scope.launch { downloadProgress = p }
+                    }
+                }
+            }
+            downloadProgress = null
+            downloadKind = null
+            if (result.isSuccess) {
+                toast(context, "模块已保存：${dest.absolutePath}")
+            } else {
+                val why = result.exceptionOrNull()?.message ?: "网络异常"
+                toast(context, "模块下载失败：$why")
+            }
         }
     }
 
@@ -864,6 +908,8 @@ fun App() {
                 latest = latest,
                 channel = UiConfigState.updateChannel,
                 moduleLatest = moduleLatest,
+                appProgress = if (downloadKind == "app") downloadProgress else null,
+                moduleProgress = if (downloadKind == "module") downloadProgress else null,
                 onOpenRelease = { openRelease() },
                 onDownloadModule = { downloadModule() },
                 onOpenThirdPartyLicenses = { push(Route.ThirdPartyLicenses) },

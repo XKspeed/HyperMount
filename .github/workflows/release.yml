@@ -569,6 +569,7 @@ jobs:
           MODULE_VERSION: ${{ steps.version.outputs.module_name }}
           MODULE_CODE: ${{ steps.version.outputs.module_code }}
           MODULE_FILE: ${{ steps.module.outputs.module_file }}
+          MODULE_ZIP: ${{ steps.module.outputs.module_zip }}
           BUILD_TIME: ${{ steps.version.outputs.build_time }}
           TARGET: ${{ steps.version.outputs.target }}
         run: |
@@ -578,7 +579,15 @@ jobs:
           MODULE_URL="https://github.com/${REPO}/releases/download/${TAG}/${MODULE_FILE}"
           export CODE URL MODULE_URL
           python3 - <<'PY'
-          import json, os, re
+          import hashlib, json, os, re
+
+          def sha256_of(path):
+              """下载器下完要拿这个值比对：镜像站不可信 能验就必须验"""
+              h = hashlib.sha256()
+              with open(path, "rb") as f:
+                  for chunk in iter(lambda: f.read(1 << 20), b""):
+                      h.update(chunk)
+              return h.hexdigest()
 
           def read_lines(path):
               """把 update.md 段落里的 - 列表项压成一行一条的纯文本
@@ -616,6 +625,10 @@ jobs:
                   # 应用日志取 update.md 里本次版本的段落（不是从 Release 说明里抠，避免混进模块段）
                   "changelog": read_lines("app_changelog.md"),
               })
+              # 安装包摘要：App 下载器下完对一遍
+              apk = "dist/HyperMount-arm64-%s.apk" % os.environ["VERSION"]
+              if os.path.exists(apk):
+                  data["sha256"] = sha256_of(apk)
           if target != "1":
               data.update({
                   # 模块挂在同一个 Release 里，官网「先装模块」卡片与关于页模块更新卡读这三项
@@ -625,6 +638,9 @@ jobs:
                   # 模块这版没有日志就是空串，App 端会自动回落到「见 Release 页面」
                   "moduleChangelog": read_lines("module_changelog.md"),
               })
+              mzip = os.environ.get("MODULE_ZIP", "")
+              if mzip and os.path.exists(mzip):
+                  data["moduleSha256"] = sha256_of(mzip)
           with open("update.json", "w", encoding="utf-8") as f:
               json.dump(data, f, ensure_ascii=False, indent=2)
               f.write("\n")

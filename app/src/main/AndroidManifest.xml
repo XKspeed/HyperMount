@@ -11,6 +11,9 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
+    <!-- 下载完的安装包要交给系统安装器（Android 8 起必须声明） -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+
     <!-- Android 11 起包可见性受限 不声明的话查不到 MT 的安装信息 -->
     <queries>
         <!-- MT 管理器与官方共存版 选文件时按包名直接点名 -->
@@ -59,5 +62,16 @@
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
                 android:value="维持 root 救砖守护进程 防止系统冻结" />
         </service>
+
+        <!-- 下载好的更新包通过 content:// 交给系统安装器 -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
     </application>
 </manifest>

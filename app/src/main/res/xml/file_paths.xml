@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- FileProvider 能共享出去的路径：只需要 App 自己的更新包目录 -->
+<paths>
+    <external-files-path name="update" path="update/" />
+    <files-path name="files" path="." />
+</paths>

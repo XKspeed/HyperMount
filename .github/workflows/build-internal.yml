@@ -351,10 +351,18 @@ jobs:
             : > /tmp/internal-module-changelog.txt
           fi
           python3 - <<'PY'
-          import json, os
+          import hashlib, json, os
 
           def lines(path):
               return [l.strip() for l in open(path, encoding="utf-8") if l.strip()]
+
+          def sha256_of(path):
+              """App 下载器下完要拿这个值比对：内测走的镜像更多 更需要验"""
+              h = hashlib.sha256()
+              with open(path, "rb") as f:
+                  for chunk in iter(lambda: f.read(1 << 20), b""):
+                      h.update(chunk)
+              return h.hexdigest()
 
           # 只打一侧时另一侧字段原样保留：清单是两边的最新快照 清空会让另一条通道的提示消失
           current = {}
@@ -375,6 +383,10 @@ jobs:
                   "url": os.environ["URL"],
                   "changelog": "\n".join(lines("/tmp/internal-changelog.txt")),
               })
+              # 安装包摘要：App 下载器下完对一遍
+              apk = "dist/HyperMount-arm64-internal.apk"
+              if os.path.exists(apk):
+                  data["sha256"] = sha256_of(apk)
           if target != "1":
               data.update({
                   # 内测也带模块：App 的内测通道直接读这几项 不用再回正式清单里找
@@ -383,6 +395,9 @@ jobs:
                   "moduleUrl": os.environ["MURL"],
                   "moduleChangelog": "\n".join(lines("/tmp/internal-module-changelog.txt")),
               })
+              mzip = "dist/module-internal.zip"
+              if os.path.exists(mzip):
+                  data["moduleSha256"] = sha256_of(mzip)
           with open("update-internal.json", "w", encoding="utf-8") as f:
               json.dump(data, f, ensure_ascii=False, indent=2)
               f.write("\n")
