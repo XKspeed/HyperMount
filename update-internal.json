@@ -1,8 +1,12 @@
 {
-  "versionCode": 15,
-  "versionName": "1.4.1-beta",
-  "buildTime": 1794054300949,
-  "buildId": "13",
+  "versionCode": 11,
+  "versionName": "1.4.2-debug",
+  "buildTime": 1794128043658,
+  "buildId": "15",
   "url": "https://github.com/XKspeed/HyperMount/releases/download/internal/HyperMount-arm64-internal.apk",
-  "changelog": "修复主页误显示已救砖\n修复内测版更新提示异常\n设置页新增更新来源与版本胶囊\n新增标准底栏与折射开关\n新增主题快捷按钮与位置微调\n优化下拉栏动画与拖动选择\n新增日志目录校验与长按填写\n精简日志等级与调试入口\n优化缓存页排版与滑条弹窗\n移除设置页运行数据栏\n优化引导页"
+  "changelog": "新增界面设置二级页\n新增配置二级页\n新增全局常驻救砖\n新增守护状态常驻通知\n优化设置布局\n移除仅日志模式的等待超时\n优化引导页内容\n滑条支持点击跳档\n优化部分页面布局\n移除运行输出中的崩溃日志\n内测版也能收到模块更新",
+  "moduleVersionCode": 16,
+  "moduleVersionName": "1.5.7-debug.15",
+  "moduleUrl": "https://github.com/XKspeed/HyperMount/releases/download/internal/module-internal.zip",
+  "moduleChangelog": "新增模块更新检测\n新增全局常驻救砖守护\n替换界面不再计入崩溃次数"
 }
