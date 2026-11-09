@@ -17,9 +17,9 @@ on:
         required: false
         default: ''
       target:
-        description: '打包内容（0=App+模块 1=只打App 2=只打模块）'
+        description: '打包内容（留空或 1=只打App 2=只打模块 0=App+模块）'
         required: false
-        default: '0'
+        default: ''
 
 permissions:
   # 要往固定 tag `internal` 发 prerelease、还要把清单提交回 main
@@ -124,8 +124,9 @@ jobs:
           MK_CODE=$(grep '^versionCode=' module/main/module.prop | head -1 | cut -d= -f2 | tr -d ' \r')
 
           # ---- 打包内容 ----
+          # 留空 = 只打 App（日常内测就是发 App，模块不动）
           # 0 全打 / 1 只打 App / 2 只打模块；没打的那一侧版本不动
-          TARGET="${IN_TARGET:-0}"
+          TARGET="${IN_TARGET:-1}"
           case "$TARGET" in
             0|1|2) ;;
             *) echo "::error::打包内容只能是 0 / 1 / 2"; exit 1 ;;
