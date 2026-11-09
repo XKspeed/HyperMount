@@ -267,8 +267,10 @@ jobs:
           ls -l dist/module-internal.zip
 
       # 固定 tag 的 prerelease：App 的内测通道就从这里下
-      # 每次先删掉整个 release 再建：保证这个 tag 下永远只有一 APK + 一模块包
+      # 原地更新 不删旧资产：只打 App 时把上一版的模块包留着 固定链接才不会 404
+      # （以前是先删整个 release 再建 那一侧没打就把旧包一起删了 清单里的 moduleUrl 直接变死链）
       - name: Publish internal prerelease
+        id: publish
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPO: ${{ github.repository }}
@@ -298,22 +300,42 @@ jobs:
             cat /tmp/internal-latest.md
           } > /tmp/internal-notes.md
           cat /tmp/internal-notes.md
-          gh release delete internal --repo "$REPO" --yes --cleanup-tag 2>/dev/null || true
           # 只打一侧时另一个产物不存在 传不存在的路径 gh 会直接报错
           FILES=()
           if [ "$TARGET" != "2" ]; then FILES+=("dist/${ASSET}"); fi
           if [ "$TARGET" != "1" ]; then FILES+=("dist/module-internal.zip"); fi
           if [ "$TARGET" = "2" ]; then TITLE="内测模块 ${MODULE_NAME}"; else TITLE="内测版 ${NAME}"; fi
-          gh release create internal "${FILES[@]}" \
-            --repo "$REPO" \
-            --prerelease \
-            --title "${TITLE}" \
-            --notes-file /tmp/internal-notes.md
-          COUNT=$(gh release view internal --repo "$REPO" --json assets --jq '.assets | length')
-          echo "internal 下的资产数：${COUNT}"
-          if [ "${COUNT}" -ne "${#FILES[@]}" ]; then
-            echo "::error::internal 下应该有 ${#FILES[@]} 个资产 实际是 ${COUNT} 个"
-            exit 1
+
+          # 有就改标题与说明 没有才建；两个分支都不碰现有资产
+          if gh release view internal --repo "$REPO" >/dev/null 2>&1; then
+            gh release edit internal --repo "$REPO" --title "$TITLE" \
+              --notes-file /tmp/internal-notes.md --prerelease
+          else
+            gh release create internal --repo "$REPO" --prerelease --title "$TITLE" \
+              --notes-file /tmp/internal-notes.md
+          fi
+          # 本次打出来的那一侧原地覆盖（同名 clobber） 另一侧保持原样
+          gh release upload internal "${FILES[@]}" --repo "$REPO" --clobber
+
+          # 对账：本次要传的必须在 顺带把另一侧在不在告诉下一步
+          NAMES=$(gh release view internal --repo "$REPO" --json assets --jq '.assets[].name')
+          echo "internal 下的资产：$(printf '%s' "$NAMES" | tr '\n' ' ')"
+          for f in "${FILES[@]}"; do
+            base=$(basename "$f")
+            if ! printf '%s\n' "$NAMES" | grep -qx "$base"; then
+              echo "::error::上传后没在 release 里找到 ${base}"
+              exit 1
+            fi
+          done
+          if printf '%s\n' "$NAMES" | grep -qx "$ASSET"; then
+            echo "has_apk=1" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_apk=0" >> "$GITHUB_OUTPUT"
+          fi
+          if printf '%s\n' "$NAMES" | grep -qx "module-internal.zip"; then
+            echo "has_module=1" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_module=0" >> "$GITHUB_OUTPUT"
           fi
 
       # 清单里的构建号就是这次的 run number：App 拿它跟手上那份比 不同就算有内测更新
@@ -327,6 +349,8 @@ jobs:
           MVN: ${{ steps.module.outputs.module_version }}
           MC: ${{ steps.module.outputs.module_code }}
           TARGET: ${{ steps.v.outputs.target }}
+          HAS_APK: ${{ steps.publish.outputs.has_apk }}
+          HAS_MODULE: ${{ steps.publish.outputs.has_module }}
         run: |
           set -euo pipefail
           # 更新说明与发版页同一份内容（上一步已经落到 /tmp/internal-latest.md）
@@ -398,6 +422,19 @@ jobs:
               mzip = "dist/module-internal.zip"
               if os.path.exists(mzip):
                   data["moduleSha256"] = sha256_of(mzip)
+
+          # 与 release 里的资产对账：只写真实存在的产物
+          # 另一侧是上一版留下的包 只要还在就沿用；被清理过就把那几项摘掉
+          # 免得出现「提示有模块更新 点下载 404」
+          if os.environ.get("HAS_APK") != "1":
+              for k in ("versionCode", "versionName", "buildTime", "buildId",
+                        "url", "changelog", "sha256"):
+                  data.pop(k, None)
+          if os.environ.get("HAS_MODULE") != "1":
+              for k in ("moduleVersionCode", "moduleVersionName", "moduleUrl",
+                        "moduleChangelog", "moduleSha256"):
+                  data.pop(k, None)
+
           with open("update-internal.json", "w", encoding="utf-8") as f:
               json.dump(data, f, ensure_ascii=False, indent=2)
               f.write("\n")
@@ -471,5 +508,5 @@ jobs:
             echo "- 与正式包同一签名 可直接覆盖安装"
             echo "- 模块内测包 versionCode 与正式版同号 测试版更新只在 App 里提示"
             echo "- 不改 update.json；提交内测清单与 +1 后的 versionCode"
-            echo "- \`internal\` 下每次构建先删再建 只放这次打出来的产物"
+            echo "- \`internal\` 下原地更新：只覆盖本次打的那一侧 另一侧保留上一版的包"
           } >> "$GITHUB_STEP_SUMMARY"
