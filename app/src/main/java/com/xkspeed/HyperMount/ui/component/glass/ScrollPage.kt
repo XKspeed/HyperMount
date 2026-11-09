@@ -66,6 +66,9 @@ import top.yukonga.miuix.kmp.icon.extended.Close
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.utils.scrollEndHaptic
 import top.yukonga.miuix.kmp.utils.overScrollVertical
+import com.xkspeed.HyperMount.BuildConfig
+import com.xkspeed.HyperMount.core.BuildVariant
+import com.xkspeed.HyperMount.ui.components.UnofficialBanner
 
 /** 顶栏（小标题那一条）的高度 与列表顶部留白同源 */
 private val BarHeight = 54.dp
@@ -124,6 +127,10 @@ fun ScrollPage(
     content: LazyListScope.() -> Unit,
 ) {
     val pageColor = MiuixTheme.colorScheme.surface
+
+    // isDebuggable == true 代表「不是正式证书签的」——改包重签必然落到这一支
+    // debug 构建一律放行：自测包随便重签都不该出现红条
+    val unofficial = remember { !BuildConfig.DEBUG && BuildVariant.isDebuggable }
     // 采样层必须"先铺页面底色、再录列表内容"（对齐 Sonify 的 rememberTitleBackdrop）：
     // 否则列表项之间的空档在采样层里是透明的 自适应亮度会把它当成暗色
     // 玻璃的亮度/对比/图标色跟着一起跑偏（用户看到的"返回键玻璃颜色不对"）
@@ -168,6 +175,10 @@ fun ScrollPage(
                     Spacer(Modifier.height(statusBarHeight))
                     LargeTitle(title, subtitle, collapse.alpha, subtitleExtra)
                 }
+            }
+            // 非官方签名：贴在内容最顶端，跟着列表一起滚（大标题之下、第一张卡片之上）
+            if (unofficial) {
+                item(key = "unofficial") { UnofficialBanner() }
             }
             content()
             item(key = "bottom-space") {
