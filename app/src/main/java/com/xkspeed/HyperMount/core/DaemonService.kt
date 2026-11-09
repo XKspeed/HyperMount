@@ -29,7 +29,7 @@ import java.util.Locale
  *
  * 本服务不承载业务逻辑 只负责"让进程活着 + 给用户一个能看进度的通知"。
  * 通知标题按来源分：全局常驻守护是「SystemUI守护中」，界面页点测试是「守护中」；
- * 副标题报累计救砖次数与这一轮的守护时长（秒级 所以自己每秒刷一次）。
+ * 副标题报累计救砖次数与这一轮的剩余时长（秒级 所以自己每秒刷一次）。
  */
 class DaemonService : Service() {
 
@@ -105,7 +105,11 @@ class DaemonService : Service() {
         val since = st.since.takeIf { it > 0L } ?: startedAt
         val elapsed = (now - since).coerceAtLeast(0L)
         val title = if (st.active) st.title else "守护中"
-        val text = "已救砖：${st.protectCount}次｜守护时长：${fmtDuration(elapsed)}"
+        // 报剩余时长而不是已经跑了多久：用户关心的是还剩多少时间
+        // 设了上限才倒计时 无限制（或点测试那一轮）直接写「不限」
+        val remain = if (st.limit > 0L) (st.limit - elapsed).coerceAtLeast(0L) else -1L
+        val text = "已救砖：${st.protectCount}次｜剩余时长：" +
+            if (remain < 0L) "不限" else fmtDuration(remain)
         val open = PendingIntent.getActivity(
             this,
             0,

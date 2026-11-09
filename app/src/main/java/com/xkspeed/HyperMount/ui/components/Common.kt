@@ -1,5 +1,7 @@
 package com.xkspeed.HyperMount.ui.components
 
+import androidx.compose.foundation.layout.BoxScope
+import androidx.compose.ui.graphics.Color
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -10,6 +12,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -23,6 +26,13 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import com.kyant.backdrop.Backdrop
+import com.kyant.backdrop.drawBackdrop
+import com.kyant.backdrop.effects.blur
+import com.kyant.backdrop.shadow.Shadow
+import com.xkspeed.HyperMount.ui.UiConfigState
+import com.xkspeed.HyperMount.ui.component.glass.StandardBottomNavHeight
+import com.xkspeed.HyperMount.ui.util.isInDarkTheme
 import top.yukonga.miuix.kmp.basic.Button
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.HorizontalDivider
@@ -33,6 +43,7 @@ import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.extended.Back
 import top.yukonga.miuix.kmp.theme.MiuixTheme
+import com.xkspeed.HyperMount.ui.util.stableNavigationBarsPadding
 
 /**
  * 分组卡片
@@ -219,5 +230,90 @@ fun BackIcon(onClick: () -> Unit, modifier: Modifier = Modifier) {
             contentDescription = "返回",
             tint = MiuixTheme.colorScheme.onBackground,
         )
+    }
+}
+
+/**
+ * 页面底部的常驻操作条（悬浮卡片）
+ *
+ * 浮动在列表之上、底栏之上，不跟着列表滚：
+ * - 材质与底栏「关玻璃」时的磨砂胶囊同一套：采样页面 backdrop 做 12dp 模糊，
+ *   表面色浅色 0.85 白 / 深色 0.55 的 #1C1C1E，外圈 Shadow.Default
+ * - 拿不到 backdrop（安全模式 / 页面没给）时退回实心 surface 卡片，不会糊成一团
+ * - 底栏自己吃了导航条 inset，这里跟着抬起来，卡片底边始终在底栏上方 [GapAboveBar]
+ *
+ * 高度变化（按钮文案换行之类）不影响布局：列表的底部间距由调用方单独给。
+ */
+@Composable
+fun BoxScope.BottomActions(
+    backdrop: Backdrop?,
+    hint: String,
+    startLabel: String,
+    startEnabled: Boolean,
+    onStart: () -> Unit,
+    stopEnabled: Boolean,
+    onStop: () -> Unit,
+) {
+    val shape = RoundedCornerShape(26.dp)
+    // 与 LiquidBottomTabs 磨砂胶囊同色同透明度 玻璃关着时两处看起来是一套
+    val surfaceColor = if (isInDarkTheme()) {
+        Color(0xFF1C1C1E).copy(alpha = 0.55f)
+    } else {
+        Color.White.copy(alpha = 0.85f)
+    }
+    // 底栏高度：iOS 悬浮条 70dp（含呼吸） 标准条 64dp
+    val barHeight = if (UiConfigState.iosBottomBar) 70.dp else StandardBottomNavHeight
+    val glass = backdrop != null && !UiConfigState.safeMode
+
+    Box(
+        Modifier
+            .align(Alignment.BottomCenter)
+            // 宽度与底栏一致（93%） 两条浮层左右边缘对齐
+            .fillMaxWidth(0.93f)
+            // 底栏是浮在导航条之上的 这里同样让开系统导航条再让开底栏
+            .stableNavigationBarsPadding()
+            .padding(bottom = barHeight + 10.dp)
+            .then(
+                if (glass) {
+                    Modifier.drawBackdrop(
+                        backdrop = backdrop,
+                        shape = { shape },
+                        // 磨砂卡片：只做背景模糊 不带折射/透镜（与底栏关玻璃分支一致）
+                        effects = { blur(12.dp.toPx()) },
+                        shadow = { Shadow.Default },
+                        onDrawSurface = { drawRect(surfaceColor) },
+                    )
+                } else {
+                    Modifier.background(MiuixTheme.colorScheme.surface, shape)
+                }
+            )
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+    ) {
+        Column(Modifier.fillMaxWidth()) {
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Button(
+                    onClick = onStart,
+                    enabled = startEnabled,
+                    modifier = Modifier.weight(1f),
+                ) {
+                    Text(startLabel)
+                }
+                Button(
+                    onClick = onStop,
+                    enabled = stopEnabled,
+                    modifier = Modifier.weight(1f),
+                ) {
+                    Text("停止")
+                }
+            }
+            if (hint.isNotBlank()) {
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    hint,
+                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                    style = MiuixTheme.textStyles.subtitle,
+                )
+            }
+        }
     }
 }

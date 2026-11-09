@@ -1,3 +1,5 @@
+@file:OptIn(ExperimentalLayoutApi::class)
+
 package com.xkspeed.HyperMount.ui.util
 
 import android.os.Build
@@ -5,7 +7,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
-import androidx.compose.foundation.layout.captionBar
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.ProvidableCompositionLocal
@@ -31,6 +32,8 @@ import top.yukonga.miuix.kmp.blur.rememberLayerBackdrop
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.utils.scrollEndHaptic
 import top.yukonga.miuix.kmp.utils.overScrollVertical
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.captionBarIgnoringVisibility
 
 /** 宽屏（平板 / 折叠展开）标记 由 App 根部提供 */
 val LocalIsWideScreen: ProvidableCompositionLocal<Boolean> = staticCompositionLocalOf { false }
@@ -132,8 +135,8 @@ fun pageContentPadding(
     val topPadding = innerPadding.calculateTopPadding() + extraTop
     val bottomPadding = if (isWideScreen) {
         outerPadding.calculateBottomPadding() + extraBottom +
-            WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() +
-            WindowInsets.captionBar.asPaddingValues().calculateBottomPadding()
+            stableNavigationBarHeight() +
+            WindowInsets.captionBarIgnoringVisibility.asPaddingValues().calculateBottomPadding()
     } else {
         outerPadding.calculateBottomPadding() + extraBottom
     }

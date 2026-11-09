@@ -57,6 +57,7 @@ import com.xkspeed.HyperMount.ui.components.LiquidSelectPreference
 import com.xkspeed.HyperMount.ui.components.rememberLiquidSelectState
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import kotlin.math.roundToInt
+import com.xkspeed.HyperMount.ui.util.stableNavigationBarHeight
 
 /**
  * 界面偏好（和主题分开存 重启都能恢复）
@@ -227,8 +228,7 @@ fun UiSettingsPage(onBack: () -> Unit) {
     ScrollPage(
         title = "主题",
         onBack = onBack,
-        bottomPadding = WindowInsets.navigationBars.asPaddingValues()
-            .calculateBottomPadding() + 24.dp,
+        bottomPadding = stableNavigationBarHeight() + 24.dp,
         overlay = { bd -> LiquidSelectHost(select, bd) },
     ) {
                 // 三样都在一张卡里：明暗三档 / 莫奈取色 / 种子色
@@ -333,7 +333,6 @@ fun UiSettingsPage(onBack: () -> Unit) {
                     SectionCard {
                         SwitchPreference(
                             title = "iOS 底栏",
-                            summary = "关闭后用贴底的标准底栏",
                             checked = UiConfigState.iosBottomBar,
                             onCheckedChange = {
                                 UiConfigState.iosBottomBar = it

@@ -49,6 +49,7 @@ import top.yukonga.miuix.kmp.basic.SmallTitle
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.blur.layerBackdrop
 import top.yukonga.miuix.kmp.theme.MiuixTheme
+import com.xkspeed.HyperMount.ui.util.stableNavigationBarHeight
 
 /** 校验步骤状态 */
 private sealed interface StepState {
@@ -125,8 +126,7 @@ fun VolumeCheckPage(
     ScrollPage(
         title = "音量键校验",
         onBack = onBack,
-        bottomPadding = WindowInsets.navigationBars.asPaddingValues()
-            .calculateBottomPadding() + 24.dp,
+        bottomPadding = stableNavigationBarHeight() + 24.dp,
     ) {
                 item {
                     Text(

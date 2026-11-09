@@ -28,6 +28,7 @@ import com.xkspeed.HyperMount.ui.component.glass.ScrollPage
 import top.yukonga.miuix.kmp.basic.Button
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.theme.MiuixTheme
+import com.xkspeed.HyperMount.ui.util.stableNavigationBarHeight
 
 /**
  * 应用日志页
@@ -53,8 +54,7 @@ fun AppLogPage(onBack: () -> Unit) {
     ScrollPage(
         title = "应用日志",
         onBack = onBack,
-        bottomPadding = WindowInsets.navigationBars.asPaddingValues()
-            .calculateBottomPadding() + 24.dp,
+        bottomPadding = stableNavigationBarHeight() + 24.dp,
     ) {
         item {
             Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp)) {

@@ -111,6 +111,8 @@ import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.basic.TextField
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.window.WindowDialog
+import com.xkspeed.HyperMount.ui.util.stableNavigationBarHeight
+import com.xkspeed.HyperMount.ui.util.stableNavigationBarsPadding
 
 @Serializable
 sealed interface Route : NavKey {
@@ -239,7 +241,7 @@ fun App() {
     // 记录当前弹窗对应的是哪份崩溃文件 关闭时用来标记「已看过」
     var crashFile by remember { mutableStateOf<File?>(null) }
 
-    // 主页选到了系统界面本体：拦下来并引导去 SystemUI 页
+    // 应用页选到了系统界面本体：拦下来并引导去系统界面页
     // 待测 apk 和救砖 apk 都会被 pm install 进系统 两份都得挡
     var sysUiBlock by remember { mutableStateOf<SysUiBlock?>(null) }
     // 救砖包已经写进私有目录但还没确认：取消时删掉新包 旧配置原样不动
@@ -1109,23 +1111,23 @@ fun App() {
         }
     }
 
-    // 主页塞了系统界面本体：和设置里的增强救砖同款宽对话框 直接把人赶去 SystemUI 页
+    // 应用页塞了系统界面本体：和设置里的增强救砖同款宽对话框 直接把人赶去系统界面页
     val blocked = sysUiBlock
     if (blocked != null) {
         val byRescue = blocked == SysUiBlock.Rescue
         WindowDialog(
             show = true,
             title = if (byRescue) "救砖apk不能是系统界面" else "这个包不能装",
-            summary = "系统界面本体 请走 SystemUI 页的模块流程",
+            summary = "系统界面本体 请走「系统界面」页的模块流程",
             maxWidth = 560.dp,
             onDismissRequest = { sysUiBlock = null },
         ) {
             Text(
                 if (byRescue) {
-                    "$SYSTEMUI_PACKAGE 是系统界面本体 主页的救砖是把崩掉的待测apk" +
+                    "$SYSTEMUI_PACKAGE 是系统界面本体 应用页的救砖是把崩掉的待测apk" +
                         "装回正常版本 把系统界面装进去既救不回来 装错一次还会黑砖 "
                 } else {
-                    "$SYSTEMUI_PACKAGE 是系统界面本体 主页会把待测apk直接装进系统 " +
+                    "$SYSTEMUI_PACKAGE 是系统界面本体 应用页会把待测apk直接装进系统 " +
                         "装坏一次就是黑砖 所以这里不让选 "
                 },
                 color = MiuixTheme.colorScheme.onSurface,
@@ -1133,7 +1135,7 @@ fun App() {
             )
             Spacer(Modifier.height(6.dp))
             Text(
-                "要" + (if (byRescue) "换" else "测") + "系统界面请去「SystemUI」 那边走模块挂载和救砖守护 " +
+                "要" + (if (byRescue) "换" else "测") + "系统界面请去「系统界面」 那边走模块挂载和救砖守护 " +
                     "崩了会自动换回救砖包",
                 color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                 style = MiuixTheme.textStyles.subtitle,
@@ -1147,7 +1149,7 @@ fun App() {
                 )
                 Spacer(Modifier.width(20.dp))
                 TextButton(
-                    text = "前往 SystemUI",
+                    text = "前往系统界面",
                     onClick = {
                         sysUiBlock = null
                         jumpTab = 0
@@ -1225,16 +1227,16 @@ private fun MainScaffold(
     onRescueToggle: (Boolean) -> Unit,
     onSetCrashLimit: (Int) -> Unit,
 ) {
-    // 三页：界面 / 主页 / 设置 默认落在中间的主页
+    // 三页：系统界面 / 应用 / 设置 默认落在中间的应用
     val pagerState = rememberPagerState(initialPage = HOME_PAGE, pageCount = { 3 })
     var selected by remember { mutableIntStateOf(HOME_PAGE) }
-    // SystemUI 页换成九宫格图标（原图的圆角底板已经去掉 只留 3×3 方块）
+    // 系统界面页换成九宫格图标（原图的圆角底板已经去掉 只留 3×3 方块）
     // 深浅两档靠 alpha 区分 底栏的 tint 只换颜色 不动透明度
     val systemUiIcon = ImageVector.vectorResource(R.drawable.ic_systemui_grid)
     val navItems = remember(systemUiIcon) {
         listOf(
-            GlassNavItem("SystemUI", systemUiIcon),
-            GlassNavItem("主页", MiuixIcons.Home),
+            GlassNavItem("系统界面", systemUiIcon),
+            GlassNavItem("应用", MiuixIcons.Home),
             GlassNavItem("设置", MiuixIcons.Settings),
         )
     }
@@ -1242,7 +1244,7 @@ private fun MainScaffold(
 
     // 渲染阶段埋点：崩了能知道是第几个 tab / 哪一层出的问题
     LaunchedEffect(selected) {
-        AppLog.stage("主界面 tab=${listOf("SystemUI", "主页", "设置").getOrElse(selected) { "?" }}")
+        AppLog.stage("主界面 tab=${listOf("系统界面", "应用", "设置").getOrElse(selected) { "?" }}")
     }
 
     // 用 settledPage（动画结束后的落点）而不是 currentPage：
@@ -1253,7 +1255,7 @@ private fun MainScaffold(
         selected = pagerState.settledPage
     }
 
-    // 主页误选系统界面包被拦下后 点弹窗里的「前往 SystemUI」直接切过去
+    // 应用页误选系统界面包被拦下后 点弹窗里的「前往系统界面」直接切过去
     LaunchedEffect(jumpTab) {
         if (jumpTab < 0) return@LaunchedEffect
         pagerState.animateScrollToPage(jumpTab)
@@ -1281,8 +1283,7 @@ private fun MainScaffold(
         // 两种底栏高度不同：标准条 64dp 贴底 液态玻璃悬浮条再加 6dp 呼吸
         val bottomBarHeight = if (UiConfigState.iosBottomBar) 70.dp else StandardBottomNavHeight
         val pagePadding = PaddingValues(
-            bottom = WindowInsets.navigationBars.asPaddingValues()
-                .calculateBottomPadding() + bottomBarHeight,
+            bottom = stableNavigationBarHeight() + bottomBarHeight,
         )
         Box(
             Modifier
@@ -1326,6 +1327,7 @@ private fun MainScaffold(
                             onStart = onStart,
                             onStop = onStop,
                             onOpenSettings = onOpenInterfaceSettings,
+                            onOpenVolumeCheck = onOpenVolumeCheck,
                         )
 
                         // 主页：自己的测试脚本 自带开抓与救砖 不碰模块守护
@@ -1364,7 +1366,7 @@ private fun MainScaffold(
                 Modifier
                     .align(Alignment.BottomCenter)
                     .fillMaxWidth()
-                    .then(if (UiConfigState.iosBottomBar) Modifier.navigationBarsPadding() else Modifier),
+                    .then(if (UiConfigState.iosBottomBar) Modifier.stableNavigationBarsPadding() else Modifier),
                 contentAlignment = Alignment.BottomCenter,
             ) {
                 if (UiConfigState.iosBottomBar) {

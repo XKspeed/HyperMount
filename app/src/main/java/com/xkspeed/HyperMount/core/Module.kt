@@ -33,11 +33,14 @@ data class WatchStatus(
  * 守护通知要用的轻量状态
  *
  * 通知每秒都要刷时长，走 [Module.readState] 那套（boot + 两次 cat）太贵；
- * 这里一条命令只取四个数：全局守护在不在跑、它从哪秒开始、测试进程在不在跑、累计救砖几次。
+ * 这里一条命令只取几个数：全局守护在不在跑、它从哪秒开始、设了多长、
+ * 测试进程在不在跑、累计救砖几次。
  */
 data class DaemonStatus(
     val watching: Boolean = false,
     val watchSince: Long = 0L,
+    /** 全局守护这一轮的时长上限（秒），0 = 无限制 */
+    val watchLimit: Long = 0L,
     val testing: Boolean = false,
     val testSince: Long = 0L,
     val protectCount: Int = 0,
@@ -54,6 +57,9 @@ data class DaemonStatus(
         testing && testSince > 0L -> testSince
         else -> 0L
     }
+
+    /** 上限只对全局守护有意义：点测试那轮不设时长 */
+    val limit: Long get() = if (watching) watchLimit else 0L
 }
 
 /** 一次 boot 取回的全部状态（对应 webctl.sh boot 的 ## 分节输出 + settings.conf） */
@@ -312,11 +318,13 @@ object Module {
         val work = "${Root.MODULE_DIR}/webroot/.work"
         val wp = Root.q("$work/watch.pid")
         val ws = Root.q("$work/watch.state")
+        val wl = Root.q("$work/watch.limit")
         val ap = Root.q("$work/action.pid")
         val cmd = buildString {
             append("W=\$(cat $wp 2>/dev/null | tr -d ' \\r\\n'); ")
             append("if [ -n \"\$W\" ] && kill -0 \$W 2>/dev/null; then echo watching=1; else echo watching=0; fi; ")
             append("grep '^since=' $ws 2>/dev/null; ")
+            append("L=\$(cat $wl 2>/dev/null | tr -d ' \\r\\n'); echo limit=\${L:-0}; ")
             append("A=\$(cat $ap 2>/dev/null | tr -d ' \\r\\n'); ")
             append("if [ -n \"\$A\" ] && kill -0 \$A 2>/dev/null; then echo testing=1; ")
             append("echo atest=\$(stat -c%Y $ap 2>/dev/null); else echo testing=0; fi; ")
@@ -329,6 +337,7 @@ object Module {
             st = when (key) {
                 "watching" -> st.copy(watching = value == "1")
                 "since" -> st.copy(watchSince = value.toLongOrNull() ?: st.watchSince)
+                "limit" -> st.copy(watchLimit = value.toLongOrNull() ?: 0L)
                 "testing" -> st.copy(testing = value == "1")
                 "atest" -> st.copy(testSince = value.toLongOrNull() ?: st.testSince)
                 "PROTECT_COUNT" -> st.copy(protectCount = value.toIntOrNull() ?: 0)

@@ -58,6 +58,7 @@ import com.xkspeed.HyperMount.core.Module
 import com.xkspeed.HyperMount.core.UpdateInfo
 import com.xkspeed.HyperMount.ui.component.glass.ScrollPage
 import com.xkspeed.HyperMount.ui.component.glass.TopBarTuning
+import com.xkspeed.HyperMount.ui.components.BottomActions
 import com.xkspeed.HyperMount.ui.components.SectionCard
 import com.xkspeed.HyperMount.ui.components.StatusDot
 import kotlinx.coroutines.Dispatchers
@@ -289,8 +290,21 @@ fun MainPage(
         }
     }
 
+    // 底部操作条上那句提示：缺什么就说缺什么 状态一变跟着换
+    val actionHint = when {
+        rootOk != true -> "等待 root 授权"
+        !targetReady -> "先选待测apk"
+        !logDirReady -> "未指定日志目录 去设置里选一个"
+        autoReplace && !rescueReady -> "自动替换开着 还需要选救砖apk"
+        running -> "测试中 手动停止可以提前结束"
+        autoReplace -> "先装待测apk 再抓 " + LogConfig.seconds +
+            " 秒日志 崩了就换回救砖apk"
+        else -> "先装待测apk 再抓 " + LogConfig.seconds +
+            " 秒日志 不执行救砖"
+    }
+
     ScrollPage(
-        title = "主页",
+        title = "应用",
         subtitle = "v${AppVersion.name}",
         subtitleExtra = {
             AnimatedVisibility(
@@ -324,7 +338,28 @@ fun MainPage(
                 }
             }
         },
-        bottomPadding = padding.calculateBottomPadding() + 16.dp,
+        // 底栏高度由外层 Scaffold 给出；再留出底部操作条的高度 滚到底最后一项停在它上方
+        bottomPadding = padding.calculateBottomPadding() + 128.dp,
+        // 操作条钉在底栏上沿：盖在列表之上 不跟着滚 也不挡底栏
+        // 操作条采样页面 backdrop 做磨砂卡片：和底栏同一套模糊 盖在列表上不穿透
+        overlay = { pageBackdrop ->
+            BottomActions(
+                backdrop = pageBackdrop,
+                hint = actionHint,
+                startLabel = if (starting) "启动中…" else "开始测试",
+                startEnabled = canStart,
+                onStart = {
+                    // 只判「有没有配」：目录不存在会由脚本 mkdir -p 建出来
+                    if (state.logDir.isBlank()) {
+                        toast(context, "未指定日志目录")
+                    } else {
+                        showStartConfirm = true
+                    }
+                },
+                stopEnabled = running && !starting,
+                onStop = { stopTest() },
+            )
+        },
         // 右上角三点：进配置页（目标包名 / 抓取时长 / 日志大小判定）
         onTopAction = onOpenConfig,
         topActionIcon = rememberVectorPainter(MiuixIcons.More),
@@ -465,10 +500,13 @@ fun MainPage(
                     Column {
                         ArrowPreference(
                             title = "救砖apk",
-                            summary = if (rescueReady)
-                                LogConfig.rescuePath.substringAfterLast('/') +
-                                    " · " + Module.fmtSize(LogConfig.rescueSize)
-                            else "未选择 · 点击选择崩溃后要装回的 apk",
+                            // 没选就给 null（不是空串）：库按「有没有 summary」排版，
+                            // 空串仍会占一行空白 标题就被顶到上面去了
+                            summary = if (rescueReady) {
+                                LogConfig.rescuePath.substringAfterLast('/')
+                            } else {
+                                null
+                            },
                             onClick = onPickRescue,
                             enabled = !locked,
                         )
@@ -476,67 +514,16 @@ fun MainPage(
                 }
                 ArrowPreference(
                     title = "待测apk",
-                    summary = if (targetReady)
-                        LogConfig.targetPath.substringAfterLast('/') +
-                            " · " + Module.fmtSize(LogConfig.targetSize)
-                    else "未选择 · 点击选择要测试的 apk（系统界面本体请去 SystemUI 页）",
+                    summary = if (targetReady) {
+                        LogConfig.targetPath.substringAfterLast('/')
+                    } else {
+                        null
+                    },
                     onClick = onPickTarget,
                     enabled = !locked,
                 )
             }
         }
-
-        // ---- 操作 ----
-        item { SmallTitle("操作") }
-        item {
-            Card(
-                modifier = Modifier.fillMaxWidth()
-                    .padding(horizontal = 12.dp, vertical = 4.dp)
-            ) {
-                Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Button(
-                            onClick = {
-                                // 只判「有没有配」：目录不存在会由脚本 mkdir -p 建出来
-                                if (state.logDir.isBlank()) {
-                                    toast(context, "未指定日志目录")
-                                    return@Button
-                                }
-                                showStartConfirm = true
-                            },
-                            enabled = canStart,
-                            modifier = Modifier.weight(1f),
-                        ) {
-                            Text(if (starting) "启动中…" else "开始测试")
-                        }
-                        Button(
-                            onClick = { stopTest() },
-                            enabled = running && !starting,
-                            modifier = Modifier.weight(1f),
-                        ) {
-                            Text("停止")
-                        }
-                    }
-                    Spacer(Modifier.height(8.dp))
-                    Text(
-                        when {
-                            rootOk != true -> "等待 root 授权"
-                            !targetReady -> "先选待测apk"
-                            !logDirReady -> "未指定日志目录 去设置里选一个"
-                            autoReplace && !rescueReady -> "自动替换开着 还需要选救砖apk"
-                            running -> "测试中 手动停止可以提前结束"
-                            autoReplace -> "先装待测apk 再抓 " + LogConfig.seconds +
-                                " 秒日志 崩了就换回救砖apk"
-                            else -> "先装待测apk 再抓 " + LogConfig.seconds +
-                                " 秒日志 不执行救砖"
-                        },
-                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                        style = MiuixTheme.textStyles.subtitle,
-                    )
-                }
-            }
-        }
-
     }
 
     // 开始前二次确认：确认完立刻装待测 apk 不再等

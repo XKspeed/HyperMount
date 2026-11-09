@@ -61,6 +61,7 @@ import com.xkspeed.HyperMount.core.UpdateInfo
 import kotlinx.coroutines.delay
 import com.xkspeed.HyperMount.ui.component.glass.ScrollPage
 import com.xkspeed.HyperMount.ui.component.glass.TopBarTuning
+import com.xkspeed.HyperMount.ui.components.BottomActions
 import com.xkspeed.HyperMount.ui.components.InfoRow
 import com.xkspeed.HyperMount.ui.components.SectionCard
 import com.xkspeed.HyperMount.ui.components.StatusDot
@@ -103,11 +104,14 @@ fun HomePage(
     onStart: () -> Unit,
     onStop: () -> Unit,
     onOpenSettings: () -> Unit = {},
+    onOpenVolumeCheck: () -> Unit = {},
 ) {
     val isWideScreen = LocalIsWideScreen.current
     val scrollBehavior = MiuixScrollBehavior()
     val listState = rememberLazyListState()
     var showStartConfirm by remember { mutableStateOf(false) }
+    // 音量键没校验过：开测前先拦一道 救砖时按不动就白测了
+    var showVolumeGate by remember { mutableStateOf(false) }
     val context = LocalContext.current
 
     val backdrop = rememberBlurBackdrop()
@@ -164,9 +168,21 @@ fun HomePage(
         label = "logArea",
     )
 
+    // 底部操作条上那句提示：缺什么就说缺什么 状态一变跟着换
+    val actionHint = when {
+        rootOk != true -> "等待 root 授权"
+        !state.rescueReady -> "先选一个救砖界面（能正常开机的 SystemUI）"
+        !state.targetOk -> "再选一个待测界面"
+        !logDirReady -> "未指定日志目录 去设置里选一个"
+        state.daemonRunning -> "守护已启动 音量+ 触发救砖 音量- 取消"
+        else -> "确认后立即替换界面 随后监听崩溃与音量键"
+    }
+
     ScrollPage(
-        title = "界面",
-        subtitle = if (state.version.isNotBlank()) "救砖与界面替换 · 模块 v${state.version}" else "救砖与界面替换",
+        title = "系统界面",
+        // 顶栏只留模块版本：前面那半句「救砖与界面替换」是这个页面的功能说明
+        // 用户进来看一眼就知道在哪 不用再占一行
+        subtitle = if (state.version.isNotBlank()) "模块 v${state.version}" else null,
         // 右上角三点：进界面设置（常驻救砖 + 救砖逻辑）
         // 不用齿轮：底栏「设置」和设置页右上角都是齿轮 再放一个就重复了
         // 尺寸定稿 24dp 不偏移 不再进调试页
@@ -206,8 +222,30 @@ fun HomePage(
                 }
             }
         },
-        // 底栏高度由外层 Scaffold 给出 再加一点呼吸
-        bottomPadding = padding.calculateBottomPadding() + 16.dp,
+        // 底栏高度由外层 Scaffold 给出；再留出底部操作条的高度 滚到底最后一项停在它上方
+        bottomPadding = padding.calculateBottomPadding() + 128.dp,
+        // 操作条钉在底栏上沿：盖在列表之上 不跟着滚 也不挡底栏
+        // 操作条采样页面 backdrop 做磨砂卡片：和底栏同一套模糊 盖在列表上不穿透
+        overlay = { pageBackdrop ->
+            BottomActions(
+                backdrop = pageBackdrop,
+                hint = actionHint,
+                startLabel = if (busy) "启动中…" else "开始测试",
+                startEnabled = canStart,
+                onStart = {
+                    if (state.logDir.isBlank()) {
+                        toast(context, "未指定日志目录")
+                    } else if (!state.volumeAssessed) {
+                        // 音量键没校验过就先拦下来 救砖全靠它 按不动等于白测
+                        showVolumeGate = true
+                    } else {
+                        showStartConfirm = true
+                    }
+                },
+                stopEnabled = state.daemonRunning && !busy,
+                onStop = onStop,
+            )
+        },
     ) {
                 // ---- 状态卡 ----
                 item {
@@ -315,71 +353,22 @@ fun HomePage(
                     SectionCard {
                         ArrowPreference(
                             title = "救砖界面",
-                            summary = if (state.rescueReady)
-                                "MiuiSystemUI.apk · ${Module.fmtSize(state.rescueSize)}"
-                            else "未选择 · 点击选择要恢复的 APK",
+                            // 没选就传 null 而不是空串：空串仍占一行行高 标题会被顶偏
+                            summary = if (state.rescueReady) "MiuiSystemUI.apk" else null,
                             onClick = onPickRescue,
                             // 跑起来之后两个 apk 都锁死：脚本用的是启动那一刻的路径
                             enabled = !state.daemonRunning && !busy,
                         )
                         ArrowPreference(
                             title = "待测界面",
-                            summary = when {
-                                state.targetPath.isBlank() -> "未选择 · 点击选择要测试的 APK"
-                                else -> state.targetPath.substringAfterLast('/') +
-                                    " · " + Module.fmtSize(state.targetSize)
+                            summary = if (state.targetPath.isNotBlank()) {
+                                state.targetPath.substringAfterLast('/')
+                            } else {
+                                null
                             },
                             onClick = onPickTarget,
                             enabled = !state.daemonRunning && !busy,
                         )
-                    }
-                }
-
-                // ---- 操作 ----
-                item { SmallTitle("操作") }
-                item {
-                    Card(
-                        modifier = Modifier.fillMaxWidth()
-                            .padding(horizontal = 12.dp, vertical = 4.dp)
-                    ) {
-                        Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
-                            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                                Button(
-                                    onClick = {
-                                        // 只判「有没有配」：目录不存在由 action.sh 的 mkdir -p 建
-                                        if (state.logDir.isBlank()) {
-                                            toast(context, "未指定日志目录")
-                                            return@Button
-                                        }
-                                        showStartConfirm = true
-                                    },
-                                    enabled = canStart,
-                                    modifier = Modifier.weight(1f),
-                                ) {
-                                    Text(if (busy) "启动中…" else "开始测试")
-                                }
-                                Button(
-                                    onClick = onStop,
-                                    enabled = state.daemonRunning && !busy,
-                                    modifier = Modifier.weight(1f),
-                                ) {
-                                    Text("停止")
-                                }
-                            }
-                            Spacer(Modifier.height(8.dp))
-                            Text(
-                                when {
-                                    rootOk != true -> "等待 root 授权"
-                                    !state.rescueReady -> "先选一个救砖界面（能正常开机的 SystemUI）"
-                                    !state.targetOk -> "再选一个待测界面"
-                                    !logDirReady -> "未指定日志目录 去设置里选一个"
-                                    state.daemonRunning -> "守护已启动 音量+ 触发救砖 音量- 取消"
-                                    else -> "确认后立即替换界面 随后监听崩溃与音量键"
-                                },
-                                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                                style = MiuixTheme.textStyles.subtitle,
-                            )
-                        }
                     }
                 }
 
@@ -401,6 +390,34 @@ fun HomePage(
                         }
                     }
                 }
+    }
+
+    // 音量键没校验过：开测前拦一道 左右两个出口
+    if (showVolumeGate) {
+        WindowDialog(
+            show = true,
+            title = "未完成音量键校验",
+            maxWidth = 560.dp,
+            onDismissRequest = { showVolumeGate = false },
+        ) {
+            Row(modifier = Modifier.fillMaxWidth()) {
+                TextButton(
+                    text = "暂不前往",
+                    onClick = { showVolumeGate = false },
+                    modifier = Modifier.weight(1f),
+                )
+                Spacer(Modifier.width(20.dp))
+                TextButton(
+                    text = "前往校验",
+                    onClick = {
+                        showVolumeGate = false
+                        onOpenVolumeCheck()
+                    },
+                    modifier = Modifier.weight(1f),
+                    colors = ButtonDefaults.textButtonColorsPrimary(),
+                )
+            }
+        }
     }
 
     // 开始前二次确认：确认完立刻把待测界面换进模块目录 不再等

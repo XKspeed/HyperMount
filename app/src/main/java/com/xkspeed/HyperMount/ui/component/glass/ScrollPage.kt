@@ -21,6 +21,8 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
+import com.xkspeed.HyperMount.ui.util.stableStatusBarHeight
+import com.xkspeed.HyperMount.ui.util.stableStatusBarsPadding
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -139,7 +141,8 @@ fun ScrollPage(
         }
     )
     val collapse = rememberTitleCollapse(listState)
-    val statusBarHeight = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
+    // 状态栏高度取「忽略可见性」那一份：切多任务时系统栏隐掉 这里不能跟着变 0
+    val statusBarHeight = stableStatusBarHeight()
 
     Box(
         modifier
@@ -299,7 +302,7 @@ private fun GlassTopBar(
         Box(
             Modifier
                 .fillMaxWidth()
-                .statusBarsPaddingCompat()
+                .stableStatusBarsPadding()
                 .height(BarHeight),
         ) {
             Column(Modifier.fillMaxWidth().padding(top = 5.dp)) {
@@ -462,13 +465,6 @@ private fun GlassBackButton(
     )
 }
 
-/** 状态栏高度的 padding 用 Compose 原生 insets（原来靠 accompanist） */
-@Composable
-private fun Modifier.statusBarsPaddingCompat(): Modifier {
-    val top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
-    return this.padding(top = top)
-}
-
 /** 折叠三态：大标题透明度 / 顶栏背景是否出现 / 小标题是否出现 */
 private class TitleCollapse(
     val alpha: () -> Float,
@@ -485,7 +481,7 @@ private class TitleCollapse(
 @Composable
 private fun rememberTitleCollapse(state: LazyListState): TitleCollapse {
     val statusPx = with(androidx.compose.ui.platform.LocalDensity.current) {
-        WindowInsets.statusBars.asPaddingValues().calculateTopPadding().roundToPx()
+        stableStatusBarHeight().roundToPx()
     }
     val firstItem = rememberUpdatedState {
         state.layoutInfo.visibleItemsInfo.firstOrNull { it.index == 0 }

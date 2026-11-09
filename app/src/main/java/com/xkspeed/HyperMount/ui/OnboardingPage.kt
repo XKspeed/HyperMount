@@ -79,6 +79,8 @@ import top.yukonga.miuix.kmp.icon.extended.Layers
 import top.yukonga.miuix.kmp.icon.extended.VolumeUp
 import top.yukonga.miuix.kmp.preference.SwitchPreference
 import top.yukonga.miuix.kmp.theme.MiuixTheme
+import com.xkspeed.HyperMount.ui.util.stableStatusBarsPadding
+import com.xkspeed.HyperMount.ui.util.stableNavigationBarsPadding
 
 /** 引导总步数：欢迎 / 须知 / 环境 / 音量键 / 完成 */
 private const val ONBOARD_STEPS = 5
@@ -296,7 +298,7 @@ fun OnboardingPage(
     }
 
     Box(Modifier.fillMaxSize().background(MiuixTheme.colorScheme.surface)) {
-        Column(Modifier.fillMaxSize().statusBarsPadding()) {
+        Column(Modifier.fillMaxSize().stableStatusBarsPadding()) {
             // 顶部只有步骤条：引导不给跳过 必须走到最后一步
             Row(
                 Modifier.fillMaxWidth()
@@ -364,7 +366,7 @@ fun OnboardingPage(
             Column(
                 Modifier
                     .fillMaxWidth()
-                    .navigationBarsPadding()
+                    .stableNavigationBarsPadding()
                     .padding(horizontal = 24.dp, vertical = 14.dp),
             ) {
                 // 勾选栏只在第 2 页出现 紧贴按钮上方

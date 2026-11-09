@@ -1,6 +1,18 @@
 package com.xkspeed.HyperMount.ui
 
 import android.content.Context
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.layout.onSizeChanged
+import com.xkspeed.HyperMount.ui.components.sliderTapFraction
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
@@ -29,13 +41,8 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.platform.LocalSoftwareKeyboardController
-import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
@@ -52,7 +59,7 @@ import com.xkspeed.HyperMount.ui.components.SectionCard
 import com.xkspeed.HyperMount.ui.components.StatusDot
 import com.xkspeed.HyperMount.ui.components.rememberLiquidSelectState
 import com.xkspeed.HyperMount.ui.components.SliderInputPreference
-import com.xkspeed.HyperMount.ui.components.sliderTapSeek
+import kotlin.math.abs
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import top.yukonga.miuix.kmp.basic.ButtonDefaults
@@ -62,21 +69,26 @@ import top.yukonga.miuix.kmp.basic.SliderDefaults
 import top.yukonga.miuix.kmp.basic.SmallTitle
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextButton
-import top.yukonga.miuix.kmp.basic.TextField
 import top.yukonga.miuix.kmp.preference.ArrowPreference
 import top.yukonga.miuix.kmp.preference.SwitchPreference
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.window.WindowDialog
 import kotlin.math.roundToInt
+import com.xkspeed.HyperMount.ui.util.stableNavigationBarHeight
 
 /**
- * 守护时长的四个档位（秒）
+ * 守护时长：1 小时到 6 小时连续可拖，最右留一小截是「无限制」
  *
- * 1 小时 / 2 小时 / 自定义 / 无限制 —— 滑条上四个点等距排开，
- * 自定义不占固定值 选到它再弹框填分钟。
+ * 老的「1h / 2h / 自定义 / 无限制」四档取消：中间的分钟数直接拖出来，
+ * 锚点只留 2 / 4 / 6 小时和无限制，靠近会被吸过去。
  */
-private val WATCH_OPTIONS = listOf(60L * 60, 2 * 60L * 60, -1L, 0L)
-private const val WATCH_CUSTOM = -1L
+private const val WATCH_MIN_MIN = 60f
+private const val WATCH_MAX_MIN = 360f
+private const val WATCH_UNLIMITED_MIN = 430f
+private val WATCH_NODES = listOf(120f, 240f, 360f, WATCH_UNLIMITED_MIN)
+
+/** 吸附范围（分钟） */
+private const val WATCH_SNAP_MIN = 15f
 
 /** 运行模式三档：增强救砖是 LOG_MODE=3，下拉里按「日志 + 救砖」显示 */
 private val MODE_LABELS = listOf("完全禁用", "仅日志", "日志 + 救砖")
@@ -86,7 +98,7 @@ private val MODE_SUMMARIES = listOf(
     "音量+ 触发救砖 音量- 取消",
 )
 
-/** 上一次选的时长：存秒数 自定义的分钟数单独存一份 下次进来还原成同一个档 */
+/** 上一次选的时长：存秒数 0 = 无限制 */
 private object WatchPrefs {
     private const val NAME = "watch_config"
 
@@ -97,28 +109,24 @@ private object WatchPrefs {
         context.getSharedPreferences(NAME, Context.MODE_PRIVATE)
             .edit().putLong("limit", value).apply()
     }
-
-    fun customMinutes(context: Context): Int =
-        context.getSharedPreferences(NAME, Context.MODE_PRIVATE)
-            .getInt("custom_min", 60).coerceIn(1, 1440)
-
-    fun setCustomMinutes(context: Context, value: Int) {
-        context.getSharedPreferences(NAME, Context.MODE_PRIVATE)
-            .edit().putInt("custom_min", value).apply()
-    }
 }
 
-/** 秒数落到档位下标：不在固定档上的都算自定义 */
-private fun optionIndex(limitSec: Long): Int {
-    val i = WATCH_OPTIONS.indexOf(limitSec)
-    return if (i >= 0) i else WATCH_OPTIONS.indexOf(WATCH_CUSTOM)
+private fun watchUnlimited(min: Float): Boolean = min > WATCH_MAX_MIN + 1f
+
+/** 滑条 / 胶囊里显示的时长 */
+private fun watchLabel(min: Float): String {
+    if (watchUnlimited(min)) return "无限制"
+    val total = min.roundToInt()
+    val h = total / 60
+    val m = total % 60
+    return if (m == 0) "$h 小时" else "$h 小时 $m 分"
 }
 
-private fun optionText(index: Int): String = when (index) {
-    0 -> "1 小时"
-    1 -> "2 小时"
-    2 -> "自定义"
-    else -> "无限制"
+/** 靠近锚点就吸附；拖过 6 小时直接落到无限制 */
+private fun snapWatch(min: Float): Float {
+    if (min > WATCH_MAX_MIN + WATCH_SNAP_MIN) return WATCH_UNLIMITED_MIN
+    val near = WATCH_NODES.minByOrNull { abs(it - min) } ?: return min
+    return if (abs(near - min) <= WATCH_SNAP_MIN) near else min
 }
 
 /** 剩余时间：超过一小时才带小时位 */
@@ -172,21 +180,18 @@ fun InterfaceSettingsPage(
     var loaded by remember { mutableStateOf(false) }
     var nowSec by remember { mutableLongStateOf(System.currentTimeMillis() / 1000) }
     var busy by remember { mutableStateOf(false) }
-    var durationIndex by remember {
-        mutableFloatStateOf(optionIndex(WatchPrefs.limit(context)).toFloat())
+    var durationMin by remember {
+        val saved = WatchPrefs.limit(context)
+        mutableFloatStateOf(
+            if (saved <= 0L) WATCH_UNLIMITED_MIN
+            else (saved / 60f).coerceIn(WATCH_MIN_MIN, WATCH_MAX_MIN)
+        )
     }
-    var customMinutes by remember { mutableIntStateOf(WatchPrefs.customMinutes(context)) }
-    var showCustom by remember { mutableStateOf(false) }
-    var customText by remember { mutableStateOf("") }
+    // 胶囊定位要滑条实际宽度；dragging 决定胶囊出不出现
+    var sliderWidthPx by remember { mutableIntStateOf(0) }
+    var dragging by remember { mutableStateOf(false) }
 
-    val index = durationIndex.roundToInt().coerceIn(0, WATCH_OPTIONS.lastIndex)
-    val selected = WATCH_OPTIONS[index]
-    val seconds = if (selected == WATCH_CUSTOM) customMinutes * 60L else selected
-    val durationText = if (selected == WATCH_CUSTOM) {
-        "自定义 · $customMinutes 分钟"
-    } else {
-        optionText(index)
-    }
+    val seconds = if (watchUnlimited(durationMin)) 0L else durationMin.roundToInt() * 60L
 
     // 进页面先对一次 之后运行期间每秒刷一次剩余时间（停止就不轮询）
     LaunchedEffect(Unit) {
@@ -206,21 +211,10 @@ fun InterfaceSettingsPage(
         }
     }
 
-    fun persistDuration(i: Int, minutes: Int) {
-        val value = if (WATCH_OPTIONS[i] == WATCH_CUSTOM) minutes * 60L else WATCH_OPTIONS[i]
+    /** 松手 / 点轨道时落盘：无限制存 0，其余存秒 */
+    fun persistDuration() {
+        val value = if (watchUnlimited(durationMin)) 0L else durationMin.roundToInt() * 60L
         WatchPrefs.setLimit(context, value)
-    }
-
-    /** 选到某一档：自定义弹输入框 其余直接落盘 */
-    fun chooseDuration(i: Int) {
-        val idx = i.coerceIn(0, WATCH_OPTIONS.lastIndex)
-        durationIndex = idx.toFloat()
-        if (WATCH_OPTIONS[idx] == WATCH_CUSTOM) {
-            customText = ""
-            showCustom = true
-        } else {
-            persistDuration(idx, customMinutes)
-        }
     }
 
     fun toggleWatch(on: Boolean) {
@@ -295,17 +289,14 @@ fun InterfaceSettingsPage(
     }
 
     ScrollPage(
-        title = "界面设置",
-        subtitle = "常驻救砖与救砖逻辑",
+        title = "设置",
         onBack = onBack,
-        bottomPadding = WindowInsets.navigationBars.asPaddingValues()
-            .calculateBottomPadding() + 24.dp,
+        bottomPadding = stableNavigationBarHeight() + 24.dp,
         overlay = { bd ->
             LiquidSelectHost(
                 select,
                 bd,
-                bottomInset = WindowInsets.navigationBars.asPaddingValues()
-                    .calculateBottomPadding(),
+                bottomInset = stableNavigationBarHeight(),
             )
         },
     ) {
@@ -385,39 +376,145 @@ fun InterfaceSettingsPage(
                     title = "全局守护",
                 )
 
-                // 时长：四个点等距 点/拖到哪档就是哪档 自定义松手弹输入框
-                if (loaded && status.supported) Column(
-                    Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp)
-                        .padding(top = 4.dp, bottom = 14.dp),
+                // 时长：1h 到 6h 连续可拖，最右留一截是无限制；2/4/6h 会被吸过去
+                // 当前值只在拖动胶囊上出现，上面不再重复一行
+                // 守护跑着的时候收起来：改了也得关掉再开才生效，摆着反而误导
+                AnimatedVisibility(
+                    visible = loaded && status.supported && !status.running,
+                    enter = expandVertically() + fadeIn(),
+                    exit = shrinkVertically() + fadeOut(),
                 ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(
-                            "守护时长",
-                            style = MiuixTheme.textStyles.main,
+                    Column(
+                        Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp)
+                            .padding(top = 2.dp, bottom = 10.dp),
+                    ) {
+                        val bubbleAlpha by animateFloatAsState(
+                            targetValue = if (dragging) 1f else 0f,
+                            animationSpec = tween(120),
+                            label = "watchBubble",
                         )
-                        Spacer(Modifier.weight(1f))
-                        Text(
-                            durationText,
-                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                            style = MiuixTheme.textStyles.subtitle,
+                        // 跟手必须和 Miuix Slider 内部同一条弹簧，否则胶囊会慢半拍
+                        val followMin by animateFloatAsState(
+                            targetValue = durationMin,
+                            animationSpec = if (dragging) {
+                                spring(dampingRatio = 0.9f, stiffness = 1755f)
+                            } else {
+                                spring(dampingRatio = 0.96f, stiffness = 322f)
+                            },
+                            label = "watchFollow",
+                        )
+                        val fraction = ((followMin - WATCH_MIN_MIN) /
+                            (WATCH_UNLIMITED_MIN - WATCH_MIN_MIN)).coerceIn(0f, 1f)
+
+                        // 节点文字 + 拖动胶囊：和缓存页同一套
+                        Box(
+                            Modifier
+                                .fillMaxWidth()
+                                .height(30.dp)
+                                .onSizeChanged { sliderWidthPx = it.width },
+                        ) {
+                            val density = LocalDensity.current
+                            val radius = with(density) { 10.dp.toPx() }
+                            val usable = (sliderWidthPx - 2f * radius).coerceAtLeast(1f)
+                            // 吸住了谁：胶囊停过去 那个节点的文字退场
+                            val taken = if (dragging) {
+                                WATCH_NODES.minByOrNull { abs(it - durationMin) }
+                                    ?.takeIf { abs(it - durationMin) <= WATCH_SNAP_MIN }
+                            } else {
+                                null
+                            }
+
+                            if (sliderWidthPx > 0) {
+                                WATCH_NODES.forEach { node ->
+                                    val f = ((node - WATCH_MIN_MIN) /
+                                        (WATCH_UNLIMITED_MIN - WATCH_MIN_MIN)).coerceIn(0f, 1f)
+                                    val cx = radius + f * usable
+                                    val vanish by animateFloatAsState(
+                                        targetValue = if (taken != null && abs(taken - node) < 0.5f) 1f else 0f,
+                                        animationSpec = tween(120),
+                                        label = "watchNode$node",
+                                    )
+                                    if (vanish < 0.99f) {
+                                        Box(
+                                            Modifier
+                                                .align(Alignment.CenterStart)
+                                                .graphicsLayer {
+                                                    translationX = cx - size.width / 2f
+                                                    alpha = 1f - vanish
+                                                    val s = 1f - 0.22f * vanish
+                                                    scaleX = s
+                                                    scaleY = s
+                                                },
+                                        ) {
+                                            Text(
+                                                watchLabel(node),
+                                                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                                                style = MiuixTheme.textStyles.subtitle.copy(fontSize = 10.sp),
+                                                maxLines = 1,
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+
+                            if (bubbleAlpha > 0.01f) {
+                                // 实色：背后压着的节点文字不能透出来
+                                val bubbleBg = lerp(
+                                    MiuixTheme.colorScheme.surface,
+                                    MiuixTheme.colorScheme.primary,
+                                    0.16f,
+                                )
+                                val x = radius + fraction * usable
+                                Box(
+                                    Modifier
+                                        .align(Alignment.CenterStart)
+                                        .graphicsLayer { translationX = x - size.width / 2f }
+                                        .alpha(bubbleAlpha)
+                                        .clip(RoundedCornerShape(50))
+                                        .background(bubbleBg)
+                                        .padding(horizontal = 9.dp, vertical = 4.dp),
+                                ) {
+                                    Text(
+                                        watchLabel(durationMin),
+                                        color = MiuixTheme.colorScheme.primary,
+                                        style = MiuixTheme.textStyles.subtitle.copy(fontSize = 10.sp),
+                                        fontWeight = FontWeight.Medium,
+                                        maxLines = 1,
+                                    )
+                                }
+                            }
+                        }
+
+                        Slider(
+                            value = durationMin,
+                            onValueChange = {
+                                dragging = true
+                                durationMin = snapWatch(it)
+                            },
+                            onValueChangeFinished = {
+                                dragging = false
+                                persistDuration()
+                            },
+                            valueRange = WATCH_MIN_MIN..WATCH_UNLIMITED_MIN,
+                            // 不设档位：1 小时到 6 小时之间随便拖
+                            steps = 0,
+                            showKeyPoints = true,
+                            keyPoints = WATCH_NODES,
+                            hapticEffect = SliderDefaults.SliderHapticEffect.Step,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = 2.dp)
+                                .sliderTapFraction { f ->
+                                    durationMin = snapWatch(
+                                        WATCH_MIN_MIN + f * (WATCH_UNLIMITED_MIN - WATCH_MIN_MIN),
+                                    )
+                                    dragging = false
+                                    persistDuration()
+                                },
                         )
                     }
-                    Slider(
-                        value = durationIndex,
-                        onValueChange = { durationIndex = it },
-                        onValueChangeFinished = { chooseDuration(durationIndex.roundToInt()) },
-                        valueRange = 0f..WATCH_OPTIONS.lastIndex.toFloat(),
-                        steps = WATCH_OPTIONS.size - 2,
-                        showKeyPoints = true,
-                        hapticEffect = SliderDefaults.SliderHapticEffect.Step,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(top = 6.dp)
-                            .sliderTapSeek(WATCH_OPTIONS.lastIndex) { chooseDuration(it) },
-                    )
-                    DurationTicks(selected = index, onSelect = { chooseDuration(it) })
                 }
             }
         }
@@ -543,114 +640,6 @@ fun InterfaceSettingsPage(
         }
     }
 
-    // 自定义时长：只收数字 1～1440 分钟
-    if (showCustom) {
-        WindowDialog(
-            show = showCustom,
-            title = "自定义时长",
-            summary = "1～1440 分钟 到点自动停止",
-            maxWidth = 560.dp,
-            onDismissRequest = {
-                showCustom = false
-                durationIndex = optionIndex(WatchPrefs.limit(context)).toFloat()
-            },
-        ) {
-            val focus = remember { FocusRequester() }
-            val keyboard = LocalSoftwareKeyboardController.current
-            // 弹窗进场动画走完再抢焦点 否则键盘会被收起
-            LaunchedEffect(Unit) {
-                delay(200)
-                runCatching { focus.requestFocus() }
-                keyboard?.show()
-            }
-            TextField(
-                value = customText,
-                onValueChange = { it.filter { c -> c.isDigit() }.take(4) },
-                label = "分钟",
-                singleLine = true,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .focusRequester(focus),
-            )
-            Spacer(Modifier.height(20.dp))
-            Row(modifier = Modifier.fillMaxWidth()) {
-                TextButton(
-                    text = "取消",
-                    onClick = {
-                        showCustom = false
-                        durationIndex = optionIndex(WatchPrefs.limit(context)).toFloat()
-                    },
-                    modifier = Modifier.weight(1f),
-                )
-                Spacer(Modifier.width(20.dp))
-                TextButton(
-                    text = "保存",
-                    onClick = {
-                        val minutes = customText.toIntOrNull()
-                        if (minutes == null || minutes !in 1..1440) {
-                            toast(context, "填个 1～1440 的整数")
-                        } else {
-                            customMinutes = minutes
-                            WatchPrefs.setCustomMinutes(context, minutes)
-                            WatchPrefs.setLimit(context, minutes * 60L)
-                            durationIndex = WATCH_OPTIONS.indexOf(WATCH_CUSTOM).toFloat()
-                            showCustom = false
-                        }
-                    },
-                    modifier = Modifier.weight(1f),
-                    colors = ButtonDefaults.textButtonColorsPrimary(),
-                )
-            }
-        }
-    }
-}
-
-/**
- * 滑条下面的四个档位文字
- *
- * 位置按滑轨算：两端各让出半个 thumb 圆钮 文字中心也照这个内缩
- * 点哪档跳哪档 不用非得把圆钮拖过去
- */
-@Composable
-private fun DurationTicks(
-    selected: Int,
-    onSelect: (Int) -> Unit,
-) {
-    val density = LocalDensity.current
-    val inset = with(density) { SliderDefaults.MinHeight.toPx() / 2f }
-    val active = MiuixTheme.colorScheme.primary
-    val idle = MiuixTheme.colorScheme.onSurfaceVariantSummary
-
-    Layout(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(top = 2.dp),
-        content = {
-            WATCH_OPTIONS.forEachIndexed { i, _ ->
-                Text(
-                    text = optionText(i),
-                    color = if (i == selected) active else idle,
-                    fontSize = 11.sp,
-                    modifier = Modifier
-                        .clickable { onSelect(i) }
-                        .padding(horizontal = 4.dp, vertical = 4.dp),
-                )
-            }
-        },
-    ) { measurables, constraints ->
-        val width = constraints.maxWidth
-        val placeables = measurables.map { it.measure(Constraints()) }
-        val height = placeables.maxOfOrNull { it.height } ?: 0
-        layout(width, height) {
-            val last = placeables.lastIndex
-            placeables.forEachIndexed { i, p ->
-                val center = if (last <= 0) width / 2f else inset + (width - 2 * inset) * i / last
-                val x = (center - p.width / 2f).roundToInt()
-                    .coerceIn(0, (width - p.width).coerceAtLeast(0))
-                p.place(x, 0)
-            }
-        }
-    }
 }
 
 private fun toast(context: Context, msg: String) {

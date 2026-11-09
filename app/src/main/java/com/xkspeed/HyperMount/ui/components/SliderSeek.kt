@@ -34,3 +34,23 @@ fun Modifier.sliderTapSeek(steps: Int, onSeek: (Int) -> Unit): Modifier {
             }
         }
 }
+
+/**
+ * 连续滑条的点击跳值：返回 0f..1f 的落点比例，由调用方换算成自己的值域。
+ *
+ * 和 [sliderTapSeek] 同一套让位算法，只是不取整。
+ */
+@Composable
+fun Modifier.sliderTapFraction(onSeek: (Float) -> Unit): Modifier {
+    var width by remember { mutableIntStateOf(0) }
+    val seek by rememberUpdatedState(onSeek)
+    return this
+        .onSizeChanged { width = it.width }
+        .pointerInput(width) {
+            detectTapGestures { offset ->
+                val radius = size.height / 2f
+                val usable = (width - 2f * radius).coerceAtLeast(1f)
+                seek(((offset.x - radius) / usable).coerceIn(0f, 1f))
+            }
+        }
+}

@@ -42,7 +42,6 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -78,6 +77,7 @@ import top.yukonga.miuix.kmp.theme.LocalDismissState
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.theme.MiuixTheme.colorScheme
 import top.yukonga.miuix.kmp.window.WindowDialog
+import com.xkspeed.HyperMount.ui.util.stableNavigationBarHeight
 
 /**
  * 关于页（设置页最下面的入口 点进来的二级页）
@@ -131,8 +131,7 @@ fun AboutPage(
         title = "关于",
         onBack = onBack,
         // 二级页：只让开导航栏
-        bottomPadding = WindowInsets.navigationBars.asPaddingValues()
-            .calculateBottomPadding() + 24.dp,
+        bottomPadding = stableNavigationBarHeight() + 24.dp,
         // 背景流光：apkeditor 原版 BgEffectBackground 并录进 backdrop 供卡片/标题采样
         backgroundContent = {
             BgEffectBackground(
@@ -257,7 +256,7 @@ fun AboutPage(
                     },
                 )
                 ArrowPreference(
-                    title = "GNU General Public License v3.0",
+                    title = "GPL v3.0",
                     onClick = {
                         runCatching { uriHandler.openUri("https://www.gnu.org/licenses/gpl-3.0.html") }
                     },
@@ -406,7 +405,6 @@ private fun UpdateCard(
                     }
 
                     // 下载前筛源：还没进度可言 只报探到第几条
-                    // 数字用等宽字体 否则 x/13 变 10/13 时整行宽度变了会抖
                     is UpdateStage.Probing -> {
                         Box(
                             modifier = Modifier
@@ -421,7 +419,6 @@ private fun UpdateCard(
                                 color = colorScheme.primary,
                                 fontWeight = FontWeight.SemiBold,
                                 fontSize = 13.sp,
-                                fontFamily = FontFamily.Monospace,
                             )
                         }
                     }

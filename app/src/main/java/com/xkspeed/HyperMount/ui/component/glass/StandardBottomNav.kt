@@ -15,6 +15,9 @@ import top.yukonga.miuix.kmp.blur.LayerBackdrop
 import top.yukonga.miuix.kmp.blur.textureBlur
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import com.xkspeed.HyperMount.ui.UiConfigState
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import com.xkspeed.HyperMount.ui.util.stableNavigationBarsPadding
 
 /**
  * 标准底栏：Miuix 原生 [NavigationBar]，整条贴底、不做液态玻璃胶囊
@@ -45,7 +48,10 @@ fun StandardBottomNav(
     )
     val selected = selectedIndex()
 
-    NavigationBar(
+    // 底栏自己吃导航条 inset：底色与模糊要一路铺到屏幕最底（与原生 NavigationBar 一致）
+    // 这里换成「忽略可见性」的高度并自己补：Miuix 内置用的是可见性感知的 navigationBars，
+    // 切多任务时手势条一隐 整条会往下掉一段；关掉它、由外层统一画底并垫稳定高度
+    Box(
         modifier = modifier
             .fillMaxWidth()
             .then(
@@ -62,18 +68,24 @@ fun StandardBottomNav(
                 },
             )
             .background(barColor),
-        color = barColor,
-        showDivider = true,
-        // 自己吃导航条 inset：底色要一路铺到屏幕最底（与原生 NavigationBar 一致）
-        defaultWindowInsetsPadding = true,
     ) {
-        items.forEachIndexed { index, item ->
-            NavigationBarItem(
-                selected = selected == index,
-                onClick = { onTabSelected(index) },
-                icon = item.icon,
-                label = item.label,
-            )
+        Column(Modifier.stableNavigationBarsPadding()) {
+            NavigationBar(
+                modifier = Modifier.fillMaxWidth(),
+                // 底色已经由外层铺满（含导航条那一段），这里不再叠一层
+                color = Color.Transparent,
+                showDivider = true,
+                defaultWindowInsetsPadding = false,
+            ) {
+                items.forEachIndexed { index, item ->
+                    NavigationBarItem(
+                        selected = selected == index,
+                        onClick = { onTabSelected(index) },
+                        icon = item.icon,
+                        label = item.label,
+                    )
+                }
+            }
         }
     }
 }

@@ -1,11 +1,14 @@
 package com.xkspeed.HyperMount.ui
 
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
@@ -26,13 +29,19 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -40,16 +49,15 @@ import androidx.compose.ui.state.ToggleableState
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.xkspeed.HyperMount.core.CacheConfig
 import com.xkspeed.HyperMount.core.Logcat
 import com.xkspeed.HyperMount.core.Module
 import com.xkspeed.HyperMount.ui.component.glass.ScrollPage
-import com.xkspeed.HyperMount.ui.components.SectionCard
-import com.xkspeed.HyperMount.ui.components.sliderTapSeek
+import com.xkspeed.HyperMount.ui.components.sliderTapFraction
 import top.yukonga.miuix.kmp.basic.ButtonDefaults
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.Checkbox
-import top.yukonga.miuix.kmp.basic.SmallTitle
 import top.yukonga.miuix.kmp.basic.Slider
 import top.yukonga.miuix.kmp.basic.SliderDefaults
 import top.yukonga.miuix.kmp.basic.Text
@@ -59,30 +67,41 @@ import top.yukonga.miuix.kmp.window.WindowDialog
 import java.io.File
 import kotlin.math.abs
 import kotlin.math.roundToInt
+import com.xkspeed.HyperMount.ui.util.stableNavigationBarHeight
+import com.xkspeed.HyperMount.ui.util.stableNavigationBarsPadding
 
 private const val MB = 1024L * 1024L
 
-/**
- * 缓存上限的五个档位（MB）
- *
- * 100 MB / 200 MB / 500 MB / 1 GB / 无限制 —— 无限制放最右边 滑条上五个点等距排开
- * 1 GB 按 1024 MB 存 显示时再换算 免得滑条上出现 1024 MB 这种别扭的数
- */
-private val LIMIT_OPTIONS_MB = listOf(100L, 200L, 500L, 1024L, 0L)
+// ---- 上限滑条的三段：100 MB 起 到 1 GB 是无级可拖，最右留一小截给「无限制」 ----
 
-/** 老配置里可能存着 300 MB 这种中间值 进来时落到最近的一档；0 就是最右的无限制 */
-private fun nearestOptionIndex(limitMb: Long): Int {
-    if (limitMb <= 0L) return LIMIT_OPTIONS_MB.lastIndex
-    return LIMIT_OPTIONS_MB.indices
-        .filter { LIMIT_OPTIONS_MB[it] > 0L }
-        .minByOrNull { abs(LIMIT_OPTIONS_MB[it] - limitMb) } ?: 0
+private const val MIN_MB = 100f
+private const val ONE_GB_MB = 1024f
+// 1 GB 和「无限制」的标签得有地方摆 最后这一段留够宽度 不然两个胶囊会压在一起
+private const val UNLIMITED_MB = 1250f
+
+/** 滑条上的四个节点：拖动到附近会被吸过去 */
+private val NODES = listOf(MIN_MB, 500f, ONE_GB_MB, UNLIMITED_MB)
+
+/** 吸附范围：拉到 48 MB，靠近就把胶囊和文字一起吸过去 */
+private const val SNAP_MB = 48f
+
+/** iOS 底栏那种弹性：起步猛 落位带一点点回弹 */
+private val IosTabSpring = spring<Float>(dampingRatio = 0.86f, stiffness = 380f)
+
+/** 超过 1 GB 那一档就算无限制：中间不会停在 1050 MB 这种没意义的数 */
+private fun isUnlimited(mb: Float) = mb > ONE_GB_MB + 1f
+
+/** 当前上限怎么显示 */
+private fun limitLabel(mb: Float): String = when {
+    isUnlimited(mb) -> "无限制"
+    mb >= ONE_GB_MB - 1f -> "1 GB"
+    else -> "${mb.roundToInt()} MB"
 }
 
-/** 档位文字：单位全大写 1024 MB 写成 1 GB */
-private fun optionLabel(mb: Long): String = when {
-    mb <= 0L -> "无限制"
-    mb >= 1024L -> "${mb / 1024L} GB"
-    else -> "$mb MB"
+/** 靠近节点就吸附，点击轨道时也用同一套 */
+private fun snapToNode(mb: Float): Float {
+    val near = NODES.minByOrNull { abs(it - mb) } ?: return mb
+    return if (abs(near - mb) <= SNAP_MB) near else mb
 }
 
 /**
@@ -90,6 +109,9 @@ private fun optionLabel(mb: Long): String = when {
  *
  * 只管路 cache/stage 里那份待测 apk 副本：调上限、勾选删除。
  * 上限本身就是修剪阈值，改小会立刻按新值收一次。
+ *
+ * 上半部分是「占用 + 上限」两段，不套卡片，只用一条横线隔开；
+ * 缓存文件才用卡片装。
  */
 @Composable
 fun CachePage(onBack: () -> Unit) {
@@ -97,15 +119,21 @@ fun CachePage(onBack: () -> Unit) {
     var files by remember { mutableStateOf<List<File>>(emptyList()) }
     var total by remember { mutableStateOf(0L) }
     var marked by remember { mutableStateOf<Set<String>>(emptySet()) }
-    // 滑条值是档位下标 0..4：100 MB / 200 MB / 500 MB / 1 GB / 无限制 点与点等距
-    // 老配置不在档位上时先对齐到最近的一档 用户动过一次才落盘
-    var limitIndex by remember {
-        mutableFloatStateOf(nearestOptionIndex(CacheConfig.limit / MB).toFloat())
+
+    // 滑条值就是 MB 数：100..1024 连续可拖，最右一小截是无限制
+    // 老配置里的中间值原样接上，不再对齐到档位
+    var limitMb by remember {
+        val saved = CacheConfig.limit / MB
+        mutableFloatStateOf(
+            if (saved <= 0L) UNLIMITED_MB else saved.toFloat().coerceIn(MIN_MB, ONE_GB_MB)
+        )
     }
+    var dragging by remember { mutableStateOf(false) }
+    var sliderWidthPx by remember { mutableIntStateOf(0) }
+
     var askDelete by remember { mutableStateOf(false) }
-    // 空状态要把「无缓存」放在占用卡与底部删除条之间：记卡底与浮层顶的位置，
-    // 两者相减才是真正能用的那块空白 光靠 weight 会被列表的顶部内边距带偏
-    var cardBottomPx by remember { mutableIntStateOf(0) }
+    // 空状态要把「无缓存」放在上限区与底部删除条之间
+    var sectionBottomPx by remember { mutableIntStateOf(0) }
     var overlayTopPx by remember { mutableIntStateOf(0) }
 
     fun reload() {
@@ -116,44 +144,53 @@ fun CachePage(onBack: () -> Unit) {
         marked = marked.filter { p -> list.any { it.absolutePath == p } }.toSet()
     }
 
-    /** 把当前档位写进去 顺便按新上限收一次 */
+    /** 把当前值写进去 顺便按新上限收一次 */
     fun persistLimit() {
-        val idx = limitIndex.roundToInt().coerceIn(0, LIMIT_OPTIONS_MB.lastIndex)
-        CacheConfig.set(context, LIMIT_OPTIONS_MB[idx] * MB)
+        val bytes = if (isUnlimited(limitMb)) 0L else limitMb.roundToInt().toLong() * MB
+        CacheConfig.set(context, bytes)
         Logcat.pruneStage()
         reload()
     }
 
-    /** 点滑条上的某一档：先跳到那个点 再落盘 */
-    fun chooseLimit(i: Int) {
-        limitIndex = i.coerceIn(0, LIMIT_OPTIONS_MB.lastIndex).toFloat()
-        persistLimit()
-    }
-
     LaunchedEffect(Unit) { reload() }
 
-    val limitMb = LIMIT_OPTIONS_MB[limitIndex.roundToInt().coerceIn(0, LIMIT_OPTIONS_MB.lastIndex)]
-    val limitBytes = limitMb * MB
+    val limitBytes = if (isUnlimited(limitMb)) 0L else limitMb.roundToInt().toLong() * MB
     // 已用可能比上限还大 进度条画满为止；无限制没有分母 留空
     val ratio = if (limitBytes <= 0L) 0f else (total.toFloat() / limitBytes).coerceIn(0f, 1f)
     val picked = files.filter { it.absolutePath in marked }
     val pickedSize = picked.sumOf { it.length() }
-    // 卡底到浮层顶的距离；首帧还没量到时按 0 算，「无缓存」等量到再画
+    // 区底到浮层顶的距离；首帧还没量到时按 0 算
     val emptyGap = with(LocalDensity.current) {
-        (cardBottomPx - overlayTopPx).coerceAtLeast(0).toDp()
+        (sectionBottomPx - overlayTopPx).coerceAtLeast(0).toDp()
     }
+
+    // 胶囊：按住就出现，一路跟着手指走，吸到节点时再弹过去
+    val bubbleAlpha by animateFloatAsState(
+        targetValue = if (dragging) 1f else 0f,
+        animationSpec = tween(120),
+        label = "limitBubble",
+    )
+    // 拖动中必须和 Miuix Slider 内部用同一组弹簧（0.9 / 1755），
+    // 换成别的曲线滑块是实时的、胶囊是慢的，一眼就能看错位；
+    // 松手落位才换成 iOS 底栏那条弹性
+    val followMb by animateFloatAsState(
+        targetValue = limitMb,
+        animationSpec = if (dragging) {
+            spring(dampingRatio = 0.9f, stiffness = 1755f)
+        } else {
+            IosTabSpring
+        },
+        label = "limitFollow",
+    )
+    val fraction = ((followMb - MIN_MB) / (UNLIMITED_MB - MIN_MB)).coerceIn(0f, 1f)
 
     ScrollPage(
         title = "缓存",
         onBack = onBack,
         // 底部固定条不吃列表高度：末尾多留一条 滚到底时最后一项停在它上方
-        bottomPadding = WindowInsets.navigationBars.asPaddingValues()
-            .calculateBottomPadding() + 112.dp,
-        // 删除条和底栏一样钉在页面底部 不跟着列表滚：
-        // 列表滚动时它会从卡片底下穿过去 所以先垫一层从透明到页面底色的渐变
+        bottomPadding = stableNavigationBarHeight() + 112.dp,
+        // 删除条和底栏一样钉在页面底部 不跟着列表滚
         overlay = {
-            // 整页高的 Column：上面让出占用卡，中间那块空白给「无缓存」居中，
-            // 删除条自然落在最底下 —— 不用另外估删除条有多高
             Column(
                 modifier = Modifier
                     .fillMaxSize()
@@ -168,7 +205,7 @@ fun CachePage(onBack: () -> Unit) {
                         .weight(1f),
                     contentAlignment = Alignment.Center,
                 ) {
-                    if (files.isEmpty() && cardBottomPx > 0) {
+                    if (files.isEmpty() && sectionBottomPx > 0) {
                         Text(
                             "无缓存",
                             color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
@@ -185,13 +222,11 @@ fun CachePage(onBack: () -> Unit) {
                             )
                         )
                         .padding(top = 20.dp)
-                        .navigationBarsPadding()
+                        .stableNavigationBarsPadding()
                         .padding(horizontal = 12.dp)
                         .padding(bottom = 12.dp),
                 ) {
-                    Card(
-                        modifier = Modifier.fillMaxWidth(),
-                    ) {
+                    Card(modifier = Modifier.fillMaxWidth()) {
                         Box(
                             Modifier
                                 .fillMaxWidth()
@@ -215,108 +250,220 @@ fun CachePage(onBack: () -> Unit) {
             }
         },
     ) {
-        item { SmallTitle("占用") }
+        // ---- 占用：进度条 + 已用/上限 不套卡片 ----
         item {
-            Card(
-                modifier = Modifier.fillMaxWidth()
-                    .padding(horizontal = 12.dp, vertical = 4.dp)
-                    // 记下卡底位置：空状态的「无缓存」要落在卡与删除条之间
-                    .onGloballyPositioned {
-                        cardBottomPx = (it.positionInWindow().y + it.size.height).toInt()
-                    }
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp)
+                    .padding(top = 8.dp, bottom = 18.dp),
             ) {
-                Column(Modifier.padding(horizontal = 16.dp, vertical = 14.dp)) {
-                    // 全长 = 上限，填满的部分 = 当前占用
-                    Box(
-                        Modifier
-                            .fillMaxWidth()
-                            .height(6.dp)
-                            .clip(RoundedCornerShape(3.dp))
-                            .background(MiuixTheme.colorScheme.secondaryVariant)
-                    ) {
-                        if (ratio > 0f) {
-                            Box(
-                                Modifier
-                                    .fillMaxWidth(ratio)
-                                    .fillMaxHeight()
-                                    .background(MiuixTheme.colorScheme.primary)
-                            )
-                        }
-                    }
-                    Spacer(Modifier.height(8.dp))
-                    Row(Modifier.fillMaxWidth()) {
-                        Text(
-                            "已用 " + Module.fmtSize(total),
-                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                            style = MiuixTheme.textStyles.subtitle,
-                        )
-                        Spacer(Modifier.weight(1f))
-                        Text(
-                            "上限 " + optionLabel(limitMb),
-                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                            style = MiuixTheme.textStyles.subtitle,
+                Box(
+                    Modifier
+                        .fillMaxWidth()
+                        .height(6.dp)
+                        .clip(RoundedCornerShape(3.dp))
+                        .background(MiuixTheme.colorScheme.secondaryVariant)
+                ) {
+                    if (ratio > 0f) {
+                        Box(
+                            Modifier
+                                .fillMaxWidth(ratio)
+                                .fillMaxHeight()
+                                .background(MiuixTheme.colorScheme.primary)
                         )
                     }
-                    // 只留轨道：标题和右侧数值都不显示 大小看下面那排档位就够了
-                    Slider(
-                        value = limitIndex,
-                        onValueChange = { limitIndex = it },
-                        onValueChangeFinished = { persistLimit() },
-                        valueRange = 0f..LIMIT_OPTIONS_MB.lastIndex.toFloat(),
-                        // 五个点之间夹三个刻度 间距完全相等 拖动只会停在整档上
-                        steps = LIMIT_OPTIONS_MB.size - 2,
-                        showKeyPoints = true,
-                        hapticEffect = SliderDefaults.SliderHapticEffect.Step,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(top = 6.dp)
-                            .sliderTapSeek(LIMIT_OPTIONS_MB.lastIndex) { chooseLimit(it) },
+                }
+                Spacer(Modifier.height(10.dp))
+                Row(Modifier.fillMaxWidth()) {
+                    Text(
+                        "已用 " + Module.fmtSize(total),
+                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                        style = MiuixTheme.textStyles.subtitle,
+                    )
+                    Spacer(Modifier.weight(1f))
+                    Text(
+                        "上限 " + limitLabel(limitMb),
+                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                        style = MiuixTheme.textStyles.subtitle,
                     )
                 }
             }
         }
 
+        // 一条横线把两个分区隔开
+        item { DividerLine() }
+
+        // ---- 上限：无级滑条，拖动时上方浮一个胶囊 ----
+        item {
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp)
+                    .padding(top = 10.dp, bottom = 6.dp)
+                    .onSizeChanged { sliderWidthPx = it.width }
+                    // 记下这一段的底：空状态的「无缓存」要落在它与删除条之间
+                    .onGloballyPositioned {
+                        sectionBottomPx = (it.positionInWindow().y + it.size.height).toInt()
+                    },
+            ) {
+                // 节点文字 + 拖动胶囊：吸上去的瞬间节点文字消失，胶囊带着它的文字弹过去
+                Box(
+                    Modifier
+                        .fillMaxWidth()
+                        .height(30.dp),
+                ) {
+                    val density = LocalDensity.current
+                    // 轨道两端各让出半个圆钮，和 Slider 内部算法一致
+                    val radius = with(density) { 10.dp.toPx() }
+                    val usable = (sliderWidthPx - 2f * radius).coerceAtLeast(1f)
+
+                    // 落进吸附范围的那个节点：胶囊要停到它头顶，文字也换成它的
+                    val taken = if (dragging) {
+                        NODES.minByOrNull { abs(it - limitMb) }?.takeIf { abs(it - limitMb) <= SNAP_MB }
+                    } else {
+                        null
+                    }
+                    val bubbleX = radius + fraction * usable
+
+                    if (sliderWidthPx > 0) {
+                        NODES.forEach { node ->
+                            val f = ((node - MIN_MB) / (UNLIMITED_MB - MIN_MB)).coerceIn(0f, 1f)
+                            val cx = radius + f * usable
+                            // 被接管就退场：字已经由胶囊替它报了，留着会重影
+                            val vanish by animateFloatAsState(
+                                targetValue = if (taken != null && abs(taken - node) < 0.5f) 1f else 0f,
+                                animationSpec = tween(120),
+                                label = "nodeVanish$node",
+                            )
+                            if (vanish < 0.99f) {
+                                Box(
+                                    Modifier
+                                        .align(Alignment.CenterStart)
+                                        // 宽度跟着文字走，用绘制阶段补半个宽度做居中
+                                        .graphicsLayer {
+                                            translationX = cx - size.width / 2f
+                                            alpha = 1f - vanish
+                                            val s = 1f - 0.22f * vanish
+                                            scaleX = s
+                                            scaleY = s
+                                        },
+                                ) {
+                                    Text(
+                                        limitLabel(node),
+                                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                                        style = MiuixTheme.textStyles.subtitle.copy(fontSize = 10.sp),
+                                        maxLines = 1,
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    if (bubbleAlpha > 0.01f) {
+                        // 实色：背后压着的节点文字不能透出来
+                        val bubbleBg = lerp(
+                            MiuixTheme.colorScheme.surface,
+                            MiuixTheme.colorScheme.primary,
+                            0.16f,
+                        )
+                        Box(
+                            Modifier
+                                .align(Alignment.CenterStart)
+                                .graphicsLayer { translationX = bubbleX - size.width / 2f }
+                                .alpha(bubbleAlpha)
+                                .clip(RoundedCornerShape(50))
+                                .background(bubbleBg)
+                                .padding(horizontal = 9.dp, vertical = 4.dp),
+                        ) {
+                            Text(
+                                limitLabel(limitMb),
+                                color = MiuixTheme.colorScheme.primary,
+                                style = MiuixTheme.textStyles.subtitle.copy(fontSize = 10.sp),
+                                fontWeight = FontWeight.Medium,
+                                maxLines = 1,
+                            )
+                        }
+                    }
+                }
+
+                Slider(
+                    value = limitMb,
+                    onValueChange = {
+                        dragging = true
+                        limitMb = snapToNode(it)
+                    },
+                    onValueChangeFinished = {
+                        dragging = false
+                        persistLimit()
+                    },
+                    valueRange = MIN_MB..UNLIMITED_MB,
+                    // 不设档位：100 MB 到 1 GB 之间随便拖
+                    steps = 0,
+                    showKeyPoints = true,
+                    keyPoints = NODES,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .sliderTapFraction { f ->
+                            val v = snapToNode(MIN_MB + f * (UNLIMITED_MB - MIN_MB))
+                            limitMb = v
+                            dragging = false
+                            persistLimit()
+                        },
+                )
+            }
+        }
+
+        item { DividerLine() }
+
+        // ---- 缓存文件：这里才用卡片 ----
         if (files.isNotEmpty()) {
             item {
-                SectionCard {
-                    files.forEach { f ->
-                        val checked = f.absolutePath in marked
-                        Row(
-                            Modifier
-                                .fillMaxWidth()
-                                .clickable {
-                                    marked = if (checked) {
-                                        marked - f.absolutePath
-                                    } else {
-                                        marked + f.absolutePath
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp, vertical = 12.dp),
+                ) {
+                    Column {
+                        files.forEach { f ->
+                            val checked = f.absolutePath in marked
+                            Row(
+                                Modifier
+                                    .fillMaxWidth()
+                                    .clickable {
+                                        marked = if (checked) {
+                                            marked - f.absolutePath
+                                        } else {
+                                            marked + f.absolutePath
+                                        }
                                     }
+                                    .padding(horizontal = 16.dp, vertical = 10.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Column(Modifier.weight(1f)) {
+                                    Text(
+                                        f.name,
+                                        style = MiuixTheme.textStyles.main,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                    Text(
+                                        Module.fmtSize(f.length()),
+                                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                                        style = MiuixTheme.textStyles.subtitle,
+                                    )
                                 }
-                                .padding(horizontal = 16.dp, vertical = 10.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Column(Modifier.weight(1f)) {
-                                Text(
-                                    f.name,
-                                    style = MiuixTheme.textStyles.main,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                )
-                                Text(
-                                    Module.fmtSize(f.length()),
-                                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                                    style = MiuixTheme.textStyles.subtitle,
+                                Checkbox(
+                                    state = if (checked) ToggleableState.On else ToggleableState.Off,
+                                    onClick = {
+                                        marked = if (checked) {
+                                            marked - f.absolutePath
+                                        } else {
+                                            marked + f.absolutePath
+                                        }
+                                    },
                                 )
                             }
-                            Checkbox(
-                                state = if (checked) ToggleableState.On else ToggleableState.Off,
-                                onClick = {
-                                    marked = if (checked) {
-                                        marked - f.absolutePath
-                                    } else {
-                                        marked + f.absolutePath
-                                    }
-                                },
-                            )
                         }
                     }
                 }
@@ -359,3 +506,14 @@ fun CachePage(onBack: () -> Unit) {
     }
 }
 
+/** 分区之间的那一条横线 */
+@Composable
+private fun DividerLine() {
+    Box(
+        Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 20.dp)
+            .height(1.dp)
+            .background(MiuixTheme.colorScheme.onSurface.copy(alpha = 0.08f))
+    )
+}

@@ -21,6 +21,7 @@ import com.xkspeed.HyperMount.ui.components.SliderInputPreference
 import top.yukonga.miuix.kmp.basic.SmallTitle
 import top.yukonga.miuix.kmp.basic.TextField
 import kotlin.math.roundToInt
+import com.xkspeed.HyperMount.ui.util.stableNavigationBarHeight
 
 /**
  * 配置页
@@ -36,8 +37,7 @@ fun ConfigPage(onBack: () -> Unit) {
         title = "配置",
         subtitle = "目标包名 · 抓取时长 · 日志大小判定",
         onBack = onBack,
-        bottomPadding = WindowInsets.navigationBars.asPaddingValues()
-            .calculateBottomPadding() + 24.dp,
+        bottomPadding = stableNavigationBarHeight() + 24.dp,
     ) {
         item { SmallTitle("抓取") }
         item {

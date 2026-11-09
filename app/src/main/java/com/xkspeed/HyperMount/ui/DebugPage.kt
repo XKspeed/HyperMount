@@ -12,6 +12,7 @@ import com.xkspeed.HyperMount.ui.components.SliderInputPreference
 import top.yukonga.miuix.kmp.basic.BasicComponent
 import top.yukonga.miuix.kmp.basic.SmallTitle
 import kotlin.math.roundToInt
+import com.xkspeed.HyperMount.ui.util.stableNavigationBarHeight
 
 /**
  * 调试页：只有非正式签名（debug 包 / MT 重签的测试包）才进得来。
@@ -28,8 +29,7 @@ fun DebugPage(onBack: () -> Unit, onOpenOnboarding: () -> Unit) {
     ScrollPage(
         title = "调试",
         onBack = onBack,
-        bottomPadding = WindowInsets.navigationBars.asPaddingValues()
-            .calculateBottomPadding() + 24.dp,
+        bottomPadding = stableNavigationBarHeight() + 24.dp,
     ) {
         item { SmallTitle("引导") }
         item {
