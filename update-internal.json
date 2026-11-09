@@ -1,14 +1,14 @@
 {
-  "versionCode": 18,
-  "versionName": "1.4.3-debug",
-  "buildTime": 1794201382851,
-  "buildId": "18",
+  "versionCode": 19,
+  "versionName": "1.4.4-debug",
+  "buildTime": 1794233055493,
+  "buildId": "21",
   "url": "https://github.com/XKspeed/HyperMount/releases/download/internal/HyperMount-arm64-internal.apk",
   "changelog": "修复切换多任务时页面跳动\n新增界面设置二级页\n新增配置二级页\n新增全局常驻救砖\n新增守护状态常驻通知\n优化设置布局\n移除仅日志模式的等待超时\n优化引导页内容\n优化部分页面布局\n移除运行输出中的崩溃日志\n缓存上限支持无级调节\n守护时长支持无级调节\n新增音量键校验拦截\n优化更新逻辑\n更改底栏为系统界面 应用 设置",
   "moduleVersionCode": 16,
   "moduleVersionName": "1.5.7-debug.19",
   "moduleUrl": "https://github.com/XKspeed/HyperMount/releases/download/internal/module-internal.zip",
   "moduleChangelog": "新增模块更新检测\n新增全局常驻救砖守护\n替换界面不再计入崩溃次数",
-  "sha256": "bdbe1683d8c28550d5570a0901377b5fa153492344b37b04613b709746c7ed3b",
+  "sha256": "0e4cec25f46685ad4dc4634fe793ff7f376d4d6d87ec88db6173e3ab866d58ee",
   "moduleSha256": "4881e5a852fdaf6c0b58e712ea2e145dc1d5202d1fe9e7f3e99544c9d054d29c"
 }

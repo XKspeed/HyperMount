@@ -22,8 +22,8 @@ android {
         applicationId = "com.xkspeed.HyperMount"
         minSdk = 35
         targetSdk = 37
-        versionCode = 18
-        versionName = "1.4.3"
+        versionCode = 19
+        versionName = "1.4.4"
 
         buildConfigField("String", "BUILD_ID", "\"$internalBuildId\"")
         // 构建时间（毫秒）：清单里的 buildTime 就是这个值 两边对不上就说明不是同一份包
