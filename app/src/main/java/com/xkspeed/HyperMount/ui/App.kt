@@ -1227,9 +1227,12 @@ private fun MainScaffold(
     onRescueToggle: (Boolean) -> Unit,
     onSetCrashLimit: (Int) -> Unit,
 ) {
-    // 三页：系统界面 / 应用 / 设置 默认落在中间的应用
-    val pagerState = rememberPagerState(initialPage = HOME_PAGE, pageCount = { 3 })
-    var selected by remember { mutableIntStateOf(HOME_PAGE) }
+    // 三页：系统界面 / 应用 / 设置
+    // 冷启动落回上次停留的那一页；从没切过页时 lastTab 就是 1（应用）
+    val context = LocalContext.current
+    val startTab = remember { UiConfigState.lastTab }
+    val pagerState = rememberPagerState(initialPage = startTab, pageCount = { 3 })
+    var selected by remember { mutableIntStateOf(startTab) }
     // 系统界面页换成九宫格图标（原图的圆角底板已经去掉 只留 3×3 方块）
     // 深浅两档靠 alpha 区分 底栏的 tint 只换颜色 不动透明度
     val systemUiIcon = ImageVector.vectorResource(R.drawable.ic_systemui_grid)
@@ -1253,6 +1256,11 @@ private fun MainScaffold(
     // 反过来又触发一次 animateScrollToPage(1) —— 结果永远停在中间页
     LaunchedEffect(pagerState.settledPage) {
         selected = pagerState.settledPage
+        // 记住落点：下次冷启动直接回到这一页
+        if (UiConfigState.lastTab != pagerState.settledPage) {
+            UiConfigState.lastTab = pagerState.settledPage
+            UiConfigState.save(context)
+        }
     }
 
     // 应用页误选系统界面包被拦下后 点弹窗里的「前往系统界面」直接切过去

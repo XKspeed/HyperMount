@@ -116,6 +116,15 @@ object UiConfigState {
      */
     var safeMode by mutableStateOf(false)
 
+    /**
+     * 上次停留的一级页（0 系统界面 / 1 应用 / 2 设置）
+     *
+     * 冷启动从这里恢复。只记一级页：二级页仍然从一级页进去，
+     * 免得异常退出后重进直接落在深层页面里找不着北。
+     * 返回键的落点不受影响 仍固定回「应用」。
+     */
+    var lastTab by mutableStateOf(1)
+
     fun load(context: Context) {
         val p = context.getSharedPreferences("ui_config", Context.MODE_PRIVATE)
         enableBlur = p.getBoolean("enable_blur", true)
@@ -146,6 +155,8 @@ object UiConfigState {
             }
         }
         safeMode = AppLog.safeMode()
+        // 越界值（以后加页删页）一律退回「应用」
+        lastTab = p.getInt("last_tab", 1).coerceIn(0, 2)
         GlassEffectState.load(context)
     }
 
@@ -160,6 +171,7 @@ object UiConfigState {
             putInt("onboard_version", onboardVersion)
             putBoolean("autostart_prompted", autostartPrompted)
             putString("vol_checked_version", volCheckedVersion)
+            putInt("last_tab", lastTab)
         }.apply()
     }
 
