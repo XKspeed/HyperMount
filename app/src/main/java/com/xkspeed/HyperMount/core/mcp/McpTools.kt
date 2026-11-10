@@ -1,7 +1,10 @@
 package com.xkspeed.HyperMount.core.mcp
 
 import android.content.Context
+import android.os.Handler
+import android.os.Looper
 import android.util.Base64
+import com.xkspeed.HyperMount.core.ConfigBus
 import com.xkspeed.HyperMount.core.LogConfig
 import com.xkspeed.HyperMount.core.Logcat
 import com.xkspeed.HyperMount.core.Module
@@ -12,6 +15,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.booleanOrNull
@@ -36,10 +40,14 @@ object McpTask {
     @Volatile var logFile: String = ""
     @Volatile var message: String = ""
     @Volatile var systemUiAlive: Boolean = false
+    /** 这一轮测的是哪条链：systemui（界面替换）/ apk（普通应用） */
+    @Volatile var mode: String = ""
+    /** 实际监视的进程包名 */
+    @Volatile var monitorPkg: String = ""
     @Volatile var startedAt: Long = 0L
     @Volatile var finishedAt: Long = 0L
 
-    fun markRunning(id: String, logFile: String, at: Long) {
+    fun markRunning(id: String, logFile: String, at: Long, mode: String, monitorPkg: String) {
         this.id = id
         state = "running"
         result = ""
@@ -47,6 +55,8 @@ object McpTask {
         message = ""
         systemUiAlive = false
         this.logFile = logFile
+        this.mode = mode
+        this.monitorPkg = monitorPkg
         startedAt = at
         finishedAt = 0L
     }
@@ -94,15 +104,25 @@ object McpTools {
         args: JsonObject,
         baseUrl: String,
     ): String = when (name) {
-        "upload_systemui" -> upload(context, args)
+        // upload_systemui 是旧名字，留着不报错
+        "upload_apk", "upload_systemui" -> upload(context, args)
         "run_test" -> runTest(context, args)
         "get_test_result" -> testResult()
         "get_logs" -> logs(context, args, baseUrl)
         else -> fail("未知工具：$name")
     }
 
-    // ---------------- upload_systemui ----------------
+    // ---------------- upload_apk ----------------
 
+    /**
+     * 收下一个 apk，按包名决定走哪条链
+     *
+     * - `com.android.systemui`：MiuiSystemUI.apk 本体。它既能被模块覆盖挂载点
+     *   （界面页那条「待测界面」），也能被 pm install 后抓崩溃（主页那条），两处都写。
+     * - 其余包名：一律当普通应用测，监视进程改成它自己的包名。
+     *   不能写界面页那个槽位 —— 那条链会把文件覆盖成 MiuiSystemUI.apk，
+     *   塞个别的包进去系统就没界面了。
+     */
     private suspend fun upload(context: Context, args: JsonObject): String = withContext(Dispatchers.IO) {
         val dst = targetFile(context)
         val b64 = args["apk_base64"]?.let { (it as? JsonPrimitive)?.contentOrNull }
@@ -131,18 +151,55 @@ object McpTools {
         val pkg = packageNameOf(context, dst)
         if (pkg.isNullOrBlank()) return@withContext fail("解析不出包名，文件可能不是 apk")
 
+        val isSystemUi = pkg == Logcat.DEFAULT_PKG
+        // 插件包跑在 systemui 宿主里 崩溃落在宿主进程名下
+        val isPlugin = pkg == Logcat.PLUGIN_PKG
+        val monitor = if (isSystemUi || isPlugin) Logcat.DEFAULT_PKG else pkg
+
         LogConfig.targetPath = dst.absolutePath
         LogConfig.targetSize = dst.length()
         LogConfig.targetPkg = pkg
+        LogConfig.pkg = monitor
         LogConfig.save(context)
 
-        buildJsonObject {
+        val slotOk = if (isSystemUi) {
+            runCatching { Module.setConf("TARGET_APK_PATH", dst.absolutePath) }.getOrDefault(false)
+        } else {
+            false
+        }
+        if (slotOk) Handler(Looper.getMainLooper()).post { ConfigBus.bump() }
+
+        val head = buildJsonObject {
             put("ok", true)
             put("package", pkg)
+            put("mode", if (isSystemUi) "systemui" else "apk")
+            put("monitor_package", monitor)
+            put("plugin_mode", isPlugin)
             put("size", dst.length())
             put("path", dst.absolutePath)
-            put("plugin_mode", pkg == Logcat.PLUGIN_PKG)
-            put("note", "已设为待测 apk，可以调 run_test")
+            put("target_slot_updated", slotOk)
+            put(
+                "note",
+                if (isSystemUi) {
+                    "已同时更新界面页的「待测界面」和主页的待测 apk，可调 run_test 装包测试"
+                } else {
+                    "已设为待测 apk，监视进程改为 $monitor；可调 run_test 装包测试"
+                },
+            )
+        }
+
+        val autoRun = args["auto_run"]?.let { (it as? JsonPrimitive)?.booleanOrNull } ?: false
+        if (!autoRun) return@withContext head.toString()
+
+        val testArgs = buildJsonObject {
+            args["seconds"]?.let { put("seconds", it) }
+            args["auto_replace"]?.let { put("auto_replace", it) }
+        }
+        val test = runTest(context, testArgs)
+        buildJsonObject {
+            put("ok", true)
+            put("upload", Json.parseToJsonElement(head.toString()))
+            put("test", Json.parseToJsonElement(test))
         }.toString()
     }
 
@@ -168,7 +225,7 @@ object McpTools {
 
         val target = LogConfig.targetPath
         if (target.isBlank() || !File(target).isFile) {
-            return bail("还没有待测 apk，先调 upload_systemui")
+            return bail("还没有待测 apk，先调 upload_apk")
         }
 
         val autoReplace = args["auto_replace"]?.let { (it as? JsonPrimitive)?.booleanOrNull }
@@ -190,6 +247,7 @@ object McpTools {
         val pkg = LogConfig.pkg.ifBlank { Logcat.DEFAULT_PKG }
         val targetPkg = LogConfig.targetPkg
         val pluginMode = targetPkg == Logcat.PLUGIN_PKG
+        val mode = if (targetPkg == Logcat.DEFAULT_PKG) "systemui" else "apk"
 
         val staged = when (val r = Logcat.stageTarget(target)) {
             is Logcat.StageResult.Ok -> r.path
@@ -213,7 +271,7 @@ object McpTools {
         }
 
         val id = UUID.randomUUID().toString().substring(0, 8)
-        McpTask.markRunning(id, session.file, session.startedAt)
+        McpTask.markRunning(id, session.file, session.startedAt, mode, pkg)
         scope.launch {
             runCatching { awaitFinish(context, session, pkg, seconds) }
                 .onFailure { McpTask.markFailed(it.message ?: "等待结果时出错") }
@@ -224,7 +282,9 @@ object McpTools {
             put("task_id", id)
             put("state", "running")
             put("seconds", seconds)
+            put("mode", mode)
             put("pkg", pkg)
+            put("target_pkg", targetPkg)
             put("auto_replace", autoReplace)
             put("log_file", session.file)
             put("note", "用 get_test_result 查结果，预计 ${seconds + 5} 秒内结束")
@@ -277,6 +337,8 @@ object McpTools {
         put("ok", true)
         put("task_id", McpTask.id)
         put("state", McpTask.state)
+        put("mode", McpTask.mode)
+        put("monitor_package", McpTask.monitorPkg)
         put("result", McpTask.result)
         put("result_text", McpTask.resultText)
         put("systemui_alive", McpTask.systemUiAlive)

@@ -54,7 +54,9 @@ class McpServer(private val context: Context) {
         return try {
             val s = ServerSocket()
             s.reuseAddress = true
-            s.bind(InetSocketAddress("0.0.0.0", McpConfig.port))
+            // 默认只听本机；开了「局域网访问」才对外
+            val host = if (McpConfig.lan) "0.0.0.0" else "127.0.0.1"
+            s.bind(InetSocketAddress(host, McpConfig.port))
             socket = s
             stopped = false
             accept = Thread({ loop(s) }, "mcp-accept").apply {
@@ -189,6 +191,8 @@ class McpServer(private val context: Context) {
     }
 
     private fun authorized(authHeader: String?, query: Map<String, String>): Boolean {
+        // 密码开关关掉时不做校验（默认只听本机，别人够不着）
+        if (!McpConfig.requireToken) return true
         val expected = McpConfig.token
         if (expected.isBlank()) return false
         val given = authHeader
@@ -270,11 +274,14 @@ class McpServer(private val context: Context) {
     private fun toolDefs(): JsonArray = buildJsonArray {
         add(
             buildJsonObject {
-                put("name", "upload_systemui")
+                put("name", "upload_apk")
                 put(
                     "description",
-                    "把待测的 MIUI SystemUI apk 设为测试目标。小文件直接传 apk_base64；" +
-                        "大文件先 POST /upload 拿返回的 path，再传 apk_path。",
+                    "把待测 apk 设为测试目标并自动分流：" +
+                        "包名为 com.android.systemui（MiuiSystemUI.apk 本体）走 SystemUI 链，" +
+                        "同时更新界面页的「待测界面」与主页的待测 apk；" +
+                        "其他任何包名按普通应用测，监视进程自动改成该包名。" +
+                        "小文件直接传 apk_base64；大文件先 POST /upload 拿返回的 path，再传 apk_path。",
                 )
                 put(
                     "inputSchema",
@@ -295,6 +302,29 @@ class McpServer(private val context: Context) {
                                     buildJsonObject {
                                         put("type", "string")
                                         put("description", "POST /upload 上传后返回的应用内路径")
+                                    },
+                                )
+                                put(
+                                    "auto_run",
+                                    buildJsonObject {
+                                        put("type", "boolean")
+                                        put("description", "上传后立刻开跑，默认 false")
+                                    },
+                                )
+                                put(
+                                    "seconds",
+                                    buildJsonObject {
+                                        put("type", "integer")
+                                        put("minimum", 5)
+                                        put("maximum", 60)
+                                        put("description", "auto_run 时的抓取时长")
+                                    },
+                                )
+                                put(
+                                    "auto_replace",
+                                    buildJsonObject {
+                                        put("type", "boolean")
+                                        put("description", "auto_run 时崩了是否自动救砖")
                                     },
                                 )
                             },
@@ -344,8 +374,9 @@ class McpServer(private val context: Context) {
                 put("name", "get_test_result")
                 put(
                     "description",
-                    "查上次 run_test 的结果。result 取值：normal（正常界面）/ " +
-                        "rescue_triggered（触发界面并已救砖）/ crash / rescue_failed / error。",
+                    "查上次 run_test 的结果。mode 为 systemui / apk，monitor_package 是实际监视的进程。" +
+                        "result 取值：normal（正常界面）/ rescue_triggered（触发界面并已救砖）/ " +
+                        "crash / rescue_failed / error。",
                 )
                 put("inputSchema", buildJsonObject { put("type", "object") })
             },

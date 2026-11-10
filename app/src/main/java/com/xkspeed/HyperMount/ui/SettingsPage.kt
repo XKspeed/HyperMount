@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -39,6 +40,7 @@ import com.xkspeed.HyperMount.core.UpdateChannel
 import com.xkspeed.HyperMount.ui.component.glass.ScrollPage
 import com.xkspeed.HyperMount.ui.component.glass.TopBarTuning
 import com.xkspeed.HyperMount.ui.components.SectionCard
+import com.xkspeed.HyperMount.ui.components.locateHighlight
 import top.yukonga.miuix.kmp.basic.ButtonDefaults
 import top.yukonga.miuix.kmp.basic.SmallTitle
 import top.yukonga.miuix.kmp.basic.Text
@@ -64,8 +66,8 @@ fun SettingsPage(
     onOpenDebug: () -> Unit = {},
     onOpenAppLog: () -> Unit = {},
     onOpenCache: () -> Unit = {},
-    onOpenAbout: () -> Unit = {},
     onOpenMcp: () -> Unit = {},
+    onOpenAbout: () -> Unit = {},
     onCheckUpdate: () -> Unit = {},
     checkingUpdate: Boolean = false,
 ) {
@@ -114,8 +116,20 @@ fun SettingsPage(
 
     val select = rememberLiquidSelectState()
 
+    // 拦截提示把用户带到这里时：滚到「日志目录」再点亮
+    // large-title(0) + 「运行」标题 + 日志目录卡
+    val listState = rememberLazyListState()
+    LaunchedEffect(Locate.pending) {
+        if (Locate.pending == LocateTarget.LOG_DIR) {
+            runCatching { listState.animateScrollToItem(2) }
+            Locate.consume()
+            Locate.hint(LocateTarget.LOG_DIR)
+        }
+    }
+
     ScrollPage(
         title = "设置",
+        listState = listState,
         // 主题入口挪到右上角：与返回键同款玻璃圆钮 图标用 Miuix 的 Theme
         onTopAction = onOpenUiSettings,
         topActionIcon = rememberVectorPainter(MiuixIcons.Theme),
@@ -141,15 +155,17 @@ fun SettingsPage(
                             summary = state.logDir.ifBlank { "未设置 · 点击选择目录" },
                             // 点按跳文件选择器；长按走手填，给选择器解析不出路径时留一条主动入口
                             onClick = null,
-                            modifier = Modifier.combinedClickable(
-                                onClickLabel = "选择目录",
-                                onLongClickLabel = "手动输入目录",
-                                onClick = { pickLogFolder() },
-                                onLongClick = {
-                                    manualDirText = state.logDir
-                                    showManualDir = true
-                                },
-                            ),
+                            modifier = Modifier
+                                .locateHighlight(LocateTarget.LOG_DIR)
+                                .combinedClickable(
+                                    onClickLabel = "选择目录",
+                                    onLongClickLabel = "手动输入目录",
+                                    onClick = { pickLogFolder() },
+                                    onLongClick = {
+                                        manualDirText = state.logDir
+                                        showManualDir = true
+                                    },
+                                ),
                         )
                         // 缓存跟日志模式无关：关掉日志也能进来清副本
                         ArrowPreference(
@@ -198,13 +214,12 @@ fun SettingsPage(
                     }
                 }
 
-                // MCP：给 AI 客户端的局域网入口 默认关闭
+                // 接口：给 AI 客户端的 MCP 入口 默认关闭
                 item { SmallTitle("接口") }
                 item {
                     SectionCard {
                         ArrowPreference(
                             title = "MCP 服务",
-                            summary = "让 AI 客户端传 apk、跑测试、取日志",
                             onClick = onOpenMcp,
                         )
                     }

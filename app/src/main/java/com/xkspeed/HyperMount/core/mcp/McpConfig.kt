@@ -22,13 +22,21 @@ object McpConfig {
     var enabled by mutableStateOf(false)
     var port by mutableIntStateOf(DEFAULT_PORT)
 
-    /** 访问令牌：所有请求必须带 Authorization: Bearer <token> 或 ?token= */
+    /** 是否允许局域网访问。默认关，只听 127.0.0.1 */
+    var lan by mutableStateOf(false)
+
+    /** 是否校验访问令牌。默认关，只听本机时不必多一道握手 */
+    var requireToken by mutableStateOf(false)
+
+    /** 访问令牌：密码开关打开后要求 Bearer <token> 或 ?token= */
     var token by mutableStateOf("")
 
     fun load(context: Context) {
         val p = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         enabled = p.getBoolean("enabled", false)
         port = p.getInt("port", DEFAULT_PORT).coerceIn(1024, 65535)
+        lan = p.getBoolean("lan", false)
+        requireToken = p.getBoolean("require_token", false)
         token = p.getString("token", "").orEmpty()
         // 老用户第一次打开时没有令牌：当场生成一份 之后一直复用
         if (token.isBlank()) {
@@ -47,6 +55,16 @@ object McpConfig {
         save(context)
     }
 
+    fun setLan(context: Context, value: Boolean) {
+        lan = value
+        save(context)
+    }
+
+    fun setRequireToken(context: Context, value: Boolean) {
+        requireToken = value
+        save(context)
+    }
+
     fun regenerateToken(context: Context) {
         token = newToken()
         save(context)
@@ -56,6 +74,8 @@ object McpConfig {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().apply {
             putBoolean("enabled", enabled)
             putInt("port", port)
+            putBoolean("lan", lan)
+            putBoolean("require_token", requireToken)
             putString("token", token)
         }.apply()
     }

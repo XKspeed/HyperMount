@@ -41,6 +41,9 @@ object Logcat {
     /** start / stop 串行执行：两轮测试挨得太近时不能互相踩 PID 文件 */
     private val lifecycle = Mutex()
 
+    /** 给 [AutomationBridge] 用：外部进程调进来时要拿私有目录 */
+    fun appContext(): Context? = app
+
     /** Application.onCreate 里调一次 之后所有路径都基于私有目录 */
     fun install(context: Context) {
         app = context.applicationContext

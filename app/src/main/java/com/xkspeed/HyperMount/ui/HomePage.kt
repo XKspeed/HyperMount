@@ -35,6 +35,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -59,10 +60,12 @@ import com.xkspeed.HyperMount.core.ModuleState
 import com.xkspeed.HyperMount.core.SystemVersion
 import com.xkspeed.HyperMount.core.UpdateInfo
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import com.xkspeed.HyperMount.ui.component.glass.ScrollPage
 import com.xkspeed.HyperMount.ui.component.glass.TopBarTuning
 import com.xkspeed.HyperMount.ui.components.BottomActions
 import com.xkspeed.HyperMount.ui.components.InfoRow
+import com.xkspeed.HyperMount.ui.components.locateHighlight
 import com.xkspeed.HyperMount.ui.components.SectionCard
 import com.xkspeed.HyperMount.ui.components.StatusDot
 import com.xkspeed.HyperMount.ui.util.LocalIsWideScreen
@@ -109,16 +112,25 @@ fun HomePage(
     val isWideScreen = LocalIsWideScreen.current
     val scrollBehavior = MiuixScrollBehavior()
     val listState = rememberLazyListState()
+    val scope = rememberCoroutineScope()
+
+    // 拦截提示把用户带回来时：滚到文件卡再点亮
+    // large-title(0) + 状态卡(1) + [root 提示卡] + 「文件」标题 + 文件卡
+    LaunchedEffect(Locate.pending) {
+        val target = Locate.pending ?: return@LaunchedEffect
+        if (target.tab != 0) return@LaunchedEffect
+        // large-title(0) + 状态卡(1) + [root 提示卡] + 「文件」标题 + 文件卡
+        val index = if (rootOk == false) 4 else 3
+        runCatching { listState.animateScrollToItem(index) }
+        Locate.consume()
+        Locate.hint(target)
+    }
     var showStartConfirm by remember { mutableStateOf(false) }
     // 音量键没校验过：开测前先拦一道 救砖时按不动就白测了
     var showVolumeGate by remember { mutableStateOf(false) }
     val context = LocalContext.current
 
     val backdrop = rememberBlurBackdrop()
-
-    // 只要求「选过」：文件在不在留给开始那一刻判断，删了也能点出提示
-    val canStart = rootOk == true && state.rescueReady && state.targetPath.isNotBlank() &&
-        !state.daemonRunning && !busy
 
     // 和主页同一条标准：模块默认不带日志目录 没选就不让开始
     val logDirReady = state.logDir.isNotBlank()
@@ -168,18 +180,10 @@ fun HomePage(
         label = "logArea",
     )
 
-    // 底部操作条上那句提示：缺什么就说缺什么 状态一变跟着换
-    val actionHint = when {
-        rootOk != true -> "等待 root 授权"
-        !state.rescueReady -> "先选一个救砖界面（能正常开机的 SystemUI）"
-        !state.targetOk -> "再选一个待测界面"
-        !logDirReady -> "未指定日志目录 去设置里选一个"
-        state.daemonRunning -> "守护已启动 音量+ 触发救砖 音量- 取消"
-        else -> "确认后立即替换界面 随后监听崩溃与音量键"
-    }
-
     ScrollPage(
         title = "系统界面",
+        // 定位请求要滚动这一份才有效
+        listState = listState,
         // 顶栏只留模块版本：前面那半句「救砖与界面替换」是这个页面的功能说明
         // 用户进来看一眼就知道在哪 不用再占一行
         subtitle = if (state.version.isNotBlank()) "模块 v${state.version}" else null,
@@ -229,17 +233,33 @@ fun HomePage(
         overlay = { pageBackdrop ->
             BottomActions(
                 backdrop = pageBackdrop,
-                hint = actionHint,
                 startLabel = if (busy) "启动中…" else "开始测试",
-                startEnabled = canStart,
+                // 条件不满足不再灰按钮：点了统一弹提示 并带用户去对应的卡
+                startEnabled = !busy,
                 onStart = {
-                    if (state.logDir.isBlank()) {
-                        toast(context, "未指定日志目录")
-                    } else if (!state.volumeAssessed) {
+                    when {
+                        rootOk != true -> scope.launch { UiFeedback.toast("还没拿到 root 权限") }
+                        !state.rescueReady -> scope.launch {
+                            if (UiFeedback.show("先选一个救砖界面", "去选择")) {
+                                Locate.request(LocateTarget.HOME_RESCUE)
+                            }
+                        }
+                        state.targetPath.isBlank() -> scope.launch {
+                            if (UiFeedback.show("先选一个待测界面", "去选择")) {
+                                Locate.request(LocateTarget.HOME_TARGET)
+                            }
+                        }
+                        state.logDir.isBlank() -> scope.launch {
+                            if (UiFeedback.show("未指定日志目录，去设置里选一个", "去设置")) {
+                                Locate.request(LocateTarget.LOG_DIR)
+                            }
+                        }
+                        state.daemonRunning -> scope.launch {
+                            UiFeedback.toast("守护已经在跑了，先在下面停止")
+                        }
                         // 音量键没校验过就先拦下来 救砖全靠它 按不动等于白测
-                        showVolumeGate = true
-                    } else {
-                        showStartConfirm = true
+                        !state.volumeAssessed -> showVolumeGate = true
+                        else -> showStartConfirm = true
                     }
                 },
                 stopEnabled = state.daemonRunning && !busy,
@@ -358,6 +378,7 @@ fun HomePage(
                             onClick = onPickRescue,
                             // 跑起来之后两个 apk 都锁死：脚本用的是启动那一刻的路径
                             enabled = !state.daemonRunning && !busy,
+                            modifier = Modifier.locateHighlight(LocateTarget.HOME_RESCUE),
                         )
                         ArrowPreference(
                             title = "待测界面",
@@ -368,6 +389,7 @@ fun HomePage(
                             },
                             onClick = onPickTarget,
                             enabled = !state.daemonRunning && !busy,
+                            modifier = Modifier.locateHighlight(LocateTarget.HOME_TARGET),
                         )
                     }
                 }
@@ -447,7 +469,11 @@ fun HomePage(
                     onClick = {
                         // 确认这会儿配置也可能被清空：开跑前再核一次
                         if (state.logDir.isBlank()) {
-                            toast(context, "未指定日志目录")
+                            scope.launch {
+                                if (UiFeedback.show("未指定日志目录，去设置里选一个", "去设置")) {
+                                    Locate.request(LocateTarget.LOG_DIR)
+                                }
+                            }
                             return@TextButton
                         }
                         showStartConfirm = false

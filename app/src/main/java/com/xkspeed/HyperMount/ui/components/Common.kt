@@ -8,8 +8,10 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
@@ -18,22 +20,34 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.tween
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.kyant.backdrop.Backdrop
-import com.kyant.backdrop.drawBackdrop
-import com.kyant.backdrop.effects.blur
-import com.kyant.backdrop.shadow.Shadow
+import com.kyant.shapes.Capsule
+import com.xkspeed.HyperMount.ui.Locate
+import com.xkspeed.HyperMount.ui.LocateTarget
 import com.xkspeed.HyperMount.ui.UiConfigState
-import com.xkspeed.HyperMount.ui.component.glass.StandardBottomNavHeight
-import com.xkspeed.HyperMount.ui.util.isInDarkTheme
+import com.xkspeed.HyperMount.ui.component.glass.bottomBarTopOffset
+import com.xkspeed.HyperMount.ui.component.glass.frostedCapsule
 import top.yukonga.miuix.kmp.basic.Button
+import top.yukonga.miuix.kmp.basic.ButtonDefaults
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.HorizontalDivider
 import top.yukonga.miuix.kmp.basic.Icon
@@ -43,7 +57,6 @@ import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.extended.Back
 import top.yukonga.miuix.kmp.theme.MiuixTheme
-import com.xkspeed.HyperMount.ui.util.stableNavigationBarsPadding
 
 /**
  * 分组卡片
@@ -51,14 +64,76 @@ import com.xkspeed.HyperMount.ui.util.stableNavigationBarsPadding
  * 里面直接放 Miuix 的 Preference 组件：它们自带 insideMargin
  * 这里再补水平内边距会变成双重缩进
  * 自定义内容（InfoRow 之类）自己负责留白
+ *
+ * 定位高亮优先加在具体那一行上（[locateHighlight]）；整卡描边只留给「卡里就一行」的场合。
  */
 @Composable
 fun SectionCard(
     modifier: Modifier = Modifier,
+    /** 大于 0 时闪一次主色描边：卡里只有一行内容时用它，2 秒渐隐 */
+    highlight: Int = 0,
     content: @Composable ColumnScope.() -> Unit,
 ) {
-    Card(modifier = modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp)) {
+    val glow = remember { Animatable(0f) }
+    LaunchedEffect(highlight) {
+        if (highlight > 0) {
+            glow.snapTo(1f)
+            glow.animateTo(0f, tween(durationMillis = 2000, easing = LinearEasing))
+        }
+    }
+    val accent = MiuixTheme.colorScheme.primary
+    Card(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = 12.dp, vertical = 4.dp)
+            .drawWithContent {
+                drawContent()
+                if (glow.value > 0f) {
+                    val stroke = 2.dp.toPx()
+                    drawRoundRect(
+                        color = accent.copy(alpha = glow.value),
+                        topLeft = Offset(stroke / 2f, stroke / 2f),
+                        size = Size(size.width - stroke, size.height - stroke),
+                        cornerRadius = CornerRadius(16.dp.toPx() - stroke / 2f),
+                        style = Stroke(width = stroke),
+                    )
+                }
+            },
+    ) {
         content()
+    }
+}
+
+/**
+ * 定位高亮：给**某一行**铺一层主色底（2 秒渐隐）
+ *
+ * 拦截提示说「先选待测界面」时，只亮那一行，不把整张卡圈起来——
+ * 一张卡里往往并排放着救砖 / 待测好几行，整卡高亮看不出到底该点哪个。
+ * 只在 [Locate.flashTarget] 指向自己时才闪；同一个目标再点一次（[Locate.flash] 变化）会重放。
+ */
+@Composable
+fun Modifier.locateHighlight(target: LocateTarget): Modifier {
+    val glow = remember { Animatable(0f) }
+    val active = Locate.flashTarget == target
+    LaunchedEffect(Locate.flash, active) {
+        if (!active) {
+            glow.snapTo(0f)
+            return@LaunchedEffect
+        }
+        glow.snapTo(1f)
+        glow.animateTo(0f, tween(durationMillis = 2000, easing = LinearEasing))
+        // 播完就摘掉目标：页面重组（切页回来、列表重绘）时不再重放
+        Locate.clear(target)
+    }
+    val accent = MiuixTheme.colorScheme.primary
+    return drawBehind {
+        val alpha = glow.value
+        if (alpha > 0.001f) {
+            drawRoundRect(
+                color = accent.copy(alpha = 0.16f * alpha),
+                cornerRadius = CornerRadius(14.dp.toPx()),
+            )
+        }
     }
 }
 
@@ -234,86 +309,109 @@ fun BackIcon(onClick: () -> Unit, modifier: Modifier = Modifier) {
 }
 
 /**
- * 页面底部的常驻操作条（悬浮卡片）
+ * 页面底部的常驻操作条：两张并列的悬浮胶囊
  *
  * 浮动在列表之上、底栏之上，不跟着列表滚：
- * - 材质与底栏「关玻璃」时的磨砂胶囊同一套：采样页面 backdrop 做 12dp 模糊，
- *   表面色浅色 0.85 白 / 深色 0.55 的 #1C1C1E，外圈 Shadow.Default
- * - 拿不到 backdrop（安全模式 / 页面没给）时退回实心 surface 卡片，不会糊成一团
- * - 底栏自己吃了导航条 inset，这里跟着抬起来，卡片底边始终在底栏上方 [GapAboveBar]
+ * - 位置相对**实测的底栏顶边**（[bottomBarTopOffset]）：标准条贴底、悬浮条还多一层 inset，
+ *   写死 64/70 一换样式就错位
+ * - 材质跟当前底栏走：标准底栏用实心 surfaceContainer（就是应用里其它卡片的颜色，
+ *   背景是 surface，压上去才看得出是张卡）；液态胶囊底栏走 [frostedCapsule] 与底栏同一块料
+ * - 拿不到 backdrop（安全模式 / 页面没给）时退回实心 surface 卡片
  *
  * 高度变化（按钮文案换行之类）不影响布局：列表的底部间距由调用方单独给。
+ * Snackbar 定位要用 [BottomActionCardHeight] / [BottomActionBarGap] 算，别另写数字。
  */
 @Composable
 fun BoxScope.BottomActions(
     backdrop: Backdrop?,
-    hint: String,
     startLabel: String,
     startEnabled: Boolean,
     onStart: () -> Unit,
     stopEnabled: Boolean,
     onStop: () -> Unit,
 ) {
-    val shape = RoundedCornerShape(26.dp)
-    // 与 LiquidBottomTabs 磨砂胶囊同色同透明度 玻璃关着时两处看起来是一套
-    val surfaceColor = if (isInDarkTheme()) {
-        Color(0xFF1C1C1E).copy(alpha = 0.55f)
-    } else {
-        Color.White.copy(alpha = 0.85f)
-    }
-    // 底栏高度：iOS 悬浮条 70dp（含呼吸） 标准条 64dp
-    val barHeight = if (UiConfigState.iosBottomBar) 70.dp else StandardBottomNavHeight
     val glass = backdrop != null && !UiConfigState.safeMode
 
-    Box(
-        Modifier
+    Row(
+        modifier = Modifier
             .align(Alignment.BottomCenter)
             // 宽度与底栏一致（93%） 两条浮层左右边缘对齐
             .fillMaxWidth(0.93f)
-            // 底栏是浮在导航条之上的 这里同样让开系统导航条再让开底栏
-            .stableNavigationBarsPadding()
-            .padding(bottom = barHeight + 10.dp)
-            .then(
-                if (glass) {
-                    Modifier.drawBackdrop(
-                        backdrop = backdrop,
-                        shape = { shape },
-                        // 磨砂卡片：只做背景模糊 不带折射/透镜（与底栏关玻璃分支一致）
-                        effects = { blur(12.dp.toPx()) },
-                        shadow = { Shadow.Default },
-                        onDrawSurface = { drawRect(surfaceColor) },
-                    )
-                } else {
-                    Modifier.background(MiuixTheme.colorScheme.surface, shape)
-                }
-            )
-            .padding(horizontal = 16.dp, vertical = 12.dp),
+            // 底栏顶边已含系统导航条，这里只需再让开底栏本身
+            .padding(bottom = bottomBarTopOffset() + BottomActionBarGap),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        Column(Modifier.fillMaxWidth()) {
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                Button(
-                    onClick = onStart,
-                    enabled = startEnabled,
-                    modifier = Modifier.weight(1f),
-                ) {
-                    Text(startLabel)
+        ActionCard(
+            backdrop = if (glass) backdrop else null,
+            label = startLabel,
+            enabled = startEnabled,
+            accent = true,
+            onClick = onStart,
+            modifier = Modifier.weight(1f),
+        )
+        ActionCard(
+            backdrop = if (glass) backdrop else null,
+            label = "停止",
+            enabled = stopEnabled,
+            accent = false,
+            onClick = onStop,
+            modifier = Modifier.weight(1f),
+        )
+    }
+}
+
+/** 操作卡高度：调用方（Snackbar 定位）也算这份值，别各写各的 */
+val BottomActionCardHeight = 52.dp
+/** 卡片与底栏之间留的空 */
+val BottomActionBarGap = 10.dp
+private val ActionCardShape = Capsule()
+
+/**
+ * 单张操作卡：材质跟着当前底栏走，看着才是同一套
+ *
+ * - 液态胶囊底栏：走 [frostedCapsule]，和底栏一样有黑色环绕描边 + 白提亮高光
+ * - 标准底栏：底栏是一条平面磨砂条，卡片就用应用里其它卡片的 surfaceContainer 实心
+ *   （页面底层是 surface，这里实心提一层才看得出是张卡；不能跟着底栏做半透明，
+ *   深色下会和纯黑背景糊成一片，只剩文字悬空）
+ */
+@Composable
+private fun ActionCard(
+    backdrop: Backdrop?,
+    label: String,
+    enabled: Boolean,
+    accent: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val content = if (accent) MiuixTheme.colorScheme.primary else MiuixTheme.colorScheme.onSurface
+    val solid = MiuixTheme.colorScheme.surfaceContainer
+    Box(
+        modifier = modifier
+            .height(BottomActionCardHeight)
+            .then(
+                when {
+                    backdrop == null -> Modifier.background(solid, ActionCardShape)
+                    // 液态玻璃底栏是磨砂胶囊：卡片跟着用同一块料
+                    UiConfigState.iosBottomBar -> Modifier.frostedCapsule(backdrop, ActionCardShape)
+                    // 标准底栏：实心卡片，不带描边与投影
+                    else -> Modifier.background(solid, ActionCardShape)
                 }
-                Button(
-                    onClick = onStop,
-                    enabled = stopEnabled,
-                    modifier = Modifier.weight(1f),
-                ) {
-                    Text("停止")
-                }
-            }
-            if (hint.isNotBlank()) {
-                Spacer(Modifier.height(8.dp))
-                Text(
-                    hint,
-                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                    style = MiuixTheme.textStyles.subtitle,
-                )
-            }
+            ),
+    ) {
+        Button(
+            onClick = onClick,
+            enabled = enabled,
+            modifier = Modifier.fillMaxSize(),
+            cornerRadius = 26.dp,
+            colors = ButtonDefaults.buttonColors(
+                color = Color.Transparent,
+                disabledColor = Color.Transparent,
+                contentColor = content,
+                disabledContentColor = content.copy(alpha = 0.38f),
+            ),
+            insideMargin = PaddingValues(horizontal = 8.dp),
+        ) {
+            Text(label)
         }
     }
 }

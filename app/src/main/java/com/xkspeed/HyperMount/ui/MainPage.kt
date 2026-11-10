@@ -60,6 +60,7 @@ import com.xkspeed.HyperMount.ui.component.glass.ScrollPage
 import com.xkspeed.HyperMount.ui.component.glass.TopBarTuning
 import com.xkspeed.HyperMount.ui.components.BottomActions
 import com.xkspeed.HyperMount.ui.components.SectionCard
+import com.xkspeed.HyperMount.ui.components.locateHighlight
 import com.xkspeed.HyperMount.ui.components.StatusDot
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -186,25 +187,40 @@ fun MainPage(
     // 这时候还能改只会让人以为改的是正在跑的这一轮
     val locked = running || starting
 
-    // 自动替换关掉时只抓日志 所以不要求选救砖 apk
-    val canStart = rootOk == true && targetReady && !running && !starting &&
-        (!autoReplace || rescueReady)
+    // 拦截提示把用户带回来时：滚到文件卡再点亮
+    // large-title(0) + 状态卡(1) + [root 提示卡] + 「文件」标题 + 文件卡
+    val listState = rememberLazyListState()
+    LaunchedEffect(Locate.pending) {
+        val target = Locate.pending ?: return@LaunchedEffect
+        if (target.tab != 1) return@LaunchedEffect
+        // large-title(0) + 状态卡(1) + [root 提示卡] + 「文件」标题 + 文件卡
+        val index = if (rootOk == false) 4 else 3
+        runCatching { listState.animateScrollToItem(index) }
+        Locate.consume()
+        Locate.hint(target)
+    }
 
     val rescueCount = MainUiState.rescued
 
     fun startTest() {
-        if (!targetReady) {
-            toast(context, "先选待测apk")
-            return
-        }
-        if (autoReplace && !rescueReady) {
-            toast(context, "先选救砖apk 或者把自动替换关掉")
-            return
-        }
         scope.launch {
+            if (!targetReady) {
+                if (UiFeedback.show("先选待测 apk", "去选择")) {
+                    Locate.request(LocateTarget.MAIN_TARGET)
+                }
+                return@launch
+            }
+            if (autoReplace && !rescueReady) {
+                if (UiFeedback.show("自动替换开着，先选救砖 apk", "去选择")) {
+                    Locate.request(LocateTarget.MAIN_RESCUE)
+                }
+                return@launch
+            }
             // 二次确认这一会儿也可能被清空：开跑前再核一次 免得脚本空跑一趟
             if (state.logDir.isBlank()) {
-                toast(context, "未指定日志目录")
+                if (UiFeedback.show("未指定日志目录，去设置里选一个", "去设置")) {
+                    Locate.request(LocateTarget.LOG_DIR)
+                }
                 return@launch
             }
             starting = true
@@ -212,19 +228,25 @@ fun MainPage(
             val target = LogConfig.targetPath
             if (!Logcat.exists(target)) {
                 starting = false
-                toast(context, "待测apk不见了 重新选一次")
+                if (UiFeedback.show("待测 apk 不见了，重新选一次", "去选择")) {
+                    Locate.request(LocateTarget.MAIN_TARGET)
+                }
                 return@launch
             }
             // 救砖只认私有目录里的副本：原文件被删也能救，缺了就让人重选
             if (autoReplace && !withContext(Dispatchers.IO) { ApkStore.ensureRescue(context) }) {
                 starting = false
-                toast(context, "救砖apk不见了 重新选一次")
+                if (UiFeedback.show("救砖 apk 不见了，重新选一次", "去选择")) {
+                    Locate.request(LocateTarget.MAIN_RESCUE)
+                }
                 return@launch
             }
             val rescue = if (autoReplace) LogConfig.rescuePath else ""
             if (autoReplace && !Logcat.exists(rescue)) {
                 starting = false
-                toast(context, "救砖apk不见了 重新选一次")
+                if (UiFeedback.show("救砖 apk 不见了，重新选一次", "去选择")) {
+                    Locate.request(LocateTarget.MAIN_RESCUE)
+                }
                 return@launch
             }
             // 老配置没记包名：开跑前补读一次，用来判断是不是 plugin
@@ -242,7 +264,7 @@ fun MainPage(
                 is Logcat.StageResult.Ok -> r.path
                 is Logcat.StageResult.Fail -> {
                     starting = false
-                    toast(context, r.reason)
+                    UiFeedback.toast(r.reason)
                     return@launch
                 }
             }
@@ -260,7 +282,7 @@ fun MainPage(
             ) {
                 is Logcat.StartResult.Fail -> {
                     starting = false
-                    toast(context, r.reason)
+                    UiFeedback.toast(r.reason)
                 }
                 is Logcat.StartResult.Ok -> {
                     val s = r.session
@@ -290,21 +312,10 @@ fun MainPage(
         }
     }
 
-    // 底部操作条上那句提示：缺什么就说缺什么 状态一变跟着换
-    val actionHint = when {
-        rootOk != true -> "等待 root 授权"
-        !targetReady -> "先选待测apk"
-        !logDirReady -> "未指定日志目录 去设置里选一个"
-        autoReplace && !rescueReady -> "自动替换开着 还需要选救砖apk"
-        running -> "测试中 手动停止可以提前结束"
-        autoReplace -> "先装待测apk 再抓 " + LogConfig.seconds +
-            " 秒日志 崩了就换回救砖apk"
-        else -> "先装待测apk 再抓 " + LogConfig.seconds +
-            " 秒日志 不执行救砖"
-    }
-
     ScrollPage(
         title = "应用",
+        // 定位请求要滚动这一份才有效
+        listState = listState,
         subtitle = "v${AppVersion.name}",
         subtitleExtra = {
             AnimatedVisibility(
@@ -345,15 +356,30 @@ fun MainPage(
         overlay = { pageBackdrop ->
             BottomActions(
                 backdrop = pageBackdrop,
-                hint = actionHint,
                 startLabel = if (starting) "启动中…" else "开始测试",
-                startEnabled = canStart,
+                // 条件不满足不再灰按钮：点了统一弹提示 并带用户去对应的卡
+                startEnabled = !starting,
                 onStart = {
-                    // 只判「有没有配」：目录不存在会由脚本 mkdir -p 建出来
-                    if (state.logDir.isBlank()) {
-                        toast(context, "未指定日志目录")
-                    } else {
-                        showStartConfirm = true
+                    when {
+                        rootOk != true -> scope.launch { UiFeedback.toast("还没拿到 root 权限") }
+                        !targetReady -> scope.launch {
+                            if (UiFeedback.show("先选待测 apk", "去选择")) {
+                                Locate.request(LocateTarget.MAIN_TARGET)
+                            }
+                        }
+                        autoReplace && !rescueReady -> scope.launch {
+                            if (UiFeedback.show("自动替换开着，先选救砖 apk", "去选择")) {
+                                Locate.request(LocateTarget.MAIN_RESCUE)
+                            }
+                        }
+                        // 只判「有没有配」：目录不存在会由脚本 mkdir -p 建出来
+                        state.logDir.isBlank() -> scope.launch {
+                            if (UiFeedback.show("未指定日志目录，去设置里选一个", "去设置")) {
+                                Locate.request(LocateTarget.LOG_DIR)
+                            }
+                        }
+                        running -> scope.launch { UiFeedback.toast("测试正在跑，先停止再开") }
+                        else -> showStartConfirm = true
                     }
                 },
                 stopEnabled = running && !starting,
@@ -509,6 +535,7 @@ fun MainPage(
                             },
                             onClick = onPickRescue,
                             enabled = !locked,
+                            modifier = Modifier.locateHighlight(LocateTarget.MAIN_RESCUE),
                         )
                     }
                 }
@@ -521,6 +548,7 @@ fun MainPage(
                     },
                     onClick = onPickTarget,
                     enabled = !locked,
+                    modifier = Modifier.locateHighlight(LocateTarget.MAIN_TARGET),
                 )
             }
         }
@@ -577,6 +605,3 @@ internal fun isErrorLine(line: String): Boolean =
         line.contains("FAIL") || line.contains("Failure") || line.contains("Exception") ||
         Regex("""exit=[1-9]""").containsMatchIn(line)
 
-private fun toast(context: Context, msg: String) {
-    if (msg.isNotBlank()) Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
-}

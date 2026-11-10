@@ -16,10 +16,11 @@ import top.yukonga.miuix.kmp.preference.ArrowPreference
  *
  * 从关于页的「第三方许可证」进入 每个库一行 点击跳官网
  * 清单内容对齐 apkeditormiuix 的致谢页写法（框架 → 工具） 并补上本项目实际用到、
- * 但 apkeditor 没有的库：kyant 系列、libsu 以及**移植来源 Sonify（GPL-3.0）**
+ * 但 apkeditor 没有的库：kyant 系列、libsu
  *
- * 说明：玻璃组件（顶栏/底栏液态玻璃）移植自 Sonify Sonify 自身为 GPL-3.0 派生作品
- * 故本应用整体以 GPL-3.0 发布（见仓库根目录 LICENSE）
+ * 移植来源不在这里，单独放在「移植参考」页（见 PortingReferencePage）
+ * 说明：玻璃组件（顶栏/底栏液态玻璃）的写法参考 Sonify 故本应用整体以 GPL-3.0 发布
+ * （见仓库根目录 LICENSE）
  */
 private data class OssLibrary(
     val name: String,
@@ -29,7 +30,10 @@ private data class OssLibrary(
 )
 
 @Composable
-fun ThirdPartyLicensesPage(onBack: () -> Unit) {
+fun ThirdPartyLicensesPage(
+    onBack: () -> Unit,
+    onOpenPorting: () -> Unit = {},
+) {
     val uriHandler = LocalUriHandler.current
     val libraries = listOf(
         OssLibrary(
@@ -78,7 +82,7 @@ fun ThirdPartyLicensesPage(onBack: () -> Unit) {
             name = "kyant backdrop",
             version = "1.0.5",
             license = "Apache-2.0",
-            website = "https://github.com/Kyant0/backdrop",
+            website = "https://github.com/Kyant0/AndroidLiquidGlass",
         ),
         OssLibrary(
             name = "kyant shapes",
@@ -91,12 +95,6 @@ fun ThirdPartyLicensesPage(onBack: () -> Unit) {
             version = "6.0.0",
             license = "Apache-2.0",
             website = "https://github.com/topjohnwu/libsu",
-        ),
-        OssLibrary(
-            name = "Sonify（玻璃组件移植来源）",
-            version = "—",
-            license = "GPL-3.0",
-            website = "https://github.com/XiaoZhi0729/Sonify",
         ),
     )
 
@@ -119,6 +117,17 @@ fun ThirdPartyLicensesPage(onBack: () -> Unit) {
                 }
             }
         }
+        item { Spacer(Modifier.height(16.dp)) }
+
+        item {
+            SectionCard {
+                ArrowPreference(
+                    title = "移植参考",
+                    onClick = onOpenPorting,
+                )
+            }
+        }
+
         item { Spacer(Modifier.height(16.dp)) }
     }
 }

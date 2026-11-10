@@ -14,6 +14,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import com.xkspeed.HyperMount.core.McpService
+import com.xkspeed.HyperMount.core.mcp.McpConfig
 import com.xkspeed.HyperMount.ui.App
 import com.xkspeed.HyperMount.ui.UiConfigState
 import top.yukonga.miuix.kmp.theme.ColorSchemeMode
@@ -55,10 +57,8 @@ class MainActivity : ComponentActivity() {
         ThemeState.load(this)
         UiConfigState.load(this)
         // MCP 开关是常驻的：上次开着 这次启动直接恢复监听
-        com.xkspeed.HyperMount.core.mcp.McpConfig.load(this)
-        if (com.xkspeed.HyperMount.core.mcp.McpConfig.enabled) {
-            com.xkspeed.HyperMount.core.McpService.start(this)
-        }
+        McpConfig.load(this)
+        if (McpConfig.enabled) McpService.start(this)
 
         setContent {
             val controller = remember(

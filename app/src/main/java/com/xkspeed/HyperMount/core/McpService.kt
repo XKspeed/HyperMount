@@ -34,6 +34,12 @@ class McpService : Service() {
             stopSelf()
             return START_NOT_STICKY
         }
+        if (intent?.action == ACTION_RESTART) {
+            // 改端口 / 局域网 / 密码后按新配置重新绑一次，不用退出应用
+            McpServer.stopServer()
+            McpServer.startServer(this)
+            return START_STICKY
+        }
         return START_STICKY
     }
 
@@ -85,6 +91,7 @@ class McpService : Service() {
         private const val CHANNEL_ID = "mcp_service"
         private const val NOTIF_ID = 1002
         private const val ACTION_STOP = "com.xkspeed.HyperMount.STOP_MCP"
+        private const val ACTION_RESTART = "com.xkspeed.HyperMount.RESTART_MCP"
 
         fun start(context: Context) {
             context.startForegroundService(Intent(context, McpService::class.java))
@@ -92,6 +99,12 @@ class McpService : Service() {
 
         fun stop(context: Context) {
             context.stopService(Intent(context, McpService::class.java))
+        }
+
+        fun restart(context: Context) {
+            runCatching {
+                context.startService(Intent(context, McpService::class.java).setAction(ACTION_RESTART))
+            }
         }
     }
 }

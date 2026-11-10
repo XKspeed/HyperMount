@@ -53,6 +53,7 @@ import androidx.compose.ui.window.DialogProperties
 import com.xkspeed.HyperMount.MainActivity
 import com.xkspeed.HyperMount.R
 import com.xkspeed.HyperMount.core.AppLog
+import com.xkspeed.HyperMount.core.ConfigBus
 import com.xkspeed.HyperMount.core.DaemonService
 import com.xkspeed.HyperMount.core.Downloader
 import com.xkspeed.HyperMount.core.Installer
@@ -72,6 +73,10 @@ import com.xkspeed.HyperMount.ui.component.glass.GlassNavItem
 import com.xkspeed.HyperMount.ui.component.glass.StandardBottomNav
 import com.xkspeed.HyperMount.ui.component.glass.StandardBottomNavHeight
 import com.xkspeed.HyperMount.ui.components.MiuixDialog
+import com.xkspeed.HyperMount.ui.components.BottomActionBarGap
+import com.xkspeed.HyperMount.ui.components.BottomActionCardHeight
+import com.xkspeed.HyperMount.ui.component.glass.bottomBarTopOffset
+import com.xkspeed.HyperMount.ui.component.glass.trackBottomBarTop
 import com.xkspeed.HyperMount.ui.util.LocalIsWideScreen
 import com.xkspeed.HyperMount.ui.util.rememberBlurBackdrop
 import com.xkspeed.HyperMount.ui.util.shouldShowSplitPane
@@ -107,6 +112,7 @@ import top.yukonga.miuix.kmp.nav.core.rememberNavBackStack
 import top.yukonga.miuix.kmp.nav.core.rememberNavSystemCornerRadius
 import top.yukonga.miuix.kmp.nav.transition.NavTransitions
 import top.yukonga.miuix.kmp.basic.Scaffold
+import top.yukonga.miuix.kmp.basic.SnackbarHost
 import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.basic.TextField
 import top.yukonga.miuix.kmp.theme.MiuixTheme
@@ -145,12 +151,16 @@ sealed interface Route : NavKey {
     @Serializable
     data object ThirdPartyLicenses : Route
 
+    /** 移植参考：玻璃组件与图标的上游出处 */
     @Serializable
-    data object About : Route
+    data object PortingReference : Route
 
-    /** MCP 服务：给 AI 客户端的局域网入口 传 apk / 跑测试 / 取日志 */
+    /** MCP 服务：给 AI 客户端传 apk / 跑测试 / 取日志 */
     @Serializable
     data object Mcp : Route
+
+    @Serializable
+    data object About : Route
 }
 
 /** 底栏三页 默认停在中间的主页 */
@@ -559,6 +569,11 @@ fun App() {
         if (rootOk == true) runCatching { refresh() }
     }
 
+    // 后台改过配置（MCP 换待测包）：重新读一次 界面上的待测界面跟着变
+    LaunchedEffect(ConfigBus.tick) {
+        if (ConfigBus.tick > 0) runCatching { refresh() }
+    }
+
     // 升级上来的老用户：模块里已经是校验过的状态 但没有版本记录
     // 补记当前版本 不然这次系统版本变化永远检测不到
     LaunchedEffect(state.volumeAssessed) {
@@ -832,19 +847,31 @@ fun App() {
                 onStart = start@{
                     val target = state.targetPath
                     if (target.isBlank()) {
-                        toast(context, "请先选择待测界面")
+                        scope.launch {
+                            if (UiFeedback.show("先选一个待测界面", "去选择")) {
+                                Locate.request(LocateTarget.HOME_TARGET)
+                            }
+                        }
                         return@start
                     }
                     // 只记了原路径 没有副本：开跑前现找 找不到就明确说 别让脚本空跑
                     if (!java.io.File(target).exists()) {
-                        toast(context, "待测apk不见了 重新选一次")
+                        scope.launch {
+                            if (UiFeedback.show("待测 apk 不见了，重新选一次", "去选择")) {
+                                Locate.request(LocateTarget.HOME_TARGET)
+                            }
+                        }
                         return@start
                     }
                     // 完全禁用时 action.sh 会直接退出，webctl 却先回了 OK
                     // 不拦住的话用户看到「已启动」但状态立刻变回未运行，根本猜不到原因
                     if (uiState.logMode == "0") {
-                        toast(context, "运行模式是完全禁用 先去设置改成「日志 + 救砖」")
-                        jumpTab = 2
+                        scope.launch {
+                            if (UiFeedback.show("运行模式是完全禁用，先改成「日志 + 救砖」", "去设置")) {
+                                // 运行模式在「设置 → 界面设置」里 先切到设置页
+                                jumpTab = 2
+                            }
+                        }
                         return@start
                     }
                     busy = true
@@ -885,9 +912,9 @@ fun App() {
                 onOpenDebug = { push(Route.Debug) },
                 onOpenAppLog = { push(Route.AppLogs) },
                 onOpenCache = { push(Route.Cache) },
+                onOpenMcp = { push(Route.Mcp) },
                 onOpenThirdPartyLicenses = { push(Route.ThirdPartyLicenses) },
                 onOpenAbout = { push(Route.About) },
-                onOpenMcp = { push(Route.Mcp) },
                 latest = latest,
                 moduleLatest = moduleLatest,
                 onCheckUpdate = {
@@ -945,12 +972,19 @@ fun App() {
             CachePage(onBack = { backStack.removeLastOrNull() })
         }
 
-        entry<Route.Mcp> {
-            McpPage(onBack = { backStack.removeLastOrNull() })
+        entry<Route.ThirdPartyLicenses> {
+            ThirdPartyLicensesPage(
+                onBack = { backStack.removeLastOrNull() },
+                onOpenPorting = { push(Route.PortingReference) },
+            )
         }
 
-        entry<Route.ThirdPartyLicenses> {
-            ThirdPartyLicensesPage(onBack = { backStack.removeLastOrNull() })
+        entry<Route.PortingReference> {
+            PortingReferencePage(onBack = { backStack.removeLastOrNull() })
+        }
+
+        entry<Route.Mcp> {
+            McpPage(onBack = { backStack.removeLastOrNull() })
         }
 
         entry<Route.About> {
@@ -1226,9 +1260,9 @@ private fun MainScaffold(
     onOpenDebug: () -> Unit,
     onOpenAppLog: () -> Unit,
     onOpenCache: () -> Unit,
+    onOpenMcp: () -> Unit,
     onOpenThirdPartyLicenses: () -> Unit,
     onOpenAbout: () -> Unit,
-    onOpenMcp: () -> Unit,
     latest: UpdateInfo?,
     moduleLatest: UpdateInfo?,
     onCheckUpdate: () -> Unit,
@@ -1289,6 +1323,14 @@ private fun MainScaffold(
         onBackCompleted = { scope.launch { pagerState.animateScrollToPage(HOME_PAGE) } },
     )
 
+    // 拦截提示里点了「去选择 / 去设置」：先切到那一页，页面自己滚到位再点亮卡片
+    LaunchedEffect(Locate.pending) {
+        val target = Locate.pending ?: return@LaunchedEffect
+        if (pagerState.settledPage != target.tab) {
+            pagerState.animateScrollToPage(target.tab)
+        }
+    }
+
     // 底栏采样源：kyant backdrop 采样整个页面内容（含滚动中的列表）
     val surfaceColor = MiuixTheme.colorScheme.surface
     val backdrop = kyantRememberLayerBackdrop()
@@ -1298,11 +1340,9 @@ private fun MainScaffold(
     CompositionLocalProvider(LocalIsWideScreen provides shouldShowSplitPane()) {
         // 底栏是浮在内容上的（内容延伸到它后面 玻璃采样才有东西）
         // 所以不走 Scaffold 的 bottomBar —— 那会把内容顶开 玻璃后面就是空背景
-        // 两种底栏高度不同：标准条 64dp 贴底 液态玻璃悬浮条再加 6dp 呼吸
-        val bottomBarHeight = if (UiConfigState.iosBottomBar) 70.dp else StandardBottomNavHeight
-        val pagePadding = PaddingValues(
-            bottom = stableNavigationBarHeight() + bottomBarHeight,
-        )
+        // 两种底栏高度不同：标准条 64dp 贴底 液态玻璃悬浮条再加 6dp 呼吸，
+        // 统一按实测的底栏顶边给内容留白，换样式不会差一截
+        val pagePadding = PaddingValues(bottom = bottomBarTopOffset())
         Box(
             Modifier
                 .fillMaxSize()
@@ -1369,8 +1409,8 @@ private fun MainScaffold(
                             onOpenDebug = onOpenDebug,
                             onOpenAppLog = onOpenAppLog,
                             onOpenCache = onOpenCache,
-                            onOpenAbout = onOpenAbout,
                             onOpenMcp = onOpenMcp,
+                            onOpenAbout = onOpenAbout,
                             onCheckUpdate = onCheckUpdate,
                             checkingUpdate = checkingUpdate,
                         )
@@ -1381,10 +1421,12 @@ private fun MainScaffold(
             // 底栏浮层：垫在导航栏之上、宽度照原版收窄到 93%
             // 液态玻璃条是悬浮胶囊 自己不吃 inset（由这层壳抬起来）；
             // 标准底栏要一路铺到屏幕底 所以 inset 交给它自己处理
+            // 顺带量出「底栏顶边到屏幕底」：操作卡 / Snackbar / 列表留白都按它相对定位
             Box(
                 Modifier
                     .align(Alignment.BottomCenter)
                     .fillMaxWidth()
+                    .trackBottomBarTop()
                     .then(if (UiConfigState.iosBottomBar) Modifier.stableNavigationBarsPadding() else Modifier),
                 contentAlignment = Alignment.BottomCenter,
             ) {
@@ -1410,6 +1452,18 @@ private fun MainScaffold(
                     )
                 }
             }
+
+            // 拦截提示：底边贴在两颗操作卡上方 8dp 不压住「开始测试」
+            SnackbarHost(
+                state = UiFeedback.host,
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .fillMaxWidth()
+                    .padding(
+                        bottom = bottomBarTopOffset() +
+                            BottomActionBarGap + BottomActionCardHeight + 8.dp,
+                    ),
+            )
         }
     }
 }
