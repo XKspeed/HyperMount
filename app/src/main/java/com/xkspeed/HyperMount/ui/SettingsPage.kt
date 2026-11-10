@@ -65,6 +65,7 @@ fun SettingsPage(
     onOpenAppLog: () -> Unit = {},
     onOpenCache: () -> Unit = {},
     onOpenAbout: () -> Unit = {},
+    onOpenMcp: () -> Unit = {},
     onCheckUpdate: () -> Unit = {},
     checkingUpdate: Boolean = false,
 ) {
@@ -194,6 +195,18 @@ fun SettingsPage(
                                 onClick = onOpenDebug,
                             )
                         }
+                    }
+                }
+
+                // MCP：给 AI 客户端的局域网入口 默认关闭
+                item { SmallTitle("接口") }
+                item {
+                    SectionCard {
+                        ArrowPreference(
+                            title = "MCP 服务",
+                            summary = "让 AI 客户端传 apk、跑测试、取日志",
+                            onClick = onOpenMcp,
+                        )
                     }
                 }
 

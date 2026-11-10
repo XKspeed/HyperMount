@@ -54,6 +54,11 @@ class MainActivity : ComponentActivity() {
         // 先恢复设置 再进 setContent 否则重启永远回到"跟随系统"
         ThemeState.load(this)
         UiConfigState.load(this)
+        // MCP 开关是常驻的：上次开着 这次启动直接恢复监听
+        com.xkspeed.HyperMount.core.mcp.McpConfig.load(this)
+        if (com.xkspeed.HyperMount.core.mcp.McpConfig.enabled) {
+            com.xkspeed.HyperMount.core.McpService.start(this)
+        }
 
         setContent {
             val controller = remember(

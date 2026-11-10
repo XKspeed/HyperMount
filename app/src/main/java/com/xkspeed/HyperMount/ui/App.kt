@@ -147,6 +147,10 @@ sealed interface Route : NavKey {
 
     @Serializable
     data object About : Route
+
+    /** MCP 服务：给 AI 客户端的局域网入口 传 apk / 跑测试 / 取日志 */
+    @Serializable
+    data object Mcp : Route
 }
 
 /** 底栏三页 默认停在中间的主页 */
@@ -883,6 +887,7 @@ fun App() {
                 onOpenCache = { push(Route.Cache) },
                 onOpenThirdPartyLicenses = { push(Route.ThirdPartyLicenses) },
                 onOpenAbout = { push(Route.About) },
+                onOpenMcp = { push(Route.Mcp) },
                 latest = latest,
                 moduleLatest = moduleLatest,
                 onCheckUpdate = {
@@ -938,6 +943,10 @@ fun App() {
 
         entry<Route.Cache> {
             CachePage(onBack = { backStack.removeLastOrNull() })
+        }
+
+        entry<Route.Mcp> {
+            McpPage(onBack = { backStack.removeLastOrNull() })
         }
 
         entry<Route.ThirdPartyLicenses> {
@@ -1219,6 +1228,7 @@ private fun MainScaffold(
     onOpenCache: () -> Unit,
     onOpenThirdPartyLicenses: () -> Unit,
     onOpenAbout: () -> Unit,
+    onOpenMcp: () -> Unit,
     latest: UpdateInfo?,
     moduleLatest: UpdateInfo?,
     onCheckUpdate: () -> Unit,
@@ -1360,6 +1370,7 @@ private fun MainScaffold(
                             onOpenAppLog = onOpenAppLog,
                             onOpenCache = onOpenCache,
                             onOpenAbout = onOpenAbout,
+                            onOpenMcp = onOpenMcp,
                             onCheckUpdate = onCheckUpdate,
                             checkingUpdate = checkingUpdate,
                         )

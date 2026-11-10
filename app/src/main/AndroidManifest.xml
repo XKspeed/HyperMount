@@ -63,6 +63,16 @@
                 android:value="维持 root 救砖守护进程 防止系统冻结" />
         </service>
 
+        <!-- MCP：给局域网里的 AI 客户端提供 传包 / 跑测试 / 取日志 的接口 -->
+        <service
+            android:name=".core.McpService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="向局域网提供 MCP 接口 供 AI 客户端触发测试并读取日志" />
+        </service>
+
         <!-- 下载好的更新包通过 content:// 交给系统安装器 -->
         <provider
             android:name="androidx.core.content.FileProvider"
