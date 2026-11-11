@@ -274,14 +274,15 @@ class McpServer(private val context: Context) {
     private fun toolDefs(): JsonArray = buildJsonArray {
         add(
             buildJsonObject {
-                put("name", "upload_apk")
+                put("name", "update_systemui_and_run_systemui_test")
                 put(
                     "description",
-                    "把待测 apk 设为测试目标并自动分流：" +
-                        "包名为 com.android.systemui（MiuiSystemUI.apk 本体）走 SystemUI 链，" +
-                        "同时更新界面页的「待测界面」与主页的待测 apk；" +
-                        "其他任何包名按普通应用测，监视进程自动改成该包名。" +
-                        "小文件直接传 apk_base64；大文件先 POST /upload 拿返回的 path，再传 apk_path。",
+                    "上传 SystemUI 包并立刻开跑「界面页」那条测试链路：" +
+                        "把包覆盖成模块挂载点的 MiuiSystemUI.apk、重启 SystemUI、由模块守护接管。" +
+                        "只接受 com.android.systemui；新包有问题会黑屏，只能按音量键救砖拉回，" +
+                        "所以必须传 confirm=true。" +
+                        "小文件直接传 apk_base64；大文件先 POST /upload 拿 path，再传 apk_path。" +
+                        "启动后立刻返回 task_id，用 get_result 查结果、get_log 取日志。",
                 )
                 put(
                     "inputSchema",
@@ -305,40 +306,29 @@ class McpServer(private val context: Context) {
                                     },
                                 )
                                 put(
-                                    "auto_run",
+                                    "confirm",
                                     buildJsonObject {
                                         put("type", "boolean")
-                                        put("description", "上传后立刻开跑，默认 false")
-                                    },
-                                )
-                                put(
-                                    "seconds",
-                                    buildJsonObject {
-                                        put("type", "integer")
-                                        put("minimum", 5)
-                                        put("maximum", 60)
-                                        put("description", "auto_run 时的抓取时长")
-                                    },
-                                )
-                                put(
-                                    "auto_replace",
-                                    buildJsonObject {
-                                        put("type", "boolean")
-                                        put("description", "auto_run 时崩了是否自动救砖")
+                                        put("description", "必须为 true，表示知道会替换 SystemUI 且可能黑屏")
                                     },
                                 )
                             },
                         )
+                        put("required", buildJsonArray { add(JsonPrimitive("confirm")) })
                     },
                 )
             },
         )
         add(
             buildJsonObject {
-                put("name", "run_test")
+                put("name", "update_apk_run_apk_test")
                 put(
                     "description",
-                    "装待测 apk 并抓崩溃，启动后立刻返回 task_id。用 get_test_result 查结果。",
+                    "上传普通 apk 并立刻开跑「主页」那条测试链路：" +
+                        "pm install 后抓 seconds 秒 logcat，崩了按 auto_replace 决定要不要装回救砖包。" +
+                        "监视进程默认是该包自己；miui.systemui.plugin 例外，监视宿主 com.android.systemui。" +
+                        "com.android.systemui 本体请改用 update_systemui_and_run_systemui_test。" +
+                        "启动后立刻返回 task_id，用 get_result 查结果、get_log 取日志。",
                 )
                 put(
                     "inputSchema",
@@ -347,6 +337,20 @@ class McpServer(private val context: Context) {
                         put(
                             "properties",
                             buildJsonObject {
+                                put(
+                                    "apk_base64",
+                                    buildJsonObject {
+                                        put("type", "string")
+                                        put("description", "apk 文件的 Base64")
+                                    },
+                                )
+                                put(
+                                    "apk_path",
+                                    buildJsonObject {
+                                        put("type", "string")
+                                        put("description", "POST /upload 上传后返回的应用内路径")
+                                    },
+                                )
                                 put(
                                     "seconds",
                                     buildJsonObject {
@@ -371,20 +375,28 @@ class McpServer(private val context: Context) {
         )
         add(
             buildJsonObject {
-                put("name", "get_test_result")
+                put("name", "get_result")
                 put(
                     "description",
-                    "查上次 run_test 的结果。mode 为 systemui / apk，monitor_package 是实际监视的进程。" +
-                        "result 取值：normal（正常界面）/ rescue_triggered（触发界面并已救砖）/ " +
-                        "crash / rescue_failed / error。",
+                    "查上一次测试的结果，两种模式共用这一个入口。" +
+                        "mode=apk：state 为 running/done/failed，result 取 " +
+                        "normal / rescue_triggered / crash / rescue_failed / error，另外给 systemui_alive。" +
+                        "mode=systemui：state 为 running/done，result 取 " +
+                        "normal（界面正常）/ rescue_triggered（崩了并已换回救砖界面）/ crash；" +
+                        "另外给 protect_count 与 protect_delta（本轮救砖次数）。",
                 )
                 put("inputSchema", buildJsonObject { put("type", "object") })
             },
         )
         add(
             buildJsonObject {
-                put("name", "get_logs")
-                put("description", "取日志尾部若干行，并给出完整日志文件的下载地址。")
+                put("name", "get_log")
+                put(
+                    "description",
+                    "取这一轮测试的 logcat 尾部若干行，用来定位崩溃原因（Java 异常栈、ANR 等）。" +
+                        "apk 模式读 App 抓的 logcat 文件；systemui 模式读模块在崩溃时抓的 crash buffer。" +
+                        "systemui 模式若返回空，说明这一轮没崩、模块没抓日志。",
+                )
                 put(
                     "inputSchema",
                     buildJsonObject {

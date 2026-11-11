@@ -62,7 +62,7 @@ class McpService : Service() {
         return Notification.Builder(this, CHANNEL_ID)
             .setContentTitle(if (error == null) "MCP 服务运行中" else "MCP 服务启动失败")
             .setContentText(
-                if (error == null) "监听 :${McpServerState.port} · 等待 AI 连接"
+                if (error == null) "监听 :${McpServerState.port}"
                 else error,
             )
             .setSmallIcon(android.R.drawable.stat_sys_download_done)
