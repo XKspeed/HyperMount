@@ -19,8 +19,8 @@ import top.yukonga.miuix.kmp.preference.ArrowPreference
  * 但 apkeditor 没有的库：kyant 系列、libsu
  *
  * 移植来源不在这里，单独放在「移植参考」页（见 PortingReferencePage）
- * 说明：玻璃组件（顶栏/底栏液态玻璃）的写法参考 Sonify 故本应用整体以 GPL-3.0 发布
- * （见仓库根目录 LICENSE）
+ * 说明：玻璃组件（顶栏/底栏液态玻璃）移植自 Sonify，实际源自 NexioSchedule 的 AGPL-3.0 实现
+ * 故本应用整体以 AGPL-3.0 发布（见仓库根目录 LICENSE）
  */
 private data class OssLibrary(
     val name: String,

@@ -15,6 +15,7 @@ import top.yukonga.miuix.kmp.preference.ArrowPreference
  * 移植参考（二级界面）
  *
  * 只列「参考了谁」，不算第三方依赖：玻璃组件与图标的写法来自 Sonify，
+ * 而 Sonify 那批液态玻璃文件又是从 NexioSchedule 移植的（AGPL-3.0），
  * 依赖本身的许可证在「第三方许可证」里单列。
  */
 @Composable
@@ -29,6 +30,13 @@ fun PortingReferencePage(onBack: () -> Unit) {
         item { SmallTitle("参考项目") }
         item {
             SectionCard {
+                ArrowPreference(
+                    title = "NexioSchedule",
+                    summary = "液态玻璃原始实现 · AGPL-3.0",
+                    onClick = {
+                        runCatching { uriHandler.openUri("https://github.com/HaoZai000/NexioSchedule") }
+                    },
+                )
                 ArrowPreference(
                     title = "Sonify",
                     summary = "玻璃组件及图标参考",

@@ -1,7 +1,19 @@
 # 液态玻璃组件来源声明
 
-本目录下的文件移植自 Sonify（https://github.com/XiaoZhi0729/Sonify）
-原项目为 GPL-3.0 许可 因此本应用整体以 GPL-3.0 发布
+本目录下的文件移植自 Sonify（https://github.com/XiaoZhi0729/Sonify）。
+
+## 上游链路
+
+| 项目 | 地址 | 许可证 |
+|---|---|---|
+| NexioSchedule（原始实现） | https://github.com/HaoZai000/NexioSchedule | AGPL-3.0 |
+| FlamingoSank（Sonify 的基底） | https://github.com/Yos-X/FlamingoSank | GPL-3.0 |
+| Sonify（本目录直接移植来源） | https://github.com/XiaoZhi0729/Sonify | GPL-3.0 |
+
+`LiquidBottomTabs` / `LiquidTopBarButton` / `InteractiveHighlight` / `TitleBarProgressiveBlur`
+这批文件最早出现在 NexioSchedule，Sonify 是从那里移植过去的副本；Sonify 自己只标了
+继承自基底的 GPL-3.0，没有回头标上游的 AGPL-3.0。我们复制的是这批具体实现，
+因此本应用整体以 **AGPL-3.0** 发布（见仓库根 `LICENSE`）。
 
 移植时做的事：包名替换、主题色接入 MiuixTheme、调试探针（GlassDiagnostics）
 与调参开关（GlassProbe 实际读取）移除或固化为默认值、模糊倍率固定为 1f

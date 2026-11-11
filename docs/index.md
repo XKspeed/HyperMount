@@ -68,7 +68,7 @@ features:
       <div class="dl-meta">
         <span>Android 15+</span>
         <span>需 Root</span>
-        <span>GPL-3.0</span>
+        <span>AGPL-3.0</span>
       </div>
     </div>
     <div class="dl-actions">

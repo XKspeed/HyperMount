@@ -6,7 +6,7 @@
 
 ![Android](https://img.shields.io/badge/Android-15%2B%20(API%2035)-3DDC84?logo=android&logoColor=white)
 ![Root](https://img.shields.io/badge/Root-Required-D32F2F)
-![License](https://img.shields.io/badge/License-GPL--3.0-blue)
+![License](https://img.shields.io/badge/License-AGPL--3.0-blue)
 
 <br>
 
@@ -85,6 +85,8 @@
 
 ## 📄 许可证
 
-GNU General Public License v3.0
+GNU Affero General Public License v3.0
 
-玻璃与背景效果参考自 [Sonify](https://github.com/XiaoZhi0729/Sonify)（同为 GPL-3.0） 第三方库的版权声明见应用内「第三方许可证」页 各依赖沿用其自身许可证
+玻璃与背景效果移植自 [Sonify](https://github.com/XiaoZhi0729/Sonify)，那批液态玻璃文件源自
+[NexioSchedule](https://github.com/HaoZai000/NexioSchedule)（AGPL-3.0） 第三方库的版权声明见应用内
+「第三方许可证」页 各依赖沿用其自身许可证

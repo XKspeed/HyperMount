@@ -236,6 +236,8 @@ class McpServer(private val context: Context) {
                             put("version", "1.0.0")
                         },
                     )
+                    // 客户端会把这段注入模型上下文：两条链路怎么选、怎么等、结果怎么读
+                    put("instructions", McpInstructions.TEXT)
                 }
                 200 to rpcResult(id, result)
             }
