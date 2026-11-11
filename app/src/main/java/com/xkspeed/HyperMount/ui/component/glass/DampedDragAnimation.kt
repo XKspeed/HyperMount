@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// 主干逐字取自 AndroidLiquidGlass 1.0.5 (Apache-2.0) catalog/utils/DampedDragAnimation.kt
+// 上游：https://github.com/Kyant0/AndroidLiquidGlass —— 声明与改动说明见 NOTICE.md
 package com.xkspeed.HyperMount.ui.component.glass
 
 import androidx.compose.animation.core.Animatable
@@ -15,7 +18,6 @@ import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlin.math.abs
-import kotlin.time.Clock
 
 class DampedDragAnimation(
     private val animationScope: CoroutineScope,
@@ -27,13 +29,6 @@ class DampedDragAnimation(
     val onDragStarted: DampedDragAnimation.(position: Offset) -> Unit,
     val onDragStopped: DampedDragAnimation.() -> Unit,
     val onDrag: DampedDragAnimation.(size: IntSize, dragAmount: Offset) -> Unit,
-    // 独占拖动：越过 touchSlop 后消费指针 父级滚动容器不再跟着滚（开关用）
-    private val exclusiveDrag: Boolean = false,
-    // 只认领横向拖动（滚动容器里的横向滑条用）：横向越过 touchSlop 且占优才消费指针
-    // 纵向为主的滑动原样留给父级滚动容器 优先于 exclusiveDrag
-    private val horizontalClaim: Boolean = false,
-    // 拖动被外部抢占而中止时的回调；默认与 onDragStopped 同语义（保持旧行为）
-    val onDragCancelled: DampedDragAnimation.() -> Unit = onDragStopped,
 ) {
 
     private val valueAnimationSpec =
@@ -71,57 +66,21 @@ class DampedDragAnimation(
     val velocity: Float get() = velocityAnimation.value
 
     val modifier: Modifier = Modifier.pointerInput(Unit) {
-        if (horizontalClaim) {
-            claimHorizontalDragGestures(
-                onStart = { down ->
-                    onDragStarted(down.position)
-                    press()
-                },
-                onEnd = {
-                    onDragStopped()
-                    release()
-                },
-                onCancel = {
-                    onDragCancelled()
-                    release()
-                }
-            ) { dragAmount ->
-                onDrag(size, dragAmount)
+        inspectDragGestures(
+            onDragStart = { down ->
+                onDragStarted(down.position)
+                press()
+            },
+            onDragEnd = {
+                onDragStopped()
+                release()
+            },
+            onDragCancel = {
+                onDragStopped()
+                release()
             }
-        } else if (exclusiveDrag) {
-            claimDragGestures(
-                onStart = { down ->
-                    onDragStarted(down.position)
-                    press()
-                },
-                onEnd = {
-                    onDragStopped()
-                    release()
-                },
-                onCancel = {
-                    onDragCancelled()
-                    release()
-                }
-            ) { dragAmount ->
-                onDrag(size, dragAmount)
-            }
-        } else {
-            inspectDragGestures(
-                onDragStart = { down ->
-                    onDragStarted(down.position)
-                    press()
-                },
-                onDragEnd = {
-                    onDragStopped()
-                    release()
-                },
-                onDragCancel = {
-                    onDragStopped()
-                    release()
-                }
-            ) { change, dragAmount ->
-                onDrag(size, dragAmount)
-            }
+        ) { change, dragAmount ->
+            onDrag(size, dragAmount)
         }
     }
 
@@ -172,7 +131,7 @@ class DampedDragAnimation(
 
     private fun updateVelocity() {
         velocityTracker.addPosition(
-            Clock.System.now().toEpochMilliseconds(),
+            System.currentTimeMillis(),
             Offset(value, 0f)
         )
         val targetVelocity = velocityTracker.calculateVelocity().x / (valueRange.endInclusive - valueRange.start)

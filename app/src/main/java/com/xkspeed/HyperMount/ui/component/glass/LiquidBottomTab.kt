@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// 主干逐字取自 AndroidLiquidGlass 1.0.5 (Apache-2.0) catalog/components/LiquidBottomTab.kt
+// 上游：https://github.com/Kyant0/AndroidLiquidGlass —— 声明与改动说明见 NOTICE.md
 package com.xkspeed.HyperMount.ui.component.glass
 
 import androidx.compose.foundation.clickable
