@@ -2,12 +2,14 @@ package com.xkspeed.HyperMount.core.mcp
 
 import android.content.Context
 import android.util.Log
+import com.xkspeed.HyperMount.core.Logcat
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
@@ -178,12 +180,15 @@ class McpServer(private val context: Context) {
             }
 
             method == "GET" && path == "/log/latest" -> {
-                val file = File(McpTask.logFile)
-                if (McpTask.logFile.isBlank() || !file.isFile) {
+                // 日志目录在 /data/adb 或 /sdcard 下，App 进程直接读会被 SELinux 挡，
+                // 统一走 root 取原文；文件判定也跟 get_log 共用 resolveLogFile
+                val file = runBlocking { McpTools.resolveLogFile() }
+                val body = if (file.isNullOrBlank()) "" else runBlocking { Logcat.readFile(file) }
+                if (body.isEmpty()) {
                     send(out, 404, "application/json", """{"error":"还没有日志"}""".toByteArray())
                     return
                 }
-                send(out, 200, "text/plain; charset=utf-8", file.readBytes())
+                send(out, 200, "text/plain; charset=utf-8", body.toByteArray())
             }
 
             else -> send(out, 404, "application/json", """{"error":"not found"}""".toByteArray())
@@ -251,7 +256,10 @@ class McpServer(private val context: Context) {
                 val name = params?.get("name")?.jsonPrimitive?.contentOrNull ?: ""
                 val args = params?.get("arguments")?.jsonObject ?: buildJsonObject { }
                 val text = runBlocking { McpTools.call(context, name, args, baseUrl) }
-                val isError = text.contains("\"ok\":false")
+                // 按 JSON 里的 ok 字段判，不能用 contains："日志正文里恰好出现 ok:false 就误判
+                val isError = runCatching {
+                    parseJson(text).jsonObject["ok"]?.jsonPrimitive?.booleanOrNull == false
+                }.getOrDefault(false)
                 val result = buildJsonObject {
                     put(
                         "content",
@@ -395,9 +403,11 @@ class McpServer(private val context: Context) {
                 put("name", "get_log")
                 put(
                     "description",
-                    "取这一轮测试的 logcat 尾部若干行，用来定位崩溃原因（Java 异常栈、ANR 等）。" +
+                    "取这一轮测试的 logcat 原文尾部若干行，用来定位崩溃原因（Java 异常栈、ANR 等）。" +
+                        "lines 字段就是 logcat 原文，不是应用里的步骤输出。" +
                         "apk 模式读 App 抓的 logcat 文件；systemui 模式读模块在崩溃时抓的 crash buffer。" +
-                        "systemui 模式若返回空，说明这一轮没崩、模块没抓日志。",
+                        "需要整份日志时用返回的 url 直接下载（带 token）。" +
+                        "systemui 模式若返回空且带 note，说明这一轮没崩、模块没抓日志。",
                 )
                 put(
                     "inputSchema",
@@ -411,8 +421,8 @@ class McpServer(private val context: Context) {
                                     buildJsonObject {
                                         put("type", "integer")
                                         put("minimum", 1)
-                                        put("maximum", 2000)
-                                        put("description", "返回多少行，默认 100")
+                                        put("maximum", 5000)
+                                        put("description", "返回多少行，默认 200")
                                     },
                                 )
                             },

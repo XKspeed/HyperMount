@@ -483,6 +483,7 @@ object McpTools {
                 alive -> "normal" to "界面正常，守护已收尾"
                 else -> "crash" to "未触发救砖，但 SystemUI 进程已不在"
             }
+            McpTask.logFile = latestModuleLog(McpTask.startedAt) ?: McpTask.logFile
             McpTask.markDone(key, text, alive, if (delta > 0) "本轮救砖 $delta 次" else "守护已收尾")
         }
 
@@ -497,6 +498,7 @@ object McpTools {
             put("systemui_alive", alive)
             put("protect_count", protect)
             put("protect_delta", delta)
+            put("log_file", McpTask.logFile)
             put("message", McpTask.message)
             put("started_at", McpTask.startedAt)
             put("finished_at", McpTask.finishedAt)
@@ -506,25 +508,27 @@ object McpTools {
     // ---------------- get_log ----------------
 
     private suspend fun logs(context: Context, args: JsonObject, baseUrl: String): String {
-        val lines = (args["lines"]?.let { (it as? JsonPrimitive)?.intOrNull } ?: 100)
-            .coerceIn(1, 2000)
+        val lines = (args["lines"]?.let { (it as? JsonPrimitive)?.intOrNull } ?: 200)
+            .coerceIn(1, Logcat.MAX_TAIL_LINES)
 
         if (McpTask.mode == "systemui") return systemUiLogs(lines, baseUrl)
 
-        val file = McpTask.logFile.takeIf { it.isNotBlank() && File(it).isFile }
-            ?: latestLogFile()
+        val file = apkLogFile()
             ?: return fail("还没有日志：先跑一轮 update_apk_run_apk_test")
 
-        val p = Logcat.poll(file, lines)
+        val p = Logcat.poll(file, 0)
+        // 正文要读日志文件本身；poll 里的 text 是脚本运行流水，不是 logcat
+        val text = Logcat.readTail(file, lines)
         return buildJsonObject {
             put("ok", true)
             put("mode", "apk")
             put("source", "logcat")
             put("file", file)
-            put("url", "$baseUrl/log/latest?token=${McpConfig.token}")
+            put("url", logUrl(baseUrl))
             put("running", p.running)
             put("bytes", p.size)
-            put("lines", p.text)
+            put("returned_lines", if (text.isEmpty()) 0 else text.count { it == '\n' } + 1)
+            put("lines", text)
         }.toString()
     }
 
@@ -549,18 +553,38 @@ object McpTools {
                 )
             }.toString()
 
-        val p = Logcat.poll(file, lines)
+        // 把找到的文件记下来，让 get_result 的 log_file 与 /log/latest 指向同一份
+        McpTask.logFile = file
+        val p = Logcat.poll(file, 0)
+        val text = Logcat.readTail(file, lines)
         buildJsonObject {
             put("ok", true)
             put("mode", "systemui")
             put("source", "logcat")
             put("file", file)
-            put("url", "$baseUrl/log/latest?token=${McpConfig.token}")
+            put("url", logUrl(baseUrl))
             put("running", p.running)
             put("bytes", p.size)
-            put("lines", p.text)
+            put("returned_lines", if (text.isEmpty()) 0 else text.count { it == '\n' } + 1)
+            put("lines", text)
         }.toString()
     }
+
+    /**
+     * 当前该看哪份日志
+     *
+     * get_log 与 HTTP 的 /log/latest 共用这一处判断，避免「json 里给 A 文件、
+     * 下载链接指向 B 文件」这种两边对不上的情况。
+     */
+    suspend fun resolveLogFile(): String? =
+        if (McpTask.mode == "systemui") {
+            latestModuleLog(McpTask.startedAt) ?: McpTask.logFile.takeIf { it.isNotBlank() }
+        } else {
+            apkLogFile()
+        }
+
+    private suspend fun apkLogFile(): String? =
+        McpTask.logFile.takeIf { it.isNotBlank() && File(it).isFile } ?: latestLogFile()
 
     /**
      * 模块侧写的日志（action.sh 用 `${LOG_DIR}/<时间>.log` 命名）
@@ -600,6 +624,10 @@ object McpTools {
 
     private fun firstLine(text: String): String =
         text.lineSequence().firstOrNull { it.isNotBlank() }?.trim()?.take(160) ?: ""
+
+    /** 下载链接：token 可能含 & 空格这类字符，必须编码，否则服务端解析出来对不上 */
+    private fun logUrl(baseUrl: String): String =
+        "$baseUrl/log/latest?token=" + java.net.URLEncoder.encode(McpConfig.token, "UTF-8")
 
     private fun fail(msg: String): String = buildJsonObject {
         put("ok", false)

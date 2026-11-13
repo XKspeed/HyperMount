@@ -70,8 +70,6 @@ UNZIP=$(find_bin unzip /data/user/0/com.termux/files/usr/bin /data/data/com.term
 PY=$(find_bin python3 /data/user/0/com.termux/files/usr/bin /data/data/com.termux/files/usr/bin /data/adb/ksu/bin /data/adb/magisk /usr/bin) \
     || PY=$(find_bin python /data/user/0/com.termux/files/usr/bin /data/data/com.termux/files/usr/bin /data/adb/ksu/bin /data/adb/magisk /usr/bin) \
     || PY=""
-NODE=$(find_bin node /data/user/0/com.termux/files/usr/bin /data/data/com.termux/files/usr/bin /data/adb/ksu/bin /data/adb/magisk /usr/bin) \
-    || NODE=""
 if [ -z "${ZIP}" ] && [ -z "${PY}" ]; then
     echo "错误: 找不到 zip 命令，也没有 python"
     exit 1
@@ -183,7 +181,7 @@ OUT="${OUT_DIR}/log挂载(配置版)_v${DISPLAY_VER}.zip"
 printf "v%s (versionCode %s)  →  %s\n" "${DISPLAY_VER}" "${VERCODE}" "${OUT##*/}"
 printf "          %s\n" "${CODE_NOTE}"
 
-# ---------- 语法检查（main 下所有 .sh，含 webroot） ----------
+# ---------- 语法检查（main 与 scripts 下所有 .sh） ----------
 SHELLS=$(find "${MAIN}" -type f -name '*.sh' | sort)
 
 SYN_TOTAL=0
@@ -268,8 +266,7 @@ fi
 
 # ---------- 复制到临时目录，在副本上剥注释 ----------
 PACK=$(mktemp -d) || { echo "错误: 无法创建临时目录"; exit 1; }
-STRIP_DIR=$(mktemp -d) || { echo "错误: 无法创建临时目录"; exit 1; }
-trap 'rm -rf "$PACK" "$STRIP_DIR"' EXIT INT TERM
+trap 'rm -rf "$PACK"' EXIT INT TERM
 cp -r "${MAIN}/." "${PACK}/" || { echo "错误: 复制到临时目录失败"; exit 1; }
 
 # 副本里的版本与发布时间：打包产物永远和本次一致，源码是否改脏不影响
@@ -290,111 +287,6 @@ else
 fi
 set_prop_in "${PACK}/module.prop" description "${NEW_DESC}"
 
-cat > "${STRIP_DIR}/js.awk" <<'AWKEOF'
-# 逐字符扫：跳过 ' " ` 字符串和 /正则/，只剥 // 与 /* */
-function lastnb(s,   k, ch) {
-    k = length(s)
-    while (k > 0) {
-        ch = substr(s, k, 1)
-        if (ch == " " || ch == "\t") { k--; continue }
-        break
-    }
-    return (k > 0) ? substr(s, k, 1) : ""
-}
-BEGIN { inblock = 0; q = ""; esc = 0 }
-{
-    s = $0; n = length(s); out = ""; i = 1
-    while (i <= n) {
-        c = substr(s, i, 1)
-        nx = (i < n) ? substr(s, i + 1, 1) : ""
-        if (inblock) {
-            if (c == "*" && nx == "/") { inblock = 0; i += 2; continue }
-            i++; continue
-        }
-        if (q != "") {
-            out = out c
-            if (esc) esc = 0
-            else if (c == "\\") esc = 1
-            else if (c == q) q = ""
-            i++; continue
-        }
-        if (c == "\047" || c == "\"" || c == "`") { q = c; out = out c; i++; continue }
-        if (c == "/" && nx == "*") { inblock = 1; i += 2; continue }
-        if (c == "/" && nx == "/") break
-        if (c == "/") {
-            pc = lastnb(out)
-            if (pc == "" || index("(,=:[!&|?{;+-*%<>~^", pc) > 0) {
-                j = i + 1; ok = 0; cls = 0
-                while (j <= n) {
-                    ch = substr(s, j, 1)
-                    if (ch == "\\") { j += 2; continue }
-                    if (ch == "[") { cls = 1; j++; continue }
-                    if (ch == "]") { cls = 0; j++; continue }
-                    if (ch == "/" && cls == 0) { ok = 1; break }
-                    j++
-                }
-                if (ok) {
-                    out = out substr(s, i, j - i + 1)
-                    i = j + 1
-                    while (i <= n && substr(s, i, 1) ~ /[a-z]/) { out = out substr(s, i, 1); i++ }
-                    continue
-                }
-            }
-        }
-        out = out c
-        i++
-    }
-    print out
-}
-END { if (inblock) exit 3 }
-AWKEOF
-
-cat > "${STRIP_DIR}/css.awk" <<'AWKEOF'
-BEGIN { inblock = 0; q = ""; esc = 0 }
-{
-    s = $0; n = length(s); out = ""; i = 1
-    while (i <= n) {
-        c = substr(s, i, 1)
-        nx = (i < n) ? substr(s, i + 1, 1) : ""
-        if (inblock) {
-            if (c == "*" && nx == "/") { inblock = 0; i += 2; continue }
-            i++; continue
-        }
-        if (q != "") {
-            out = out c
-            if (esc) esc = 0
-            else if (c == "\\") esc = 1
-            else if (c == q) q = ""
-            i++; continue
-        }
-        if (c == "\"" || c == "\047") { q = c; out = out c; i++; continue }
-        if (c == "/" && nx == "*") { inblock = 1; i += 2; continue }
-        out = out c
-        i++
-    }
-    print out
-}
-END { if (inblock) exit 3 }
-AWKEOF
-
-cat > "${STRIP_DIR}/html.awk" <<'AWKEOF'
-BEGIN { inc = 0 }
-{
-    s = $0; n = length(s); out = ""; i = 1
-    while (i <= n) {
-        if (inc) {
-            if (substr(s, i, 3) == "-->") { inc = 0; i += 3; continue }
-            i++; continue
-        }
-        if (substr(s, i, 4) == "<!--") { inc = 1; i += 4; continue }
-        out = out substr(s, i, 1)
-        i++
-    }
-    print out
-}
-END { if (inc) exit 3 }
-AWKEOF
-
 echo ""
 echo "剥离注释"
 
@@ -402,7 +294,7 @@ B_TOTAL=0
 A_TOTAL=0
 N_FILE=0
 
-TARGETS=$(find "${PACK}" -type f \( -name '*.sh' -o -name '*.js' -o -name '*.css' -o -name '*.html' \) | sort)
+TARGETS=$(find "${PACK}" -type f -name '*.sh' | sort)
 
 while IFS= read -r f; do
     [ -n "$f" ] || continue
@@ -411,16 +303,6 @@ while IFS= read -r f; do
     case "${rel}" in
         *.sh)
             awk '/^#!/ { print; next } /^[[:space:]]*#/ { next } /^[[:space:]]*$/ { next } { print }' "${f}" > "${f}.tmp"
-            ;;
-        *.js|*.css|*.html)
-            ext=${rel##*.}
-            awk -f "${STRIP_DIR}/${ext}.awk" "${f}" > "${f}.tmp1" || {
-                rm -f "${f}.tmp1"
-                echo "剥离失败: ${rel}（注释可能没闭合）"
-                exit 1
-            }
-            awk 'BEGIN{b=0} /^[[:space:]]*$/{b++; if(b<=1) print; next} {b=0; print}' "${f}.tmp1" > "${f}.tmp"
-            rm -f "${f}.tmp1"
             ;;
         *) continue ;;
     esac
@@ -453,27 +335,6 @@ else
 fi
 printf "  ----------------------------------------------------------------\n"
 printf "  合计 %d 个文件：%d → %d 字节，减少 %d（%d%%）\n" "${N_FILE}" "${B_TOTAL}" "${A_TOTAL}" "${SAVE}" "${PCT}"
-
-# JS 剥离后语法校验（找到 node 才做）
-if [ -n "${NODE}" ]; then
-    JS_N=0
-    JS_BAD=0
-    while IFS= read -r jf; do
-        [ -n "${jf}" ] || continue
-        JS_N=$((JS_N + 1))
-        "${NODE}" --check "${jf}" 2>/dev/null || {
-            echo "JS 校验失败: ${jf#${PACK}/}"
-            JS_BAD=1
-            break
-        }
-    done <<EOF
-$(find "${PACK}" -type f -name '*.js')
-EOF
-    [ "${JS_BAD}" = "1" ] && exit 1
-    echo "JS 校验通过（${JS_N} 个文件）"
-else
-    echo "JS 校验跳过（未找到 node）"
-fi
 
 # ---------- 权限 ----------
 chmod 755 "${PACK}/service.sh" "${PACK}/customize.sh" "${PACK}/action.sh" "${PACK}/config/log.sh" 2>/dev/null

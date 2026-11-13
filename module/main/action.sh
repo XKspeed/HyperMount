@@ -10,13 +10,15 @@ MODDIR=$(cd "$MODDIR" && pwd)
 CONFIG_DIR="${MODDIR}/config"
 
 [ -f "${CONFIG_DIR}/settings.conf" ] && . "${CONFIG_DIR}/settings.conf"
+# 函数单独一份：后加载，覆盖旧版 settings.conf 里残留的旧定义
+[ -f "${CONFIG_DIR}/functions.sh" ] && . "${CONFIG_DIR}/functions.sh"
 
 # ---------- 模块自身引起的重启 ----------
 # 测试模式覆盖、守护救砖替换 都会让界面自己重启一次。那次不是崩溃，
 # 不能算进 watch.sh 的窗口计数（点一次测试就把阈值顶掉 会误触发救砖）。
 # 覆盖/替换完成后写一个时间戳，watch.sh 读到紧随其后的第一条 systemui 启动
 # 跳过并把它删掉。
-WEB_DIR="${MODDIR}/webroot"
+WEB_DIR="${MODDIR}/scripts"
 WATCH_PID="${WEB_DIR}/.work/watch.pid"
 SELF_MARK="${CONFIG_DIR}/.self_restart"
 
@@ -34,15 +36,22 @@ MISSING=""
 for v in TIME_FORMAT LOG_DIR LOG_RETENTION_DAYS KEY_TIMEOUT LINE LOG_MODE VOLUME_CHECK_ASSESS PROTECT_COUNT FATAL_THRESHOLD; do
     eval "[ -z \"\${$v+x}\" ]" && MISSING="${MISSING} ${v}"
 done
-for f in get_time update_desc; do
-    command -v "$f" >/dev/null 2>&1 || MISSING="${MISSING} ${f}()"
+MISSING_FN=""
+for f in get_time update_desc set_desc; do
+    command -v "$f" >/dev/null 2>&1 || MISSING_FN="${MISSING_FN} ${f}()"
 done
 
-if [ -n "${MISSING}" ]; then
-    echo "错误：配置文件缺失或未定义以下项："
+if [ -n "${MISSING}" ] || [ -n "${MISSING_FN}" ]; then
+    echo "错误：模块文件不完整，缺少以下项："
     sleep 1 # 部分 root 管理器不延迟看不到输出
-    echo "${MISSING}"
-    echo "请补全 ${CONFIG_DIR}/settings.conf 后重新运行"
+    [ -n "${MISSING}" ] && {
+        echo "  配置项:${MISSING}"
+        echo "  → 补全 ${CONFIG_DIR}/settings.conf 后重新运行"
+    }
+    [ -n "${MISSING_FN}" ] && {
+        echo "  函数:${MISSING_FN}"
+        echo "  → 检查 ${CONFIG_DIR}/functions.sh 是否存在"
+    }
     exit 1
 fi
 
@@ -59,7 +68,7 @@ done
 # ---------- 参数解析 ----------
 # --test <apk>  测试模式：记录基线后自动把该 APK 换进挂载点
 # --now         全局常驻救砖触发的一轮：界面已经重启过了，跳过「替换 + 等 PID」，
-#               直接从抓日志开始判定。由 webroot/watch.sh 调用
+#               直接从抓日志开始判定。由 scripts/watch.sh 调用
 TEST_APK=""
 NOW_MODE=0
 while [ $# -gt 0 ]; do
@@ -276,7 +285,7 @@ parse_input_devs() {
 
 # ============================================================
 #  音量键校验（保底方案）
-#  WebUI 的 check.sh 是首选，这里保留完整校验作为兜底
+#  App 走 scripts/check.sh 是首选，这里保留完整校验作为兜底
 #  两者方式完全一致：gpio-keys / qpnp_pon + timeout getevent
 # ============================================================
 if [ "${VOLUME_CHECK_ASSESS}" != "1" ]; then
@@ -388,7 +397,28 @@ cover_test_apk() {
     _cv_tmp="/data/adb/tmp/_test_$$.apk"
     mkdir -p /data/adb/tmp 2>/dev/null
     _cv_aim="${MODDIR}/system_ext/priv-app/MiuiSystemUI/MiuiSystemUI.apk"
+    _cv_mnt="/system_ext/priv-app/MiuiSystemUI/MiuiSystemUI.apk"
     mkdir -p "$(dirname "$_cv_aim")" 2>/dev/null
+
+    # 挂载点是单文件 bind，绑的是 inode。源文件一旦被 rm/mv 换成新 inode，
+    # 挂载点还指着旧的那份，之后怎么改都进不去 —— 这就是「换什么包都不重启」的根因。
+    # 开测前先比对，不一致就重新 bind，把它修回来。
+    _cv_src=$(readlink -f "$_cv_aim" 2>/dev/null)
+    [ -n "$_cv_src" ] || _cv_src="$_cv_aim"
+    if [ -f "$_cv_mnt" ] && [ -f "$_cv_src" ]; then
+        _cv_mi=$(stat -c %i "$_cv_mnt" 2>/dev/null)
+        _cv_si=$(stat -c %i "$_cv_src" 2>/dev/null)
+        if [ -n "$_cv_mi" ] && [ -n "$_cv_si" ] && [ "$_cv_mi" != "$_cv_si" ]; then
+            echo "挂载已脱离（挂载点 ${_cv_mi} ≠ 源 ${_cv_si}），重新绑定"
+            umount "$_cv_mnt" 2>/dev/null
+            if mount --bind "$_cv_src" "$_cv_mnt" 2>/dev/null; then
+                echo "重新绑定完成"
+            else
+                echo "错误：重新绑定失败，界面无法替换"
+                return 1
+            fi
+        fi
+    fi
 
     if ! cp -f "$TEST_APK" "$_cv_tmp" 2>/dev/null; then
         echo "错误：复制到临时目录失败"
@@ -403,8 +433,9 @@ cover_test_apk() {
         dd if="$_cv_tmp" of="$_cv_aim" bs=1M conv=notrunc 2>/dev/null
         echo "已覆盖（大小相同，inode 不变）"
     else
-        cp -f "$_cv_tmp" "$_cv_aim" 2>/dev/null
-        echo "已覆盖（大小变化）"
+        # 不能用 cp -f / mv / rm+cp：都可能换 inode，bind 挂载点会跟着失联
+        cat "$_cv_tmp" > "$_cv_aim" 2>/dev/null
+        echo "已覆盖（大小变化，inode 不变）"
     fi
 
     _cv_actual=$(stat -c%s "$_cv_aim" 2>/dev/null || echo 0)
@@ -441,7 +472,7 @@ APK="${MODDIR}/MiuiSystemUI.apk"
 AIM_APK="${MODDIR}/system_ext/priv-app/MiuiSystemUI/MiuiSystemUI.apk"
 get_log_size() { stat -c%s "${LOG_FILE}" 2>/dev/null || echo 0; }
 stop_log() { kill "${LPID}" 2>/dev/null; sleep 1; kill -9 "${LPID}" 2>/dev/null; K=$(($(get_log_size)/1024)); }
-finish() { update_desc "$(get_time) | 状态: $1 | 日志: ${K}KB"; exit ${2:-0}; }
+finish() { set_desc "$1" "${K}"; exit ${2:-0}; }
 
 echo "${LINE}"; echo "救砖模块启动"; echo "${LINE}"; sleep 1
 
@@ -507,16 +538,25 @@ if [ -n "$TEST_APK" ]; then
 fi
 
 # 等待界面重启（PID 变化），超时则退出
+_co_t0=$(date +"%m-%d %H:%M:%S")
+_cv_anr=0
 W=0
 while [ "${W}" -lt "${KEY_TIMEOUT}" ]; do
     sleep 1; W=$((W+1))
     NEW=$(pidof com.android.systemui 2>/dev/null | awk '{print $1}')
     [ "${NEW}" != "${OLD}" ] && [ -n "${NEW}" ] && { debug "PID变化: ${OLD:-无} -> ${NEW} | ${W}秒"; break; }
+    # 卡死时进程还在，pidof 看不出变化：ANR 一出现就说明这轮界面已经废了
+    if logcat -b events -d -s am_anr -T "${_co_t0}.000" 2>/dev/null | grep -q "com.android.systemui"; then
+        debug "检测到 ANR（${W}秒），界面判定为已崩"
+        _cv_anr=1
+        break
+    fi
 done
 [ "${W}" -ge "${KEY_TIMEOUT}" ] && {
     debug "等待替换超时（${KEY_TIMEOUT}秒），退出"
     echo "等待替换界面超时（${KEY_TIMEOUT}秒），未检测到 SystemUI 重启"
-    exit 0
+    echo "FAIL 界面没有重启：排查日志目录，或手动结束一次系统界面进程后重试"
+    exit 1
 }
 
 fi   # NOW_MODE 分支结束
@@ -525,8 +565,9 @@ fi   # NOW_MODE 分支结束
 touch "${LOG_FILE}"
 # 正常测试：清空 crash 缓冲，避免上次运行的旧日志干扰本次判定
 # --now：崩溃已经发生过了，缓冲里就是这次的证据，绝不能清
-if [ "${NOW_MODE}" = "1" ]; then
-    debug "常驻救砖：保留现有 crash 缓冲"
+# ANR 那一轮同理：crash 缓冲里存着判死依据，清了就没得看
+if [ "${NOW_MODE}" = "1" ] || [ "${_cv_anr}" = "1" ]; then
+    debug "保留现有 crash 缓冲"
 else
     logcat -c -b crash
 fi
@@ -756,7 +797,7 @@ if cp -f "${APK}" "${AIM_APK}" 2>/dev/null; then
     NEW=$((SAVE+1))
     set_conf "PROTECT_COUNT" "${NEW}" "${CONFIG_DIR}/settings.conf"
     echo "累计救砖: ${NEW}次"; debug "救砖次数: ${NEW}"
-    update_desc "$(get_time) | 状态: 已救砖 | 次数: ${NEW} | 日志: ${K}KB"
+    set_desc "已救砖" "${K}" "次数: ${NEW}"
 else
     # 回滚：把备份写回去，避免目标文件是半截损坏状态
     if [ -f "${BAK_APK}" ]; then
@@ -766,7 +807,7 @@ else
     fi
     rm -f "${BAK_APK}" 2>/dev/null
     echo "替换失败"; debug "替换失败"
-    update_desc "$(get_time) | 状态: 替换失败 | 日志: ${K}KB"
+    set_desc "替换失败" "${K}"
 fi
 
 debug "脚本结束"

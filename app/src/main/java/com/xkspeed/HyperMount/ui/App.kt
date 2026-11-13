@@ -876,8 +876,16 @@ fun App() {
                     }
                     busy = true
                     busyTitle = "启动测试"
-                    busySub = "正在准备救砖文件…"
+                    busySub = "对比当前界面…"
                     scope.launch {
+                        // 与当前界面同一份包：原地覆盖不会让界面重启，等下去只会超时收场
+                        if (Module.sameAsCurrent(target) == true) {
+                            busy = false
+                            busyTitle = null
+                            toast(context, "当前测试界面与正在使用的一致")
+                            return@launch
+                        }
+                        busySub = "正在准备救砖文件…"
                         val out = Module.testRun(target)
                         if (out.contains("OK")) {
                             busySub = "已启动"

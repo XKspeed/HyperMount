@@ -21,7 +21,11 @@
 ├── system/system_ext/priv-app/MiuiSystemUI/
 │   └── MiuiSystemUI.apk           待测界面：当前换进去的那一份
 ├── config/settings.conf           运行参数（应用写的都在这）
-├── webroot/webctl.sh              应用调用的入口脚本
+├── config/functions.sh            脚本函数（升级时整体替换 不碰用户配置）
+├── scripts/                       应用调用的脚本目录
+│   ├── webctl.sh                  应用调用的入口脚本
+│   ├── check.sh                   音量键校验
+│   └── watch.sh                   常驻救砖守护
 └── action.sh                      模块动作脚本
 ```
 

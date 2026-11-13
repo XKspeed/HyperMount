@@ -264,6 +264,26 @@ object Module {
         Root.webctl("prepare ${Root.q(src)}")
     }
 
+    /** 界面的实际挂载点：单文件 bind，内容就是模块里那份 apk */
+    private const val MOUNTED_APK = "/system_ext/priv-app/MiuiSystemUI/MiuiSystemUI.apk"
+
+    /**
+     * 待测包与「当前正在使用的界面」是否同一份
+     *
+     * 内容完全相同时，原地覆盖不会让 SystemUI 已映射的页失效，界面根本不会重启，
+     * 后面等 PID 只会白等到超时。true = 相同，false = 不同，null = 判断不了（不拦）。
+     */
+    suspend fun sameAsCurrent(target: String): Boolean? = withContext(Dispatchers.IO) {
+        runCatching {
+            val out = Root.exec("md5sum ${Root.q(target)} ${Root.q(MOUNTED_APK)} 2>/dev/null")
+            val sums = out.lineSequence()
+                .map { it.trim().substringBefore(' ') }
+                .filter { it.length == 32 && it.all { c -> c.isDigit() || c in 'a'..'f' } }
+                .toList()
+            if (sums.size == 2) sums[0].equals(sums[1], ignoreCase = true) else null
+        }.getOrNull()
+    }
+
     /**
      * 启动测试
      *
@@ -315,7 +335,7 @@ object Module {
      * 这里一条命令只取四个数：watch / action 在不在跑、各自从哪秒开始、累计救砖几次。
      */
     suspend fun daemonStatus(): DaemonStatus = withContext(Dispatchers.IO) {
-        val work = "${Root.MODULE_DIR}/webroot/.work"
+        val work = Root.workDir()
         val wp = Root.q("$work/watch.pid")
         val ws = Root.q("$work/watch.state")
         val wl = Root.q("$work/watch.limit")
@@ -348,12 +368,12 @@ object Module {
     }
 
     /**
-     * 音量键校验（webroot/check.sh）
+     * 音量键校验（scripts/check.sh）
      * up / down 会阻塞到用户按键或 10 秒超时 所以必须放在 IO 线程
      */
     suspend fun check(sub: String): String = withContext(Dispatchers.IO) {
         logged("check $sub") {
-            Root.exec("sh " + Root.q(Root.MODULE_DIR + "/webroot/check.sh") + " " + sub)
+            Root.exec("sh " + Root.q(Root.script("check.sh")) + " " + sub)
         }
     }
 
@@ -365,7 +385,7 @@ object Module {
         withContext(Dispatchers.IO) {
             logged("check save") {
                 Root.exec(
-                    "sh " + Root.q(Root.MODULE_DIR + "/webroot/check.sh") +
+                    "sh " + Root.q(Root.script("check.sh")) +
                         " save " + Root.q(upDev) + " " + Root.q(downDev)
                 )
             }

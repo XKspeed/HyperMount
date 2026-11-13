@@ -4,11 +4,12 @@ MODDIR="${MODDIR%/config}"
 CONFIG_DIR="${MODDIR}/config"
 [ -f "${CONFIG_DIR}/settings.conf" ] || exit 0
 . "${CONFIG_DIR}/settings.conf" 2>/dev/null || exit 0
+[ -f "${CONFIG_DIR}/functions.sh" ] && . "${CONFIG_DIR}/functions.sh"
 [ "${LOG_MODE:-0}" = "0" ] && exit 0
 # 日志目录留空就当是不记日志 直接把描述改成「未设置」再退出
 # 否则 service.sh 写下的「等待开机完成」会一直挂在模块卡片上
 if [ -z "${LOG_DIR}" ]; then
-    update_desc "未设置日志目录 请先在 App 里选一个"
+    set_desc "未设置日志目录 请先在 App 里选一个"
     exit 0
 fi
 WAITED=0
@@ -22,9 +23,9 @@ mkdir -p "${LOG_DIR}" 2>/dev/null
 chmod 755 "${LOG_DIR}" 2>/dev/null
 find "${LOG_DIR}" -maxdepth 1 -name "*.log" -type f -mtime "+${LOG_RETENTION_DAYS:-1}" -delete 2>/dev/null
 logcat -c -b crash 2>/dev/null
-update_desc "$(get_time) | 日志: 记录中"
+set_desc "日志记录中"
 LOG_FILE="${LOG_DIR}/$(get_time).log"
 timeout "${LOG_TIMEOUT:-60}" logcat -b crash >> "${LOG_FILE}" 2>&1
-update_desc "$(get_time) | 日志: 已停止"
+set_desc "日志已停止"
 [ -s "${LOG_FILE}" ] || rm -f "${LOG_FILE}" 2>/dev/null
 exit 0

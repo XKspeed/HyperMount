@@ -23,8 +23,8 @@ import java.util.Locale
 /**
  * 前台服务：守护运行期间把进程留在前台 避免被系统冻结
  *
- * 这是这个 App 存在的核心理由 —— WebUI 里 ksu.exec 派生的 action.sh
- * 会跟着管理器进程一起进 cached/frozen cgroup 切后台就停摆；
+ * 这是这个 App 存在的核心理由 —— 由 root shell 派生的 action.sh
+ * 会跟着派发它的进程一起进 cached/frozen cgroup 切后台就停摆；
  * App 挂着前台服务时进程是 top-app su 子进程也不会被冻
  *
  * 本服务不承载业务逻辑 只负责"让进程活着 + 给用户一个能看进度的通知"。

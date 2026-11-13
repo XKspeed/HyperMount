@@ -9,6 +9,7 @@ CONFIG_DIR="${MODDIR}/config"
 CONF="${CONFIG_DIR}/settings.conf"
 WORK_DIR="${WEB_DIR}/.work"
 [ -f "$CONF" ] && . "$CONF" 2>/dev/null
+[ -f "${CONFIG_DIR}/functions.sh" ] && . "${CONFIG_DIR}/functions.sh"
 ACTION_PID="${WORK_DIR}/action.pid"
 ACTION_LOG="${WORK_DIR}/action.out"
 WORKER_PID="${WORK_DIR}/worker.pid"
@@ -247,7 +248,7 @@ case "${1:-}" in
                     kill -9 "$_wp" 2>/dev/null
                 fi
                 rm -f "$WATCH_PID"
-                pkill -f "webroot/watch.sh" 2>/dev/null
+                pkill -f "scripts/watch.sh" 2>/dev/null
                 pkill -f "am_proc_start -T 1" 2>/dev/null
                 echo "running=0" > "$WATCH_STATE"
                 echo "OK 已停止"

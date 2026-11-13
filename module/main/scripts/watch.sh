@@ -30,6 +30,7 @@ STAMPS="${WORK_DIR}/restarts"
 SELF_MARK="${MODDIR}/config/.self_restart"
 
 [ -f "${MODDIR}/config/settings.conf" ] && . "${MODDIR}/config/settings.conf"
+[ -f "${CONFIG_DIR}/functions.sh" ] && . "${CONFIG_DIR}/functions.sh"
 
 # 窗口和阈值都可以在 settings.conf 里改 没写就用默认 30 秒 3 次
 WINDOW="${WATCH_WINDOW:-30}"

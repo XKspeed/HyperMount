@@ -8,6 +8,7 @@ MODDIR=$(cd "${WEB_DIR}/.." && pwd)
 CONFIG_DIR="${MODDIR}/config"
 CONF="${CONFIG_DIR}/settings.conf"
 [ -f "$CONF" ] && . "$CONF" 2>/dev/null
+[ -f "${CONFIG_DIR}/functions.sh" ] && . "${CONFIG_DIR}/functions.sh"
 WAIT_SEC=10
 read_env() {
     ANDROID_VER=$(getprop ro.build.version.release 2>/dev/null)

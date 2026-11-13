@@ -52,6 +52,8 @@ internal object McpInstructions {
         get_log returns raw logcat, not the app's own output lines. APK mode reads the logcat captured during
         this round; SystemUI mode reads the crash buffer the module grabbed at crash time, and an empty result
         usually means nothing crashed, not that the test failed.
+        Ask for more lines if the tail is cut off (up to 5000). For the whole file, GET the url field it returns;
+        the token is already in the query string, so no extra auth header is needed.
         To find the fault, search for FATAL EXCEPTION, ANR in, and Process ... has died, then read from the
         innermost "Caused by" outward.
 

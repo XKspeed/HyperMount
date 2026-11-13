@@ -24,10 +24,36 @@ object Root {
     /** 挂载源（救砖时写这个文件） */
     const val AIM_APK = "$MODULE_DIR/system_ext/priv-app/MiuiSystemUI/MiuiSystemUI.apk"
 
-    const val WEBCTL = "$MODULE_DIR/webroot/webctl.sh"
     const val ACTION_SH = "$MODULE_DIR/action.sh"
     const val CONF = "$MODULE_DIR/config/settings.conf"
     const val MODULE_PROP = "$MODULE_DIR/module.prop"
+
+    /**
+     * 模块脚本目录
+     *
+     * 新版模块叫 scripts，v1.5.6 及更早还是 webroot。用户先更新 App 再更新模块
+     * （或者反过来）时两边目录名会对不上，所以第一次用到时探测一次并缓存，不写死。
+     */
+    @Volatile
+    private var scriptDirCache: String? = null
+
+    fun scriptDir(): String =
+        scriptDirCache ?: detectScriptDir().also { scriptDirCache = it }
+
+    private fun detectScriptDir(): String {
+        val out = exec(
+            "if [ -f $MODULE_DIR/scripts/webctl.sh ]; then echo scripts; " +
+                "elif [ -f $MODULE_DIR/webroot/webctl.sh ]; then echo webroot; fi"
+        )
+        return out.lineSequence().map { it.trim() }
+            .lastOrNull { it == "scripts" || it == "webroot" } ?: "scripts"
+    }
+
+    /** 模块脚本目录下的某个脚本（webctl.sh / check.sh） */
+    fun script(name: String): String = "$MODULE_DIR/${scriptDir()}/$name"
+
+    /** 脚本的运行时状态目录（pid、日志都在这里） */
+    fun workDir(): String = "$MODULE_DIR/${scriptDir()}/.work"
 
     /** 在 Application.onCreate 里调一次 必须在任何 Shell.cmd 之前  */
     fun init(context: android.content.Context) {
@@ -67,7 +93,7 @@ object Root {
 
     /** 跑 webctl.sh 的子命令 */
     suspend fun webctl(args: String): String =
-        execAsync("sh \"$WEBCTL\" $args")
+        execAsync("sh \"${script("webctl.sh")}\" $args")
 
     /** 给路径加 shell 引号（路径里有空格、括号、中文都不能出事） */
     fun q(path: String): String = "\"" + path.replace("\\", "\\\\").replace("\"", "\\\"") + "\""

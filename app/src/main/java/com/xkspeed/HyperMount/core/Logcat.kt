@@ -704,6 +704,28 @@ object Logcat {
      */
     private val CAPTURED_LINE = Regex("""^\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}\.\d{3}\s+\d+\s+\d+""")
 
+    /**
+     * 读日志文件本身的尾部若干行
+     *
+     * 和 [poll] 不是一回事：poll 取的是脚本运行流水（步骤输出），
+     * 这个才是 logcat 抓下来的原文。走 root 是因为日志目录在
+     * /data/adb 或 /sdcard 下，App 进程直接读会被 SELinux 挡掉。
+     */
+    suspend fun readTail(file: String, lines: Int): String = withContext(Dispatchers.IO) {
+        if (file.isBlank()) return@withContext ""
+        val n = lines.coerceIn(1, MAX_TAIL_LINES)
+        runCatching { Root.exec("tail -n $n ${Root.q(file)} 2>/dev/null") }.getOrDefault("")
+    }
+
+    /** 整份日志原文，给 HTTP 下载用 */
+    suspend fun readFile(file: String): String = withContext(Dispatchers.IO) {
+        if (file.isBlank()) return@withContext ""
+        runCatching { Root.exec("cat ${Root.q(file)} 2>/dev/null") }.getOrDefault("")
+    }
+
+    /** get_log 单次最多回多少行：再长客户端也读不完，整份走 HTTP 下载 */
+    const val MAX_TAIL_LINES = 5000
+
     suspend fun poll(file: String, lines: Int = 300): Poll = withContext(Dispatchers.IO) {
         if (file.isBlank()) return@withContext Poll(false, 0L, "")
         val PID_FILE = pidFile()
