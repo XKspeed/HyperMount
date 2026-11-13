@@ -6,9 +6,9 @@
   "url": "https://github.com/XKspeed/HyperMount/releases/download/internal/HyperMount-arm64-internal.apk",
   "changelog": "新增界面设置二级页\n新增配置二级页\n新增全局常驻救砖\n新增守护状态常驻通知\n新增音量键校验拦截\n新增记住上次停留页面\n新增 MCP 服务\n新增移植参考页\n优化玻璃组件视觉细节\n优化设置布局\n优化引导页内容\n优化部分页面布局\n优化更新逻辑\n优化底部操作条样式\n更改底栏为系统界面 应用 设置\n移除仅日志模式的等待超时\n移除运行输出中的崩溃日志\n缓存上限支持无级调节\n守护时长支持无级调节\n修复换包后界面不再自动重启\n修复切换多任务时页面跳动",
   "moduleVersionCode": 16,
-  "moduleVersionName": "1.5.7-debug.25",
+  "moduleVersionName": "1.5.7-debug.26",
   "moduleUrl": "https://github.com/XKspeed/HyperMount/releases/download/internal/module-internal.zip",
-  "moduleChangelog": "新增模块更新检测\n新增全局常驻救砖守护\n未放界面时拒绝安装\n替换界面不再计入崩溃次数\n移除模块网页界面\n修复换包后界面不再自动重启\n修复安装时不显示更新说明",
+  "moduleChangelog": "新增模块更新检测\n新增全局常驻救砖守护\n未放界面时拒绝安装\n替换界面不再计入崩溃次数\n移除模块网页界面\n修复换包后界面不再自动重启\n修复安装时不显示更新说明\n修复升级后救砖包丢失\n修复更新说明打印整份历史",
   "sha256": "b955ca4440c62185df0b670599e1c9e9540ccd901a672d032b35c6aaccd93e9a",
-  "moduleSha256": "d95996ca20dd0dbda4a6acac03c6f9fc43b8235056a90a0109ffa115d22dc71f"
+  "moduleSha256": "667505bcbd1be0ee67eb12629077c820eddf2ab216605ae38cac1d6d7b2dba11"
 }
