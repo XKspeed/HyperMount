@@ -8,7 +8,7 @@ plugins {
 // 检查更新用它判断「内测通道有没有比手上这个更新的包」
 val internalBuildId = (findProperty("buildId") as String?)?.trim().orEmpty()
 
-// 构建时间戳（epoch 毫秒）：检查更新靠它分先后（内测包与正式版共用 versionCode）
+// 构建时间戳（epoch 毫秒）：检查更新靠它分先后（同名内测包之间只能靠它区分）
 // CI 传 -PbuildTime=<毫秒> 让包内值与清单里写下的完全一致；
 // 本地构建不传就取这次配置的时间 免得手动打的包时间戳是 0
 val buildTimeMs = (findProperty("buildTime") as String?)?.trim()?.toLongOrNull()

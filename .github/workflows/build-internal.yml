@@ -94,9 +94,10 @@ jobs:
           echo "keystore 校验通过（alias=$KEY_ALIAS）"
           echo "字节数: $(wc -c < app/release-key.jks)"
 
-      # 只改本次构建的工作区 不提交 仓库里的版本号保持不动
-      # 两个版本号都可留空：留空就把 x.x.y 的 y 加 1，之后统一加 -debug
-      # versionCode 一律不动：内测与正式版同号 覆盖安装不会冲突
+      # 版本名只属于本次构建：留空就把 x.x.y 的 y 加 1，再统一加 -debug，不写回仓库
+      # versionCode 每次 +1，由最后一步单独提交回 main —— 代号只涨不跌
+      # 于是「仓库版本名 = 上一个正式版」「仓库代号 = 内测已经用掉的最大号」
+      # 正式发版在此基础上：名字 +1、代号 +1，落在内测最后一次之后
       - name: Resolve version
         id: v
         env:
@@ -184,7 +185,7 @@ jobs:
           } >> "$GITHUB_OUTPUT"
 
           # 构建时间戳（epoch 毫秒）：包内 BuildConfig.BUILD_TIME 与清单里的 buildTime 用同一个值
-          # 内测包版本号跟正式版一样 判断谁新谁旧只能看它
+          # 内测与内测之间版本名可能完全一样（仓库版本名不进内测）谁新谁旧只能看它
           BT=$(date +%s%3N)
           echo "build_time=${BT}" >> "$GITHUB_OUTPUT"
           echo "BUILD_TIME=${BT}" >> "$GITHUB_ENV"
@@ -196,8 +197,8 @@ jobs:
           KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           KEY_STORE_PASSWORD: ${{ secrets.KEY_STORE_PASSWORD }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
-        # 构建号写进 BuildConfig.BUILD_ID：内测包版本号跟正式版一样，
-        # App 判断“有没有新内测”只能靠它
+        # 构建号写进 BuildConfig.BUILD_ID：内测版本名是「仓库版本名 +1 + -debug」，
+        # 连发几次内测名字都一样，App 判断“有没有新内测”只能靠它
         run: ./gradlew :app:assembleRelease --no-daemon -PbuildId=${{ github.run_number }} -PbuildTime=${{ steps.v.outputs.build_time }}
 
       - name: Verify APK signature
@@ -238,7 +239,7 @@ jobs:
           retention-days: 30
 
       # 内测也带一份模块包：模块改了不用等正式版 刷 internal 这个就行
-      # 版本名带 -debug.<构建号>、versionCode 与正式版同号
+      # 版本名带 -debug.<构建号>、versionCode 沿用仓库当前值（模块内测不占代号）
       # Magisk 那边只认正式清单（只能发现正式更新）测试版更新由 App 识别
       - name: Build module zip
         id: module
@@ -284,7 +285,7 @@ jobs:
           MODULE_NAME: ${{ steps.module.outputs.module_version }}
         run: |
           set -euo pipefail
-          # 打包时间和构建号：内测包版本号可能跟正式版一样 只有这两样能区分谁是谁
+          # 打包时间和构建号：两次内测的版本名可能完全一样 只有这两样能区分谁是谁
           # 统一按北京时间写 免得用户在别的时区对着 UTC 算
           PUBLISHED=$(TZ=Asia/Shanghai date -d "@$((BT / 1000))" "+%Y-%m-%d %H:%M")
           printf '内测版 · 构建 %s · 发布于 %s（北京时间）\n' "$BUILD" "$PUBLISHED" > /tmp/internal-head.txt
@@ -450,10 +451,16 @@ jobs:
           set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          # 只把 +1 后的 versionCode 带回 main：versionName 上的 -debug 是这次构建专用的
-          # 留着会让仓库里的版本名一直挂着测试后缀
-          CUR_NAME=$(grep -oP 'versionName\s*=\s*"\K[^"]+' app/build.gradle.kts | head -1)
-          sed -i "s/versionName = \"${CUR_NAME}\"/versionName = \"${CUR_NAME%-debug}\"/" app/build.gradle.kts
+          # 只把 +1 后的 versionCode 带回 main，versionName 一律还原成这次构建前的值。
+          # 内测每发一次就把名字 +1，如果也跟着进仓库，正式版留空时会从被推高的名字再 +1 一次
+          # 1.1.6 发三次内测 → 仓库变 1.1.9 → 正式版直接 1.2.0，跳了两个小版本
+          # 所以仓库里的版本名永远停在「上一个正式版」，内测的代号与时间戳只属于这一次构建
+          ORIG_NAME=$(git show HEAD:app/build.gradle.kts | grep -oP 'versionName\s*=\s*"\K[^"]+' | head -1)
+          if [ -z "${ORIG_NAME}" ]; then
+            echo "::error::读不到 HEAD 里的 versionName —— build.gradle.kts 的写法被改过了？"
+            exit 1
+          fi
+          sed -i -E "s/versionName\s*=\s*\"[^\"]*\"/versionName = \"${ORIG_NAME}\"/" app/build.gradle.kts
           git add update-internal.json app/build.gradle.kts
           if git diff --cached --quiet; then
             echo "清单与版本号没有变化 跳过提交"
@@ -507,7 +514,7 @@ jobs:
             echo ""
             echo "- 只有 arm64-v8a"
             echo "- 与正式包同一签名 可直接覆盖安装"
-            echo "- 模块内测包 versionCode 与正式版同号 测试版更新只在 App 里提示"
+            echo "- 模块内测包 versionCode 沿用仓库当前值 测试版更新只在 App 里提示"
             echo "- 不改 update.json；提交内测清单与 +1 后的 versionCode"
             echo "- \`internal\` 下原地更新：只覆盖本次打的那一侧 另一侧保留上一版的包"
           } >> "$GITHUB_STEP_SUMMARY"

@@ -28,6 +28,18 @@ if [ "${UI_SZ}" -eq 0 ] && [ -n "${MODID}" ] && [ -s "${OLD_UI_APK}" ]; then
     UI_SZ=$(stat -c%s "${UI_APK}" 2>/dev/null || echo 0)
     [ "${UI_SZ}" -gt 0 ] && KEPT_UI=1
 fi
+
+# 模块根目录这份是救砖包：界面崩了/黑屏时拿它把系统界面换回去。
+# 它不在仓库里（用户自己放的），新包自然也不带，覆盖安装会把旧的那份一起丢掉，
+# 所以和上面一样从已安装的模块里捞回来，否则救砖功能升级一次就废一次。
+RESCUE_APK="${MODPATH}/MiuiSystemUI.apk"
+OLD_RESCUE_APK="/data/adb/modules/${MODID}/MiuiSystemUI.apk"
+KEPT_RESCUE=0
+if [ -n "${MODID}" ] && [ -s "${OLD_RESCUE_APK}" ] && [ ! -s "${RESCUE_APK}" ]; then
+    cp -f "${OLD_RESCUE_APK}" "${RESCUE_APK}" 2>/dev/null
+    [ -s "${RESCUE_APK}" ] && KEPT_RESCUE=1
+fi
+
 if [ "${UI_SZ}" -eq 0 ]; then
     ui_print ""
     ui_print "${LINE:-========================================}"
@@ -70,6 +82,7 @@ ui_print ""
 ui_print "  📁 配置文件: config/settings.conf"
 [ "${KEPT_CONF}" = "1" ] && ui_print "  ♻️ 检测到已安装 沿用原有配置"
 [ "${KEPT_UI}" = "1" ] && ui_print "  ♻️ 沿用已安装的界面"
+[ "${KEPT_RESCUE}" = "1" ] && ui_print "  ♻️ 沿用已安装的救砖包"
 ui_print ""
 LM="${LOG_MODE:-0}"
 case "${LM}" in
@@ -95,25 +108,39 @@ strip_md() {
         -e 's/^  -[[:space:]]/    ◦ /' \
         -e '/^[[:space:]]*$/d'
 }
+# 只取本版那一段。包里带着从第一版开始的全部历史（9KB 起步），以前找不到对应版本
+# 就把整份打出来，装一次刷好几屏，用户根本看不到这次改了什么。
+# 内测包版本是 x.y.z-debug.N，改动还在 ## latest 里，没有归档段。
+md_section() {
+    awk -v want="$1" '
+        /^##[[:space:]]/ {
+            if (on) exit
+            t = $0
+            sub(/^##[[:space:]]*/, "", t)
+            split(t, a, /[[:space:]]+/)
+            if (a[1] == "latest") on = (want == "latest")
+            else on = (a[1] == "v" want || a[1] == want)
+            next
+        }
+        on { print }
+    ' "${MODPATH}/update.md"
+}
 if [ -f "${MODPATH}/update.md" ]; then
     CUR_VER=$(grep '^version=' "${MODPATH}/module.prop" 2>/dev/null | head -1 | cut -d= -f2 | tr -d ' \r')
     CUR_NUM="${CUR_VER#v}"
     ui_print "--------------- 更新说明 v${CUR_NUM} ---------------"
-    if [ -n "${CUR_NUM}" ] && grep -qE "^#+[[:space:]]*v${CUR_NUM}([[:space:]]|$)" "${MODPATH}/update.md" 2>/dev/null; then
-        awk -v ver="v${CUR_NUM}" '
-            BEGIN { on=0 }
-            /^#+[[:space:]]*v[0-9]+\.[0-9]+\.[0-9]+/ {
-                if (on) exit
-                if (index($0, ver) > 0) on=1
-            }
-            on { print }
-        ' "${MODPATH}/update.md" | strip_md | while IFS= read -r line; do
+    case "${CUR_NUM}" in
+        *-debug*) SECTION="latest" ;;
+        *)        SECTION="${CUR_NUM}" ;;
+    esac
+    BODY=$(md_section "${SECTION}" | grep -v '^[[:space:]]*$')
+    # 只有分组标题（### 修复）没有条目的段也算空段
+    if [ -n "${BODY}" ] && [ -n "$(printf '%s\n' "${BODY}" | grep -v '^[[:space:]]*#')" ]; then
+        printf '%s\n' "${BODY}" | strip_md | while IFS= read -r line; do
             ui_print "  $line"
         done
     else
-        strip_md < "${MODPATH}/update.md" | while IFS= read -r line; do
-            ui_print "  $line"
-        done
+        ui_print "  本版没有单独的更新说明"
     fi
     ui_print "----------------------------------------"
     ui_print ""
