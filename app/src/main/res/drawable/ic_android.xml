@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 应用页图标：Android 机器人头部剪影（底栏用 tint 染色 深浅跟随底栏内容色）
+     整体缩到 0.86 并居中 与同栏的 MiuixIcons 视觉重量接近
+     evenOdd 让两只眼睛从剪影里挖空 -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <group
+        android:scaleX="0.86"
+        android:scaleY="0.86"
+        android:translateX="1.68"
+        android:translateY="2.52">
+        <path
+            android:fillColor="#FF000000"
+            android:fillType="evenOdd"
+            android:pathData="M17.6,9.48l1.84,-3.18c0.16,-0.3 0.04,-0.66 -0.26,-0.82 -0.3,-0.16 -0.66,-0.04 -0.82,0.26l-1.86,3.22c-1.44,-0.64 -3.04,-1 -4.76,-1s-3.32,0.36 -4.76,1L5.12,5.74c-0.16,-0.3 -0.54,-0.42 -0.84,-0.26 -0.3,0.16 -0.42,0.54 -0.26,0.84L5.86,9.48C2.88,10.98 0.88,13.79 0.7,17h23c-0.18,-3.21 -2.18,-6.02 -5.1,-7.52zM7,14c-0.55,0 -1,-0.45 -1,-1s0.45,-1 1,-1 1,0.45 1,1 -0.45,1 -1,1zM17,14c-0.55,0 -1,-0.45 -1,-1s0.45,-1 1,-1 1,0.45 1,1 -0.45,1 -1,1z" />
+    </group>
+</vector>

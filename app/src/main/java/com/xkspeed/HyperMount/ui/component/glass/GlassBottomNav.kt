@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -66,11 +67,22 @@ fun GlassBottomNav(
                     val selected = index == selectedIndex()
                     // 用 crossfade 传进来的 solid：淡出那一层的高亮色也要跟着它自己的材质走
                     val tint = if (solid && selected) accentColor else contentColor
+                    // 尺寸/位移/纵向缩放走 NavIconTuning 调试页那套；越界时用该项的默认档
+                    val tune = NavIconTuning.items.getOrNull(index)
+                        ?: NavIconTuning.defaultTune(index)
                     Icon(
                         imageVector = item.icon,
                         contentDescription = item.label,
                         tint = tint,
-                        modifier = Modifier.size(26.dp),
+                        // 尺寸/位移/纵向缩放走 NavIconTuning 调试页那一套
+                        // 液态 tab 自带 clip(Capsule())：这里让 size 参与布局，放大后不会被胶囊裁掉
+                        modifier = Modifier
+                            .size(tune.size.dp)
+                            .graphicsLayer {
+                                scaleY = tune.scaleY
+                                translationX = tune.offsetX.dp.toPx()
+                                translationY = tune.offsetY.dp.toPx()
+                            },
                     )
                     Text(
                         text = item.label,

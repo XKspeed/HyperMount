@@ -238,6 +238,17 @@ jobs:
           path: dist/*.apk
           retention-days: 30
 
+      # 原生二进制在仓库里存了一份（module/main/bin/），这一步只是探 NDK：
+      # 有就由 打包.sh 重编覆盖，没有就用仓库里那份，两种情况包都是完整的。
+      - name: Check NDK for native bins
+        if: steps.v.outputs.target != '1'
+        run: |
+          if sh module/build-bin.sh --check; then
+            echo "NDK 可用，本次会重编 watchd / actiond"
+          else
+            echo "::warning::runner 上没有 NDK，用仓库里预编译的 main/bin"
+          fi
+
       # 内测也带一份模块包：模块改了不用等正式版 刷 internal 这个就行
       # 版本名带 -debug.<构建号>、versionCode 沿用仓库当前值（模块内测不占代号）
       # Magisk 那边只认正式清单（只能发现正式更新）测试版更新由 App 识别

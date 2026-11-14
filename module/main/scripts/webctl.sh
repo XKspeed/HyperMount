@@ -89,24 +89,42 @@ case "${1:-}" in
         SYS_SH=/system/bin/sh
         [ -x "$SYS_SH" ] || SYS_SH=sh
         : > "$ACTION_LOG"
-        nohup "$SYS_SH" "${MODDIR}/action.sh" --test "$TARGET" \
-            > "$ACTION_LOG" 2>&1 < /dev/null &
-        APID=$!
-        echo "$APID" > "$ACTION_PID"
-        sleep 1
+        # 优先 C 版 actiond。它 exec 不了（架构不符 / 权限）时进程会立刻消失，
+        # 那种情况才回落到 action.sh —— 光看 -x 判断不出来。
+        _aw="${MODDIR}/bin/actiond"
+        APID=0
+        if [ -x "$_aw" ]; then
+            nohup "$_aw" --dir "$MODDIR" --test "$TARGET" \
+                > "$ACTION_LOG" 2>&1 < /dev/null &
+            APID=$!
+            echo "$APID" > "$ACTION_PID"
+            sleep 1
+            if ! kill -0 "$APID" 2>/dev/null \
+               && ! grep -q "交给全局守护" "$ACTION_LOG" 2>/dev/null; then
+                APID=0
+            fi
+        fi
+        if [ "$APID" = "0" ]; then
+            echo "actiond 起不来，改用 shell 版" >> "$ACTION_LOG"
+            nohup "$SYS_SH" "${MODDIR}/action.sh" --test "$TARGET" \
+                >> "$ACTION_LOG" 2>&1 < /dev/null &
+            APID=$!
+            echo "$APID" > "$ACTION_PID"
+            sleep 1
+        fi
         if ! kill -0 "$APID" 2>/dev/null; then
-            # 守护在跑时 action.sh 只做替换就退出 这是正常收尾 不是启动失败
+            # 守护在跑时只做替换就退出 这是正常收尾 不是启动失败
             if grep -q "交给全局守护" "$ACTION_LOG" 2>/dev/null; then
                 echo "STEP 2/2 界面已替换 交给全局守护"
                 echo "OK 测试已启动"
                 exit 0
             fi
-            echo "FAIL action.sh 启动失败"
+            echo "FAIL 救砖进程启动失败"
             tail -10 "$ACTION_LOG" 2>/dev/null
             rm -f "$ACTION_PID"
             exit 1
         fi
-        echo "STEP 2/2 action 已启动 (PID $APID)"
+        echo "STEP 2/2 救砖进程已启动 (PID $APID)"
         echo "OK 测试已启动"
         ;;
     status)
@@ -141,7 +159,7 @@ case "${1:-}" in
         fi
         ;;
     output)
-        # 只回 action.sh 自己的 stdout：日志目录里的 *.log 是 logcat 抓的崩溃堆栈
+        # 只回救砖进程自己的 stdout：日志目录里的 *.log 是 logcat 抓的崩溃堆栈
         # 第二个参数是要多少行 不传按 50
         _n="${2:-50}"
         case "$_n" in ''|*[!0-9]*) _n=50 ;; esac
@@ -198,40 +216,54 @@ case "${1:-}" in
         # 全局常驻救砖：App 负责起停，脚本只在这儿落地
         # start <秒>  0 表示无限制；有 timeout 就让 timeout 到点收尾
         WATCH_PID="${WORK_DIR}/watch.pid"
+        WATCH_GUARD="${WORK_DIR}/watch.guard"
         WATCH_STATE="${WORK_DIR}/watch.state"
         WATCH_OUT="${WORK_DIR}/watch.out"
         WATCH_LIMIT="${WORK_DIR}/watch.limit"
+        WATCH_STOP="${WORK_DIR}/watch.stop"
         ensure_work
         WACTION="${2:-status}"
+        # pid 文件读一次 内建
+        read_pid() {
+            _rp=""
+            [ -f "$1" ] && read -r _rp < "$1" 2>/dev/null
+            case "$_rp" in ''|*[!0-9]*) _rp="" ;; esac
+            printf '%s' "$_rp"
+        }
         case "$WACTION" in
             start)
                 SEC="${3:-0}"
                 case "$SEC" in ''|*[!0-9]*) SEC=0 ;; esac
-                _wp=$(cat "$WATCH_PID" 2>/dev/null | tr -d ' \r\n')
+                _wp=$(read_pid "$WATCH_PID")
                 if [ -n "$_wp" ] && kill -0 "$_wp" 2>/dev/null; then
                     echo "OK 常驻救砖已在运行 (PID $_wp)"
                     exit 0
                 fi
-                rm -f "$WATCH_PID"
+                # 新一轮：清掉上一轮的停止标记与状态 已运行时长从 0 开始
+                rm -f "$WATCH_PID" "$WATCH_GUARD" "$WATCH_STOP" "$WATCH_STATE"
                 echo "$SEC" > "$WATCH_LIMIT"
-                if [ "$SEC" -gt 0 ] && command -v timeout >/dev/null 2>&1; then
-                    setsid timeout "$SEC" sh "${WEB_DIR}/watch.sh" >/dev/null 2>&1 &
-                else
-                    setsid sh "${WEB_DIR}/watch.sh" >/dev/null 2>&1 &
-                    # 没有 timeout 的机器自己起个定时器收尾
-                    if [ "$SEC" -gt 0 ]; then
-                        ( sleep "$SEC"; sh "${WEB_DIR}/webctl.sh" watch stop >/dev/null 2>&1 ) &
+
+                # 守护只有 C 一份实现：bin/watchd（arm64），没有 sh 兜底
+                _wb="${MODDIR}/bin/watchd"
+                _wp=""
+                if [ -x "$_wb" ]; then
+                    if command -v setsid >/dev/null 2>&1; then
+                        setsid "$_wb" --dir "$MODDIR" >/dev/null 2>&1 &
+                    else
+                        "$_wb" --dir "$MODDIR" >/dev/null 2>&1 &
                     fi
+                    # 等它把 pid 写出来 最多 3 秒
+                    _i=0
+                    while [ "$_i" -lt 30 ]; do
+                        _wp=$(read_pid "$WATCH_PID")
+                        [ -n "$_wp" ] && kill -0 "$_wp" 2>/dev/null && break
+                        sleep 0.1
+                        _i=$((_i + 1))
+                    done
+                else
+                    echo "bin/watchd 不存在或不可执行（架构不是 arm64？）" >> "$WATCH_OUT"
                 fi
-                # 等它把 pid 写出来 最多 3 秒
-                _i=0
-                while [ "$_i" -lt 30 ]; do
-                    _wp=$(cat "$WATCH_PID" 2>/dev/null | tr -d ' \r\n')
-                    [ -n "$_wp" ] && kill -0 "$_wp" 2>/dev/null && break
-                    sleep 0.1
-                    _i=$((_i + 1))
-                done
-                _wp=$(cat "$WATCH_PID" 2>/dev/null | tr -d ' \r\n')
+
                 if [ -n "$_wp" ] && kill -0 "$_wp" 2>/dev/null; then
                     echo "OK 常驻救砖已启动 (PID $_wp)"
                 else
@@ -241,29 +273,44 @@ case "${1:-}" in
                 fi
                 ;;
             stop)
-                _wp=$(cat "$WATCH_PID" 2>/dev/null | tr -d ' \r\n')
+                # 先打停止标记：主进程和保护进程互相监护 不打标记会被拉回来
+                : > "$WATCH_STOP"
+                _gp=$(read_pid "$WATCH_GUARD")
+                [ -n "$_gp" ] && kill "$_gp" 2>/dev/null
+                _wp=$(read_pid "$WATCH_PID")
                 if [ -n "$_wp" ] && kill -0 "$_wp" 2>/dev/null; then
                     kill "$_wp" 2>/dev/null
                     sleep 0.4
                     kill -9 "$_wp" 2>/dev/null
                 fi
-                rm -f "$WATCH_PID"
-                pkill -f "scripts/watch.sh" 2>/dev/null
+                rm -f "$WATCH_PID" "$WATCH_GUARD"
+                pkill -f "${MODDIR}/bin/watchd" 2>/dev/null
+                # 从旧版升级上来的机器 可能还留着 sh 版起的 logcat
                 pkill -f "am_proc_start -T 1" 2>/dev/null
                 echo "running=0" > "$WATCH_STATE"
+                sleep 0.2
                 echo "OK 已停止"
                 ;;
             status)
-                _wp=$(cat "$WATCH_PID" 2>/dev/null | tr -d ' \r\n')
+                _wp=$(read_pid "$WATCH_PID")
                 _run=0
                 if [ -n "$_wp" ] && kill -0 "$_wp" 2>/dev/null; then
                     _run=1
                 else
                     rm -f "$WATCH_PID"
                 fi
-                _since=$(grep '^since=' "$WATCH_STATE" 2>/dev/null | cut -d= -f2-)
-                _count=$(grep '^count=' "$WATCH_STATE" 2>/dev/null | cut -d= -f2-)
-                _limit=$(cat "$WATCH_LIMIT" 2>/dev/null | tr -d ' \r\n')
+                # 状态文件一次读完 不逐个 grep
+                _since=""
+                _count=""
+                if [ -f "$WATCH_STATE" ]; then
+                    while IFS='=' read -r _k _v; do
+                        case "$_k" in
+                            since) _since="$_v" ;;
+                            count) _count="$_v" ;;
+                        esac
+                    done < "$WATCH_STATE"
+                fi
+                _limit=$(read_pid "$WATCH_LIMIT")
                 case "$_since" in ''|*[!0-9]*) _since=0 ;; esac
                 case "$_count" in ''|*[!0-9]*) _count=0 ;; esac
                 case "$_limit" in ''|*[!0-9]*) _limit=0 ;; esac

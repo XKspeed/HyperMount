@@ -356,9 +356,9 @@ fun MainPage(
         overlay = { pageBackdrop ->
             BottomActions(
                 backdrop = pageBackdrop,
-                startLabel = if (starting) "启动中…" else "开始测试",
+                running = running,
+                busy = starting,
                 // 条件不满足不再灰按钮：点了统一弹提示 并带用户去对应的卡
-                startEnabled = !starting,
                 onStart = {
                     when {
                         rootOk != true -> scope.launch { UiFeedback.toast("还没拿到 root 权限") }
@@ -378,11 +378,9 @@ fun MainPage(
                                 Locate.request(LocateTarget.LOG_DIR)
                             }
                         }
-                        running -> scope.launch { UiFeedback.toast("测试正在跑，先停止再开") }
                         else -> showStartConfirm = true
                     }
                 },
-                stopEnabled = running && !starting,
                 onStop = { stopTest() },
             )
         },

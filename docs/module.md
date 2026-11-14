@@ -17,6 +17,7 @@
 ```
 /data/adb/modules/systemui_mount/
 ├── module.prop                    模块信息（应用读 author 判断是否配套）
+├── system.prop                    自定义属性覆盖（自己放的 升级时保留）
 ├── MiuiSystemUI.apk               救砖界面：出事后换回的那一份
 ├── system/system_ext/priv-app/MiuiSystemUI/
 │   └── MiuiSystemUI.apk           待测界面：当前换进去的那一份
@@ -24,12 +25,16 @@
 ├── config/functions.sh            脚本函数（升级时整体替换 不碰用户配置）
 ├── scripts/                       应用调用的脚本目录
 │   ├── webctl.sh                  应用调用的入口脚本
-│   ├── check.sh                   音量键校验
-│   └── watch.sh                   常驻救砖守护
-└── action.sh                      模块动作脚本
+│   └── check.sh                   音量键校验
+├── bin/watchd                     常驻救砖守护（arm64 单进程）
+├── bin/actiond                    救砖执行体（抓日志 / 判定 / 替换）
+└── action.sh                      救砖执行体的 shell 版（actiond 起不来时用）
 ```
 
 日志默认不记录 需要先在设置页选一个日志目录
+
+`system.prop` 是可选文件 想改系统属性就自己在模块目录里建一份（`KEY=VALUE` 一行一条）重启生效
+包里不带这个文件 也不会生成空占位 没有就什么都不做 覆盖安装时已安装目录里那份会自动保留
 
 ## 兼容与限制 {#compat}
 

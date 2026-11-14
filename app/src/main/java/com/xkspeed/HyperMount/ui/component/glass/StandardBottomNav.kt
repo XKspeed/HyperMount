@@ -1,14 +1,31 @@
 package com.xkspeed.HyperMount.ui.component.glass
 
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.RectangleShape
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import top.yukonga.miuix.kmp.basic.NavigationBar
-import top.yukonga.miuix.kmp.basic.NavigationBarItem
+import top.yukonga.miuix.kmp.basic.NavigationBarDefaults
+import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.blur.BlendColorEntry
 import top.yukonga.miuix.kmp.blur.BlurDefaults
 import top.yukonga.miuix.kmp.blur.LayerBackdrop
@@ -78,11 +95,14 @@ fun StandardBottomNav(
                 defaultWindowInsetsPadding = false,
             ) {
                 items.forEachIndexed { index, item ->
-                    NavigationBarItem(
+                    val tune = NavIconTuning.items.getOrNull(index)
+                        ?: NavIconTuning.defaultTune(index)
+                    StandardNavItem(
                         selected = selected == index,
                         onClick = { onTabSelected(index) },
                         icon = item.icon,
                         label = item.label,
+                        tune = tune,
                     )
                 }
             }
@@ -92,3 +112,72 @@ fun StandardBottomNav(
 
 /** 标准底栏的总高度（不含系统导航条 inset） */
 val StandardBottomNavHeight = 64.dp
+
+/**
+ * 标准底栏的一格
+ *
+ * 布局与配色逐值复刻 Miuix 的 `NavigationBarItem`：高 64dp、图标上边距 8dp、
+ * 文字 12sp、下边距 8dp，未选中 alpha 0.4、选中按下 0.5、未选中按下 0.6。
+ *
+ * 为什么不直接用 `NavigationBarItem`：它把图标写死成 `NavigationBarDefaults.IconSize`，
+ * 而且 `icon` 参数只收 ImageVector，外面没有插手尺寸与位置的余地。
+ * 自己搭一份之后，调试页那套 size / 位移 / 纵向缩放才能生效。
+ */
+@Composable
+private fun RowScope.StandardNavItem(
+    selected: Boolean,
+    onClick: () -> Unit,
+    icon: ImageVector,
+    label: String,
+    tune: NavIconTune,
+) {
+    val interaction = remember { MutableInteractionSource() }
+    val pressed by interaction.collectIsPressedAsState()
+    // 与 NavigationBarItemColors.contentColor 同一条规则（那个函数是 internal 调不到）
+    val base = MiuixTheme.colorScheme.onSurfaceContainer
+    val tint = when {
+        pressed && selected ->
+            base.copy(alpha = base.alpha * NavigationBarDefaults.SelectedPressedAlpha)
+
+        pressed ->
+            base.copy(alpha = base.alpha * NavigationBarDefaults.UnselectedPressedAlpha)
+
+        selected -> base
+
+        else ->
+            base.copy(alpha = base.alpha * NavigationBarDefaults.UnselectedAlpha)
+    }
+
+    Column(
+        modifier = Modifier
+            .height(NavigationBarDefaults.ItemHeight)
+            .weight(1f)
+            .selectable(
+                selected = selected,
+                onClick = onClick,
+                role = Role.Tab,
+                interactionSource = interaction,
+                indication = null,
+            ),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Top,
+    ) {
+        Image(
+            imageVector = icon,
+            // 相邻文字已经念出名字 图标不再重复读
+            contentDescription = null,
+            colorFilter = ColorFilter.tint(tint),
+            modifier = Modifier
+                .padding(top = NavigationBarDefaults.IconTopPadding)
+                .navIconTune(tune),
+        )
+        Text(
+            text = label,
+            color = tint,
+            textAlign = TextAlign.Center,
+            fontSize = NavigationBarDefaults.LabelFontSize,
+            fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
+            modifier = Modifier.padding(bottom = NavigationBarDefaults.BottomPadding),
+        )
+    }
+}

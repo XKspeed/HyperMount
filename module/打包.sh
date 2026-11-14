@@ -264,6 +264,29 @@ else
     echo "不写回 module.prop（--keep 或版本未变）"
 fi
 
+# ---------- 原生二进制 ----------
+# 仓库里带着 main/bin/ 下的两个二进制（arm64），CI 上没有 NDK 也能把包打全。
+# 本机有 NDK 就重编一份覆盖，改完 C 源码不用记得手动编。
+BIN_LOG=$(mktemp 2>/dev/null || echo "/tmp/bin-build.$$")
+BIN_TMP=$(mktemp -d) || { echo "错误: 无法创建临时目录"; exit 1; }
+if OUT_DIR="${BIN_TMP}" sh "${MODDIR}/build-bin.sh" > "${BIN_LOG}" 2>&1; then
+    mkdir -p "${MAIN}/bin"
+    cp -f "${BIN_TMP}"/* "${MAIN}/bin/"
+    chmod 755 "${MAIN}"/bin/* 2>/dev/null
+    echo "原生二进制（本次新编）: $(cd "${MAIN}/bin" && ls -l | awk 'NR>1{printf "%s %s字节  ", $9, $5}')"
+else
+    _rc=$?
+    echo "没编成（exit ${_rc}），沿用仓库里的 main/bin"
+    sed -n '$p' "${BIN_LOG}" 2>/dev/null | sed 's/^/  /'
+fi
+rm -rf "${BIN_TMP}" "${BIN_LOG}"
+
+# watchd 没有 sh 兜底：包里没它就别发；actiond 缺了会回落 action.sh
+[ -x "${MAIN}/bin/watchd" ] || {
+    echo "错误: main/bin/watchd 不存在，先在有 NDK 的机器上跑一次 module/build-bin.sh"
+    exit 1
+}
+
 # ---------- 复制到临时目录，在副本上剥注释 ----------
 PACK=$(mktemp -d) || { echo "错误: 无法创建临时目录"; exit 1; }
 trap 'rm -rf "$PACK"' EXIT INT TERM
@@ -338,6 +361,8 @@ printf "  合计 %d 个文件：%d → %d 字节，减少 %d（%d%%）\n" "${N_F
 
 # ---------- 权限 ----------
 chmod 755 "${PACK}/service.sh" "${PACK}/customize.sh" "${PACK}/action.sh" "${PACK}/config/log.sh" 2>/dev/null
+# 原生二进制必须可执行
+[ -d "${PACK}/bin" ] && chmod 755 "${PACK}"/bin/* 2>/dev/null
 
 # ---------- 打包 ----------
 rm -f "${OUT}"

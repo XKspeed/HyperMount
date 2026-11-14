@@ -332,6 +332,17 @@ jobs:
           echo "--- module/main/update.md 顶部 ---"
           sed -n '1,12p' module/main/update.md
 
+      # 原生二进制在仓库里存了一份（module/main/bin/），这一步只是探 NDK：
+      # 有就由 打包.sh 重编覆盖，没有就用仓库里那份，两种情况包都是完整的。
+      - name: Check NDK for native bins
+        if: steps.version.outputs.target != '1'
+        run: |
+          if sh module/build-bin.sh --check; then
+            echo "NDK 可用，本次会重编 watchd / actiond"
+          else
+            echo "::warning::runner 上没有 NDK，用仓库里预编译的 main/bin"
+          fi
+
       # 模块包和 App 一起发：打包逻辑只维护在 module/打包.sh 一份，
       # 本地跑同一条命令 产出完全一样的 zip（--keep 表示不改源码里的版本号）
       - name: Build module zip

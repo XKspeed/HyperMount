@@ -233,9 +233,9 @@ fun HomePage(
         overlay = { pageBackdrop ->
             BottomActions(
                 backdrop = pageBackdrop,
-                startLabel = if (busy) "启动中…" else "开始测试",
+                running = state.daemonRunning,
+                busy = busy,
                 // 条件不满足不再灰按钮：点了统一弹提示 并带用户去对应的卡
-                startEnabled = !busy,
                 onStart = {
                     when {
                         rootOk != true -> scope.launch { UiFeedback.toast("还没拿到 root 权限") }
@@ -254,15 +254,11 @@ fun HomePage(
                                 Locate.request(LocateTarget.LOG_DIR)
                             }
                         }
-                        state.daemonRunning -> scope.launch {
-                            UiFeedback.toast("守护已经在跑了，先在下面停止")
-                        }
                         // 音量键没校验过就先拦下来 救砖全靠它 按不动等于白测
                         !state.volumeAssessed -> showVolumeGate = true
                         else -> showStartConfirm = true
                     }
                 },
-                stopEnabled = state.daemonRunning && !busy,
                 onStop = onStop,
             )
         },

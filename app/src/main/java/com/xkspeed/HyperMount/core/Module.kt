@@ -97,6 +97,9 @@ data class ModuleState(
     val logMode: String = "0",
     val keyTimeout: String = "30",
     val fatalThreshold: String = "3",
+    // 全局常驻守护：多少秒的窗口内重启几次才算反复崩
+    val watchWindow: String = "30",
+    val watchCount: String = "3",
     val protectCount: String = "0",
     val logDir: String = "",
 ) {
@@ -114,6 +117,8 @@ data class ModuleState(
         "LOG_MODE" -> copy(logMode = value.ifBlank { "0" })
         "KEY_TIMEOUT" -> copy(keyTimeout = value)
         "FATAL_THRESHOLD" -> copy(fatalThreshold = value)
+        "WATCH_WINDOW" -> copy(watchWindow = value)
+        "WATCH_COUNT" -> copy(watchCount = value)
         "LOG_DIR" -> copy(logDir = value)
         "TARGET_APK_PATH" -> copy(targetPath = value)
         // 下面两个不是 settings.conf 里的键 是对应写操作的占位 用于写前先把界面改掉
@@ -127,6 +132,8 @@ data class ModuleState(
         "LOG_MODE" -> logMode
         "KEY_TIMEOUT" -> keyTimeout
         "FATAL_THRESHOLD" -> fatalThreshold
+        "WATCH_WINDOW" -> watchWindow
+        "WATCH_COUNT" -> watchCount
         "LOG_DIR" -> logDir
         "TARGET_APK_PATH" -> targetPath
         "RESCUE_OFF" -> if (rescueOff) "1" else "0"
@@ -195,6 +202,8 @@ object Module {
             logMode = c["LOG_MODE"].orEmpty().ifBlank { "0" },
             keyTimeout = c["KEY_TIMEOUT"].orEmpty().ifBlank { "30" },
             fatalThreshold = c["FATAL_THRESHOLD"].orEmpty().ifBlank { "3" },
+            watchWindow = c["WATCH_WINDOW"].orEmpty().ifBlank { "30" },
+            watchCount = c["WATCH_COUNT"].orEmpty().ifBlank { "3" },
             protectCount = c["PROTECT_COUNT"].orEmpty().ifBlank { "0" },
             logDir = logDir,
         )

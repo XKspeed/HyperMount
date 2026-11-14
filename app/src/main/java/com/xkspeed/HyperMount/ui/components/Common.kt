@@ -309,7 +309,11 @@ fun BackIcon(onClick: () -> Unit, modifier: Modifier = Modifier) {
 }
 
 /**
- * 页面底部的常驻操作条：两张并列的悬浮胶囊
+ * 页面底部的常驻操作条：一条悬浮胶囊
+ *
+ * 只有一张卡，按状态换文案与点击行为：空闲是「开始测试」，真正跑起来之后同一条卡变成「停止」。
+ * 启动中的过渡态显示「启动中…」并禁用，避免连点两次。
+ * 「停止」只是文字换成 error 色，卡片材质与普通卡片完全一样。
  *
  * 浮动在列表之上、底栏之上，不跟着列表滚：
  * - 位置相对**实测的底栏顶边**（[bottomBarTopOffset]）：标准条贴底、悬浮条还多一层 inset，
@@ -324,10 +328,9 @@ fun BackIcon(onClick: () -> Unit, modifier: Modifier = Modifier) {
 @Composable
 fun BoxScope.BottomActions(
     backdrop: Backdrop?,
-    startLabel: String,
-    startEnabled: Boolean,
+    running: Boolean,
+    busy: Boolean,
     onStart: () -> Unit,
-    stopEnabled: Boolean,
     onStop: () -> Unit,
 ) {
     val glass = backdrop != null && !UiConfigState.safeMode
@@ -335,26 +338,21 @@ fun BoxScope.BottomActions(
     Row(
         modifier = Modifier
             .align(Alignment.BottomCenter)
-            // 宽度与底栏一致（93%） 两条浮层左右边缘对齐
+            // 宽度与底栏一致（93%） 左右边缘对齐
             .fillMaxWidth(0.93f)
             // 底栏顶边已含系统导航条，这里只需再让开底栏本身
             .padding(bottom = bottomBarTopOffset() + BottomActionBarGap),
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         ActionCard(
             backdrop = if (glass) backdrop else null,
-            label = startLabel,
-            enabled = startEnabled,
-            accent = true,
-            onClick = onStart,
-            modifier = Modifier.weight(1f),
-        )
-        ActionCard(
-            backdrop = if (glass) backdrop else null,
-            label = "停止",
-            enabled = stopEnabled,
-            accent = false,
-            onClick = onStop,
+            label = when {
+                busy -> "启动中…"
+                running -> "停止"
+                else -> "开始测试"
+            },
+            enabled = !busy,
+            tone = if (running) ActionTone.Danger else ActionTone.Accent,
+            onClick = if (running) onStop else onStart,
             modifier = Modifier.weight(1f),
         )
     }
@@ -365,6 +363,9 @@ val BottomActionCardHeight = 52.dp
 /** 卡片与底栏之间留的空 */
 val BottomActionBarGap = 10.dp
 private val ActionCardShape = Capsule()
+
+/** 操作卡文字配色：主操作走主题色，停止只把文字换成红色，卡片材质不变 */
+private enum class ActionTone { Accent, Danger }
 
 /**
  * 单张操作卡：材质跟着当前底栏走，看着才是同一套
@@ -379,11 +380,14 @@ private fun ActionCard(
     backdrop: Backdrop?,
     label: String,
     enabled: Boolean,
-    accent: Boolean,
+    tone: ActionTone,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val content = if (accent) MiuixTheme.colorScheme.primary else MiuixTheme.colorScheme.onSurface
+    val content = when (tone) {
+        ActionTone.Accent -> MiuixTheme.colorScheme.primary
+        ActionTone.Danger -> MiuixTheme.colorScheme.error
+    }
     val solid = MiuixTheme.colorScheme.surfaceContainer
     Box(
         modifier = modifier

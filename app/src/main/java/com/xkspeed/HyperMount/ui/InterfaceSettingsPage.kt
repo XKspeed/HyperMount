@@ -20,6 +20,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
@@ -191,6 +192,15 @@ fun InterfaceSettingsPage(
     var sliderWidthPx by remember { mutableIntStateOf(0) }
     var dragging by remember { mutableStateOf(false) }
 
+    // 守护判定条件：窗口秒数与窗口内重启次数
+    // 拖动时按浮点走（无极档），松手才吸附到最近的整数并落盘
+    var watchWindow by remember(state.watchWindow) {
+        mutableFloatStateOf((state.watchWindow.toIntOrNull() ?: 30).coerceIn(5, 60).toFloat())
+    }
+    var watchCount by remember(state.watchCount) {
+        mutableFloatStateOf((state.watchCount.toIntOrNull() ?: 3).coerceIn(2, 5).toFloat())
+    }
+
     val seconds = if (watchUnlimited(durationMin)) 0L else durationMin.roundToInt() * 60L
 
     // 进页面先对一次 之后运行期间每秒刷一次剩余时间（停止就不轮询）
@@ -316,204 +326,276 @@ fun InterfaceSettingsPage(
         }
 
         // ---- 常驻状态 ----
-        item { SmallTitle("全局常驻救砖") }
+        // 与下面的「救砖逻辑」一致：只有选了「日志 + 救砖」才展开这块
         item {
-            // 和界面页那张状态卡同款：圆点 + 大标题 + 一行说明
-            val unsupported = loaded && !status.supported
-            val live = loaded && status.supported && status.running
-            val dot = when {
-                !loaded -> MiuixTheme.colorScheme.onSurfaceVariantSummary
-                unsupported -> MiuixTheme.colorScheme.error
-                live -> MiuixTheme.colorScheme.primary
-                else -> MiuixTheme.colorScheme.onSurfaceVariantSummary
-            }
-            val head = when {
-                !loaded -> "读取中"
-                unsupported -> "模块版本不支持"
-                live -> "全局救砖中"
-                else -> "未启用"
-            }
-            val sub = when {
-                !loaded -> "正在检查模块是否带常驻守护"
-                unsupported -> "当前模块没有常驻守护 更新模块后再用"
-                !live -> "开启后界面反复重启会自动救砖"
-                status.remaining(nowSec) < 0 -> "不限制时长"
-                else -> "剩余 ${fmtRemain(status.remaining(nowSec))}"
-            }
-            Card(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 12.dp, vertical = 4.dp),
+            AnimatedVisibility(
+                visible = modeIndex >= 2,
+                enter = fadeIn() + expandVertically(),
+                exit = fadeOut() + shrinkVertically(),
             ) {
-                Column(Modifier.padding(horizontal = 16.dp, vertical = 14.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        StatusDot(dot)
-                        Text(
-                            head,
-                            style = MiuixTheme.textStyles.title2,
-                            fontWeight = FontWeight.SemiBold,
-                            modifier = Modifier.padding(start = 8.dp),
-                        )
+                Column {
+                    SmallTitle("全局常驻救砖")
+                    // 和界面页那张状态卡同款：圆点 + 大标题 + 一行说明
+                    val unsupported = loaded && !status.supported
+                    val live = loaded && status.supported && status.running
+                    val dot = when {
+                        !loaded -> MiuixTheme.colorScheme.onSurfaceVariantSummary
+                        unsupported -> MiuixTheme.colorScheme.error
+                        live -> MiuixTheme.colorScheme.primary
+                        else -> MiuixTheme.colorScheme.onSurfaceVariantSummary
                     }
-                    Spacer(Modifier.height(6.dp))
-                    Text(
-                        buildString {
-                            append(sub)
-                            if (live && status.count > 0) append(" · 本轮重启 ${status.count} 次")
-                        },
-                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                        style = MiuixTheme.textStyles.subtitle,
-                    )
-                }
-            }
-        }
-        item {
-            SectionCard {
-                SwitchPreference(
-                    checked = status.running,
-                    enabled = loaded && status.supported && !busy,
-                    onCheckedChange = { toggleWatch(it) },
-                    title = "全局守护",
-                )
-
-                // 时长：1h 到 6h 连续可拖，最右留一截是无限制；2/4/6h 会被吸过去
-                // 当前值只在拖动胶囊上出现，上面不再重复一行
-                // 守护跑着的时候收起来：改了也得关掉再开才生效，摆着反而误导
-                AnimatedVisibility(
-                    visible = loaded && status.supported && !status.running,
-                    enter = expandVertically() + fadeIn(),
-                    exit = shrinkVertically() + fadeOut(),
-                ) {
-                    Column(
-                        Modifier
+                    val head = when {
+                        !loaded -> "读取中"
+                        unsupported -> "模块版本不支持"
+                        live -> "全局救砖中"
+                        else -> "未启用"
+                    }
+                    val sub = when {
+                        !loaded -> "正在检查模块是否带常驻守护"
+                        unsupported -> "当前模块没有常驻守护 更新模块后再用"
+                        !live -> "开启后界面反复重启会自动救砖"
+                        status.remaining(nowSec) < 0 -> "不限制时长"
+                        else -> "剩余 ${fmtRemain(status.remaining(nowSec))}"
+                    }
+                    Card(
+                        modifier = Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = 16.dp)
-                            .padding(top = 2.dp, bottom = 10.dp),
+                            .padding(horizontal = 12.dp, vertical = 4.dp),
                     ) {
-                        val bubbleAlpha by animateFloatAsState(
-                            targetValue = if (dragging) 1f else 0f,
-                            animationSpec = tween(120),
-                            label = "watchBubble",
-                        )
-                        // 跟手必须和 Miuix Slider 内部同一条弹簧，否则胶囊会慢半拍
-                        val followMin by animateFloatAsState(
-                            targetValue = durationMin,
-                            animationSpec = if (dragging) {
-                                spring(dampingRatio = 0.9f, stiffness = 1755f)
-                            } else {
-                                spring(dampingRatio = 0.96f, stiffness = 322f)
-                            },
-                            label = "watchFollow",
-                        )
-                        val fraction = ((followMin - WATCH_MIN_MIN) /
-                            (WATCH_UNLIMITED_MIN - WATCH_MIN_MIN)).coerceIn(0f, 1f)
-
-                        // 节点文字 + 拖动胶囊：和缓存页同一套
-                        Box(
-                            Modifier
-                                .fillMaxWidth()
-                                .height(30.dp)
-                                .onSizeChanged { sliderWidthPx = it.width },
-                        ) {
-                            val density = LocalDensity.current
-                            val radius = with(density) { 10.dp.toPx() }
-                            val usable = (sliderWidthPx - 2f * radius).coerceAtLeast(1f)
-                            // 吸住了谁：胶囊停过去 那个节点的文字退场
-                            val taken = if (dragging) {
-                                WATCH_NODES.minByOrNull { abs(it - durationMin) }
-                                    ?.takeIf { abs(it - durationMin) <= WATCH_SNAP_MIN }
-                            } else {
-                                null
+                        Column(Modifier.padding(horizontal = 16.dp, vertical = 14.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                StatusDot(dot)
+                                Text(
+                                    head,
+                                    style = MiuixTheme.textStyles.title2,
+                                    fontWeight = FontWeight.SemiBold,
+                                    modifier = Modifier.padding(start = 8.dp),
+                                )
                             }
+                            Spacer(Modifier.height(6.dp))
+                            Text(
+                                buildString {
+                                    append(sub)
+                                    if (live && status.count > 0) append(" · 本轮重启 ${status.count} 次")
+                                },
+                                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                                style = MiuixTheme.textStyles.subtitle,
+                            )
+                        }
+                    }
+                    SectionCard {
+                        SwitchPreference(
+                            checked = status.running,
+                            enabled = loaded && status.supported && !busy,
+                            onCheckedChange = { toggleWatch(it) },
+                            title = "全局守护",
+                            // 正下方就是滑条：底部内缩收一半，别把滑条推得太远
+                            insideMargin = PaddingValues(
+                                start = 16.dp,
+                                top = 14.dp,
+                                end = 16.dp,
+                                bottom = 8.dp,
+                            ),
+                        )
 
-                            if (sliderWidthPx > 0) {
-                                WATCH_NODES.forEach { node ->
-                                    val f = ((node - WATCH_MIN_MIN) /
-                                        (WATCH_UNLIMITED_MIN - WATCH_MIN_MIN)).coerceIn(0f, 1f)
-                                    val cx = radius + f * usable
-                                    val vanish by animateFloatAsState(
-                                        targetValue = if (taken != null && abs(taken - node) < 0.5f) 1f else 0f,
-                                        animationSpec = tween(120),
-                                        label = "watchNode$node",
-                                    )
-                                    if (vanish < 0.99f) {
+                        // 时长：1h 到 6h 连续可拖，最右留一截是无限制；2/4/6h 会被吸过去
+                        // 当前值只在拖动胶囊上出现，上面不再重复一行
+                        // 守护跑着的时候收起来：改了也得关掉再开才生效，摆着反而误导
+                        AnimatedVisibility(
+                            visible = loaded && status.supported && !status.running,
+                            enter = expandVertically() + fadeIn(),
+                            exit = shrinkVertically() + fadeOut(),
+                        ) {
+                            Column(
+                                Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 16.dp)
+                                    .padding(bottom = 10.dp),
+                            ) {
+                                val bubbleAlpha by animateFloatAsState(
+                                    targetValue = if (dragging) 1f else 0f,
+                                    animationSpec = tween(120),
+                                    label = "watchBubble",
+                                )
+                                // 跟手必须和 Miuix Slider 内部同一条弹簧，否则胶囊会慢半拍
+                                val followMin by animateFloatAsState(
+                                    targetValue = durationMin,
+                                    animationSpec = if (dragging) {
+                                        spring(dampingRatio = 0.9f, stiffness = 1755f)
+                                    } else {
+                                        spring(dampingRatio = 0.96f, stiffness = 322f)
+                                    },
+                                    label = "watchFollow",
+                                )
+                                val fraction = ((followMin - WATCH_MIN_MIN) /
+                                    (WATCH_UNLIMITED_MIN - WATCH_MIN_MIN)).coerceIn(0f, 1f)
+
+                                // 节点文字 + 拖动胶囊：和缓存页同一套
+                                Box(
+                                    Modifier
+                                        .fillMaxWidth()
+                                        .height(30.dp)
+                                        .onSizeChanged { sliderWidthPx = it.width },
+                                ) {
+                                    val density = LocalDensity.current
+                                    val radius = with(density) { 10.dp.toPx() }
+                                    val usable = (sliderWidthPx - 2f * radius).coerceAtLeast(1f)
+                                    // 吸住了谁：胶囊停过去 那个节点的文字退场
+                                    val taken = if (dragging) {
+                                        WATCH_NODES.minByOrNull { abs(it - durationMin) }
+                                            ?.takeIf { abs(it - durationMin) <= WATCH_SNAP_MIN }
+                                    } else {
+                                        null
+                                    }
+
+                                    if (sliderWidthPx > 0) {
+                                        WATCH_NODES.forEach { node ->
+                                            val f = ((node - WATCH_MIN_MIN) /
+                                                (WATCH_UNLIMITED_MIN - WATCH_MIN_MIN)).coerceIn(0f, 1f)
+                                            val cx = radius + f * usable
+                                            val vanish by animateFloatAsState(
+                                                targetValue = if (taken != null && abs(taken - node) < 0.5f) 1f else 0f,
+                                                animationSpec = tween(120),
+                                                label = "watchNode$node",
+                                            )
+                                            if (vanish < 0.99f) {
+                                                Box(
+                                                    Modifier
+                                                        .align(Alignment.CenterStart)
+                                                        .graphicsLayer {
+                                                            translationX = cx - size.width / 2f
+                                                            alpha = 1f - vanish
+                                                            val s = 1f - 0.22f * vanish
+                                                            scaleX = s
+                                                            scaleY = s
+                                                        },
+                                                ) {
+                                                    Text(
+                                                        watchLabel(node),
+                                                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                                                        style = MiuixTheme.textStyles.subtitle.copy(fontSize = 10.sp),
+                                                        maxLines = 1,
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    }
+
+                                    if (bubbleAlpha > 0.01f) {
+                                        // 实色：背后压着的节点文字不能透出来
+                                        val bubbleBg = lerp(
+                                            MiuixTheme.colorScheme.surface,
+                                            MiuixTheme.colorScheme.primary,
+                                            0.16f,
+                                        )
+                                        val x = radius + fraction * usable
                                         Box(
                                             Modifier
                                                 .align(Alignment.CenterStart)
-                                                .graphicsLayer {
-                                                    translationX = cx - size.width / 2f
-                                                    alpha = 1f - vanish
-                                                    val s = 1f - 0.22f * vanish
-                                                    scaleX = s
-                                                    scaleY = s
-                                                },
+                                                .graphicsLayer { translationX = x - size.width / 2f }
+                                                .alpha(bubbleAlpha)
+                                                .clip(RoundedCornerShape(50))
+                                                .background(bubbleBg)
+                                                .padding(horizontal = 9.dp, vertical = 4.dp),
                                         ) {
                                             Text(
-                                                watchLabel(node),
-                                                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                                                watchLabel(durationMin),
+                                                color = MiuixTheme.colorScheme.primary,
                                                 style = MiuixTheme.textStyles.subtitle.copy(fontSize = 10.sp),
+                                                fontWeight = FontWeight.Medium,
                                                 maxLines = 1,
                                             )
                                         }
                                     }
                                 }
-                            }
 
-                            if (bubbleAlpha > 0.01f) {
-                                // 实色：背后压着的节点文字不能透出来
-                                val bubbleBg = lerp(
-                                    MiuixTheme.colorScheme.surface,
-                                    MiuixTheme.colorScheme.primary,
-                                    0.16f,
+                                Slider(
+                                    value = durationMin,
+                                    onValueChange = {
+                                        dragging = true
+                                        durationMin = snapWatch(it)
+                                    },
+                                    onValueChangeFinished = {
+                                        dragging = false
+                                        persistDuration()
+                                    },
+                                    valueRange = WATCH_MIN_MIN..WATCH_UNLIMITED_MIN,
+                                    // 不设档位：1 小时到 6 小时之间随便拖
+                                    steps = 0,
+                                    showKeyPoints = true,
+                                    keyPoints = WATCH_NODES,
+                                    hapticEffect = SliderDefaults.SliderHapticEffect.Step,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(top = 2.dp)
+                                        .sliderTapFraction { f ->
+                                            durationMin = snapWatch(
+                                                WATCH_MIN_MIN + f * (WATCH_UNLIMITED_MIN - WATCH_MIN_MIN),
+                                            )
+                                            dragging = false
+                                            persistDuration()
+                                        },
                                 )
-                                val x = radius + fraction * usable
-                                Box(
+
+                                // 判定条件：一句主文案 + 一句说明，和上面滑条同在一张卡
+                                Column(
                                     Modifier
-                                        .align(Alignment.CenterStart)
-                                        .graphicsLayer { translationX = x - size.width / 2f }
-                                        .alpha(bubbleAlpha)
-                                        .clip(RoundedCornerShape(50))
-                                        .background(bubbleBg)
-                                        .padding(horizontal = 9.dp, vertical = 4.dp),
+                                        .fillMaxWidth()
+                                        .padding(top = 8.dp),
                                 ) {
                                     Text(
-                                        watchLabel(durationMin),
-                                        color = MiuixTheme.colorScheme.primary,
-                                        style = MiuixTheme.textStyles.subtitle.copy(fontSize = 10.sp),
-                                        fontWeight = FontWeight.Medium,
-                                        maxLines = 1,
+                                        "${watchWindow.roundToInt()} 秒内 SystemUI 重启 " +
+                                            "${watchCount.roundToInt()} 次则进入守护",
+                                        style = MiuixTheme.textStyles.subtitle,
+                                        fontWeight = FontWeight.SemiBold,
+                                    )
+                                    Spacer(Modifier.height(2.dp))
+                                    Text(
+                                        "此时便可以等待自动救援 / 音量键救砖",
+                                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                                        style = MiuixTheme.textStyles.subtitle,
                                     )
                                 }
+
+                                // 两条滑条都按无极档走：拖动时值是浮点，松手才吸到最近的整数。
+                                // 外层 Column 已经给了 16dp，insideMargin 再收掉水平方向，否则双倍内缩。
+                                SliderInputPreference(
+                                    title = "监控时长",
+                                    value = watchWindow,
+                                    defaultValue = 30f,
+                                    onValueChange = { watchWindow = it },
+                                    onValueChangeFinished = {
+                                        val v = watchWindow.roundToInt().coerceIn(5, 60)
+                                        watchWindow = v.toFloat()
+                                        onSetConf("WATCH_WINDOW", v.toString())
+                                    },
+                                    valueRange = 5f..60f,
+                                    // 不设档位：5~60 秒之间连续拖，松手吸附到整秒
+                                    steps = 0,
+                                    valueText = "最近 ${watchWindow.roundToInt()} 秒",
+                                    inputRange = 5f..60f,
+                                    inputUnit = "秒",
+                                    insideMargin = PaddingValues(top = 8.dp, bottom = 6.dp),
+                                )
+                                SliderInputPreference(
+                                    title = "崩溃次数",
+                                    value = watchCount,
+                                    defaultValue = 3f,
+                                    onValueChange = { watchCount = it },
+                                    onValueChangeFinished = {
+                                        val v = watchCount.roundToInt().coerceIn(2, 5)
+                                        watchCount = v.toFloat()
+                                        onSetConf("WATCH_COUNT", v.toString())
+                                    },
+                                    valueRange = 2f..5f,
+                                    steps = 0,
+                                    valueText = "${watchCount.roundToInt()} 次",
+                                    inputRange = 2f..5f,
+                                    inputUnit = "次",
+                                    insideMargin = PaddingValues(top = 14.dp, bottom = 8.dp),
+                                )
                             }
                         }
-
-                        Slider(
-                            value = durationMin,
-                            onValueChange = {
-                                dragging = true
-                                durationMin = snapWatch(it)
-                            },
-                            onValueChangeFinished = {
-                                dragging = false
-                                persistDuration()
-                            },
-                            valueRange = WATCH_MIN_MIN..WATCH_UNLIMITED_MIN,
-                            // 不设档位：1 小时到 6 小时之间随便拖
-                            steps = 0,
-                            showKeyPoints = true,
-                            keyPoints = WATCH_NODES,
-                            hapticEffect = SliderDefaults.SliderHapticEffect.Step,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(top = 2.dp)
-                                .sliderTapFraction { f ->
-                                    durationMin = snapWatch(
-                                        WATCH_MIN_MIN + f * (WATCH_UNLIMITED_MIN - WATCH_MIN_MIN),
-                                    )
-                                    dragging = false
-                                    persistDuration()
-                                },
-                        )
                     }
                 }
             }

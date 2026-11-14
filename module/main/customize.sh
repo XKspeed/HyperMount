@@ -40,6 +40,23 @@ if [ -n "${MODID}" ] && [ -s "${OLD_RESCUE_APK}" ] && [ ! -s "${RESCUE_APK}" ]; 
     [ -s "${RESCUE_APK}" ] && KEPT_RESCUE=1
 fi
 
+# system.prop 是用户自己写的一份属性覆盖（改机型 / 指纹 / DPI 之类），
+# 包里不带它，也不建 0 字节占位——没有这个文件时 Magisk 什么都不做。
+# 覆盖安装会把模块换到新目录，旧目录那份跟着一起没，所以从已安装的模块里捞回来。
+# 包里将来要是自己带了 system.prop，就以包里的为准，不覆盖。
+SYS_PROP="${MODPATH}/system.prop"
+OLD_SYS_PROP="/data/adb/modules/${MODID}/system.prop"
+KEPT_SYS_PROP=0
+if [ -n "${MODID}" ] && [ -s "${OLD_SYS_PROP}" ] && [ ! -e "${SYS_PROP}" ]; then
+    cp -f "${OLD_SYS_PROP}" "${SYS_PROP}" 2>/dev/null
+    if [ -s "${SYS_PROP}" ]; then
+        chmod 644 "${SYS_PROP}" 2>/dev/null
+        KEPT_SYS_PROP=1
+    else
+        rm -f "${SYS_PROP}" 2>/dev/null
+    fi
+fi
+
 if [ "${UI_SZ}" -eq 0 ]; then
     ui_print ""
     ui_print "${LINE:-========================================}"
@@ -83,6 +100,7 @@ ui_print "  📁 配置文件: config/settings.conf"
 [ "${KEPT_CONF}" = "1" ] && ui_print "  ♻️ 检测到已安装 沿用原有配置"
 [ "${KEPT_UI}" = "1" ] && ui_print "  ♻️ 沿用已安装的界面"
 [ "${KEPT_RESCUE}" = "1" ] && ui_print "  ♻️ 沿用已安装的救砖包"
+[ "${KEPT_SYS_PROP}" = "1" ] && ui_print "  ♻️ 沿用已安装的 system.prop"
 ui_print ""
 LM="${LOG_MODE:-0}"
 case "${LM}" in
@@ -153,6 +171,15 @@ if [ -d "${MODPATH}/scripts" ]; then
     rm -rf "${MODPATH}/webroot" 2>/dev/null
     ln -s scripts "${MODPATH}/webroot" 2>/dev/null
 fi
+
+# 原生二进制：zip 里的权限万一没保住（某些解压工具会丢），这里补一次。
+# watchd 是守护的唯一实现（没有 sh 兜底），执行位丢了这个功能就起不来；
+# actiond 起不来还能回落 action.sh。
+if [ -d "${MODPATH}/bin" ]; then
+    chmod 755 "${MODPATH}"/bin/* 2>/dev/null
+fi
+[ -x "${MODPATH}/bin/watchd" ] || ui_print "⚠️ 包里没有可执行的 bin/watchd，全局守护将不可用"
+[ -x "${MODPATH}/bin/actiond" ] || ui_print "⚠️ 包里没有 bin/actiond，救砖将使用 shell 版"
 
 ui_print "✅ 安装完成！"
 ui_print ""

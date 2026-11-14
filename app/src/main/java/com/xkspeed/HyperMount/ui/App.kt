@@ -161,6 +161,10 @@ sealed interface Route : NavKey {
 
     @Serializable
     data object About : Route
+
+    /** 向作者捐赠：收款码 + 说明 */
+    @Serializable
+    data object Donate : Route
 }
 
 /** 底栏三页 默认停在中间的主页 */
@@ -923,6 +927,7 @@ fun App() {
                 onOpenMcp = { push(Route.Mcp) },
                 onOpenThirdPartyLicenses = { push(Route.ThirdPartyLicenses) },
                 onOpenAbout = { push(Route.About) },
+                onOpenDonate = { push(Route.Donate) },
                 latest = latest,
                 moduleLatest = moduleLatest,
                 onCheckUpdate = {
@@ -993,6 +998,10 @@ fun App() {
 
         entry<Route.Mcp> {
             McpPage(onBack = { backStack.removeLastOrNull() })
+        }
+
+        entry<Route.Donate> {
+            DonatePage(onBack = { backStack.removeLastOrNull() })
         }
 
         entry<Route.About> {
@@ -1271,6 +1280,7 @@ private fun MainScaffold(
     onOpenMcp: () -> Unit,
     onOpenThirdPartyLicenses: () -> Unit,
     onOpenAbout: () -> Unit,
+    onOpenDonate: () -> Unit,
     latest: UpdateInfo?,
     moduleLatest: UpdateInfo?,
     onCheckUpdate: () -> Unit,
@@ -1288,10 +1298,12 @@ private fun MainScaffold(
     // 系统界面页换成九宫格图标（原图的圆角底板已经去掉 只留 3×3 方块）
     // 深浅两档靠 alpha 区分 底栏的 tint 只换颜色 不动透明度
     val systemUiIcon = ImageVector.vectorResource(R.drawable.ic_systemui_grid)
-    val navItems = remember(systemUiIcon) {
+    // 应用页换成 Android 机器人头剪影
+    val androidIcon = ImageVector.vectorResource(R.drawable.ic_android)
+    val navItems = remember(systemUiIcon, androidIcon) {
         listOf(
             GlassNavItem("系统界面", systemUiIcon),
-            GlassNavItem("应用", MiuixIcons.Home),
+            GlassNavItem("应用", androidIcon),
             GlassNavItem("设置", MiuixIcons.Settings),
         )
     }
@@ -1419,6 +1431,7 @@ private fun MainScaffold(
                             onOpenCache = onOpenCache,
                             onOpenMcp = onOpenMcp,
                             onOpenAbout = onOpenAbout,
+                            onOpenDonate = onOpenDonate,
                             onCheckUpdate = onCheckUpdate,
                             checkingUpdate = checkingUpdate,
                         )
@@ -1461,7 +1474,7 @@ private fun MainScaffold(
                 }
             }
 
-            // 拦截提示：底边贴在两颗操作卡上方 8dp 不压住「开始测试」
+            // 拦截提示：底边贴在操作卡上方 8dp 不压住「开始测试 / 停止」
             SnackbarHost(
                 state = UiFeedback.host,
                 modifier = Modifier

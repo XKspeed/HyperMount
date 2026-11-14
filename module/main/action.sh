@@ -15,8 +15,8 @@ CONFIG_DIR="${MODDIR}/config"
 
 # ---------- 模块自身引起的重启 ----------
 # 测试模式覆盖、守护救砖替换 都会让界面自己重启一次。那次不是崩溃，
-# 不能算进 watch.sh 的窗口计数（点一次测试就把阈值顶掉 会误触发救砖）。
-# 覆盖/替换完成后写一个时间戳，watch.sh 读到紧随其后的第一条 systemui 启动
+# 不能算进 watchd 的窗口计数（点一次测试就把阈值顶掉 会误触发救砖）。
+# 覆盖/替换完成后写一个时间戳，watchd 读到紧随其后的第一条 systemui 启动
 # 跳过并把它删掉。
 WEB_DIR="${MODDIR}/scripts"
 WATCH_PID="${WEB_DIR}/.work/watch.pid"
@@ -68,7 +68,7 @@ done
 # ---------- 参数解析 ----------
 # --test <apk>  测试模式：记录基线后自动把该 APK 换进挂载点
 # --now         全局常驻救砖触发的一轮：界面已经重启过了，跳过「替换 + 等 PID」，
-#               直接从抓日志开始判定。由 scripts/watch.sh 调用
+#               直接从抓日志开始判定。由 bin/watchd fork 出来调用
 TEST_APK=""
 NOW_MODE=0
 while [ $# -gt 0 ]; do
@@ -498,7 +498,7 @@ OLD=$(pidof com.android.systemui 2>/dev/null | awk '{print $1}')
 debug "基线 PID: ${OLD:-未运行}"
 
 if [ "${NOW_MODE}" = "1" ]; then
-    # 全局常驻救砖这一轮：界面已经重启过了（watch.sh 就是靠 PID 变化叫醒的），
+    # 全局常驻救砖这一轮：界面已经重启过了（watchd 就是靠 PID 变化叫醒的），
     # 不替换任何文件，也不等 PID，直接进抓日志判定
     echo "${LINE}"
     echo "常驻救砖：检测到界面重启，开始判定"
@@ -506,7 +506,7 @@ if [ "${NOW_MODE}" = "1" ]; then
 else
 
 # 守护在跑：这一轮只负责把界面换进去
-# 抓日志、崩溃计数、救砖都在 watch.sh 里，这边再跑一套只会两边抢着抓日志、抢着替换
+# 抓日志、崩溃计数、救砖都在 watchd 里，这边再跑一套只会两边抢着抓日志、抢着替换
 if [ -n "$TEST_APK" ] && watch_running; then
     echo "${LINE}"
     echo "常驻救砖已开启：本轮只替换界面"
@@ -792,7 +792,7 @@ if cp -f "${APK}" "${AIM_APK}" 2>/dev/null; then
     chmod 644 "${AIM_APK}" 2>/dev/null
     rm -f "${BAK_APK}" 2>/dev/null
     echo "替换成功"; debug "替换完成"
-    # 这次界面重启是救砖自己拉起来的 不算崩溃 watch.sh 那边跳过这一条
+    # 这次界面重启是救砖自己拉起来的 不算崩溃 watchd 那边跳过这一条
     watch_running && mark_self_restart
     NEW=$((SAVE+1))
     set_conf "PROTECT_COUNT" "${NEW}" "${CONFIG_DIR}/settings.conf"

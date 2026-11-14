@@ -25,3 +25,12 @@ docs/.vitepress/cache/
 
 # 模块打包产物（module/打包.sh 生成）
 module/dist/
+
+# 自定义属性覆盖：自己的机型/指纹/Debug 开关不入库，升级时由 customize.sh 从已装目录保留
+module/main/system.prop
+
+# 守护二进制：仓库里存一份 arm64 的（CI 上没有 NDK 也能打出完整包，
+# 守护没有 sh 兜底，包里缺它就等于没这功能）；本机有 NDK 时 打包.sh 会重编覆盖
+module/main/bin/*
+!module/main/bin/watchd
+!module/main/bin/actiond

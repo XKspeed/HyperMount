@@ -68,6 +68,7 @@ fun SettingsPage(
     onOpenCache: () -> Unit = {},
     onOpenMcp: () -> Unit = {},
     onOpenAbout: () -> Unit = {},
+    onOpenDonate: () -> Unit = {},
     onCheckUpdate: () -> Unit = {},
     checkingUpdate: Boolean = false,
 ) {
@@ -261,6 +262,16 @@ fun SettingsPage(
                                 }
                             },
                             state = select,
+                        )
+                    }
+                }
+
+                // 捐赠单独一张卡 挨着关于卡放 不写分区标题
+                item {
+                    SectionCard {
+                        ArrowPreference(
+                            title = "向作者捐赠",
+                            onClick = onOpenDonate,
                         )
                     }
                 }
