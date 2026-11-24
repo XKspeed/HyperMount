@@ -2,6 +2,8 @@
 
 # HyperMount
 
+[English](README.en.md) | 简体中文
+
 一个 **SystemUI 界面替换与自动救砖** 的控制端 App 小米 HyperOS 风格界面
 
 ![Android](https://img.shields.io/badge/Android-15%2B%20(API%2035)-3DDC84?logo=android&logoColor=white)
@@ -13,6 +15,15 @@
 围绕「**备好救砖界面 → 换入待测界面 → 崩了自动换回 → 继续正常使用**」这条主链路设计：放胆把会崩的界面换进去试 出事自动换回可用的那一版 不再怕 SystemUI 黑屏卡死
 
 </div>
+
+---
+
+## ℹ️ 基本信息
+
+| 项目 | 值 |
+| --- | --- |
+| **当前版本** | `1.4.8` |
+| **最低系统** | Android 15（API 35） |
 
 ---
 
