@@ -20,6 +20,7 @@ import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.withLink
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.xkspeed.HyperMount.i18n.t
 
 /** 官方仓库地址：整个提示里只有这一处需要跳转 */
 private const val REPO_URL = "https://github.com/XKspeed/HyperMount"
@@ -31,7 +32,7 @@ private const val REPO_URL = "https://github.com/XKspeed/HyperMount"
 @Composable
 fun UnofficialBanner(modifier: Modifier = Modifier) {
     val text = buildAnnotatedString {
-        append("非官方版本 请前往")
+        append(t("非官方版本 请前往", "Unofficial build — go to "))
         withLink(
             LinkAnnotation.Url(
                 url = REPO_URL,
@@ -44,7 +45,7 @@ fun UnofficialBanner(modifier: Modifier = Modifier) {
                 ),
             ),
         ) { append("GitHub") }
-        append("下载官方版本")
+        append(t("下载官方版本", " for the official release"))
     }
 
     Box(

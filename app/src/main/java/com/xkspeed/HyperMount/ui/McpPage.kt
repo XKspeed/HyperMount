@@ -30,6 +30,7 @@ import androidx.compose.ui.unit.dp
 import com.xkspeed.HyperMount.core.McpService
 import com.xkspeed.HyperMount.core.mcp.McpConfig
 import com.xkspeed.HyperMount.core.mcp.McpServerState
+import com.xkspeed.HyperMount.i18n.t
 import com.xkspeed.HyperMount.ui.component.glass.ScrollPage
 import top.yukonga.miuix.kmp.basic.ButtonDefaults
 import top.yukonga.miuix.kmp.basic.Card
@@ -63,7 +64,7 @@ fun McpPage(onBack: () -> Unit) {
     var requireToken by remember { mutableStateOf(McpConfig.requireToken) }
     var port by remember { mutableIntStateOf(McpConfig.port) }
     val ip = remember { localIpv4() }
-    val host = if (lan) (ip ?: "手机IP") else "127.0.0.1"
+    val host = if (lan) (ip ?: t("手机IP", "phone-IP")) else "127.0.0.1"
     val url = "http://$host:$port/mcp"
 
     // 两个底部弹层的开关与草稿：关掉弹层不清草稿 下次打开会重新填当前值
@@ -72,7 +73,7 @@ fun McpPage(onBack: () -> Unit) {
     var portDraft by remember { mutableStateOf("") }
     var tokenDraft by remember { mutableStateOf("") }
 
-    ScrollPage(title = "MCP 服务", onBack = onBack) {
+    ScrollPage(title = t("MCP 服务", "MCP service"), onBack = onBack) {
         item {
             Card(modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp)) {
                 SwitchPreference(
@@ -90,12 +91,12 @@ fun McpPage(onBack: () -> Unit) {
                             error = null
                         }
                     },
-                    title = "开启 MCP 服务",
+                    title = t("开启 MCP 服务", "Enable MCP service"),
                     summary = when {
-                        !enabled -> "关闭时不监听任何端口"
-                        error != null -> "启动失败：$error"
-                        running -> "监听中 · :$port"
-                        else -> "正在启动…"
+                        !enabled -> t("关闭时不监听任何端口", "No ports are listened on while off")
+                        error != null -> t("启动失败：$error", "Failed to start: $error")
+                        running -> t("监听中 · :$port", "Listening · :$port")
+                        else -> t("正在启动…", "Starting…")
                     },
                 )
             }
@@ -112,9 +113,9 @@ fun McpPage(onBack: () -> Unit) {
                         McpConfig.setLan(context, on)
                         if (enabled) McpService.restart(context)
                     },
-                    title = "局域网访问",
-                    summary = if (lan) "其他设备可通过 $host:$port 连接"
-                    else "关闭时只有本机能连（127.0.0.1）",
+                    title = t("局域网访问", "LAN access"),
+                    summary = if (lan) t("其他设备可通过 $host:$port 连接", "Other devices can connect via $host:$port")
+                    else t("关闭时只有本机能连（127.0.0.1）", "Off: only this device can connect (127.0.0.1)"),
                 )
                 SwitchPreference(
                     checked = requireToken,
@@ -123,8 +124,8 @@ fun McpPage(onBack: () -> Unit) {
                         McpConfig.setRequireToken(context, on)
                         if (enabled) McpService.restart(context)
                     },
-                    title = "访问密码",
-                    summary = if (requireToken) "请求需带 Bearer 令牌" else "关闭后任何请求直接放行",
+                    title = t("访问密码", "Access password"),
+                    summary = if (requireToken) t("请求需带 Bearer 令牌", "Requests must carry a Bearer token") else t("关闭后任何请求直接放行", "Off: every request is allowed through"),
                 )
             }
         }
@@ -135,17 +136,17 @@ fun McpPage(onBack: () -> Unit) {
         item {
             Card(modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp)) {
                 ArrowPreference(
-                    title = "连接地址",
+                    title = t("连接地址", "Endpoint"),
                     summary = url,
                     onClick = null,
                     modifier = Modifier.combinedClickable(
-                        onClickLabel = "自定义端口",
-                        onLongClickLabel = "复制地址",
+                        onClickLabel = t("自定义端口", "Custom port"),
+                        onLongClickLabel = t("复制地址", "Copy address"),
                         onClick = {
                             portDraft = port.toString()
                             showPortSheet = true
                         },
-                        onLongClick = { copy(context, url, "地址已复制") },
+                        onLongClick = { copy(context, url, t("地址已复制", "Address copied")) },
                     ),
                 )
             }
@@ -162,27 +163,27 @@ fun McpPage(onBack: () -> Unit) {
                     Spacer(Modifier.height(12.dp))
                     Card(modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp)) {
                         ArrowPreference(
-                            title = "访问令牌",
+                            title = t("访问令牌", "Access token"),
                             summary = token,
                             onClick = null,
                             modifier = Modifier.combinedClickable(
-                                onClickLabel = "自定义令牌",
-                                onLongClickLabel = "复制令牌",
+                                onClickLabel = t("自定义令牌", "Custom token"),
+                                onLongClickLabel = t("复制令牌", "Copy token"),
                                 onClick = {
                                     tokenDraft = token
                                     showTokenSheet = true
                                 },
-                                onLongClick = { copy(context, token, "令牌已复制") },
+                                onLongClick = { copy(context, token, t("令牌已复制", "Token copied")) },
                             ),
                         )
                         ArrowPreference(
-                            title = "重新生成令牌",
-                            summary = "旧令牌立刻失效",
+                            title = t("重新生成令牌", "Regenerate token"),
+                            summary = t("旧令牌立刻失效", "The old token is revoked immediately"),
                             onClick = {
                                 McpConfig.regenerateToken(context)
                                 token = McpConfig.token
                                 // 服务端读的是 McpConfig.token，不用重启也能换
-                                toast(context, "已重新生成")
+                                toast(context, t("已重新生成", "Regenerated"))
                             },
                         )
                     }
@@ -194,7 +195,7 @@ fun McpPage(onBack: () -> Unit) {
     // 自定义端口：端口变了要重新 bind，开着服务就热重启一次
     OverlayBottomSheet(
         show = showPortSheet,
-        title = "自定义端口",
+        title = t("自定义端口", "Custom port"),
         onDismissRequest = { showPortSheet = false },
     ) {
         Column(Modifier.padding(top = 8.dp, bottom = 24.dp)) {
@@ -203,24 +204,24 @@ fun McpPage(onBack: () -> Unit) {
                 onValueChange = { input ->
                     portDraft = input.filter { it.isDigit() }.take(5)
                 },
-                label = "端口（1024 - 65535）",
+                label = t("端口（1024 - 65535）", "Port (1024 - 65535)"),
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth(),
             )
             Spacer(Modifier.height(20.dp))
             Row(modifier = Modifier.fillMaxWidth()) {
                 TextButton(
-                    text = "取消",
+                    text = t("取消", "Cancel"),
                     onClick = { showPortSheet = false },
                     modifier = Modifier.weight(1f),
                 )
                 Spacer(Modifier.width(20.dp))
                 TextButton(
-                    text = "保存",
+                    text = t("保存", "Save"),
                     onClick = {
                         val target = portDraft.toIntOrNull()
                         if (target == null || target !in 1024..65535) {
-                            toast(context, "端口要在 1024 - 65535 之间")
+                            toast(context, t("端口要在 1024 - 65535 之间", "Port must be between 1024 and 65535"))
                             return@TextButton
                         }
                         showPortSheet = false
@@ -238,31 +239,31 @@ fun McpPage(onBack: () -> Unit) {
     // 自定义令牌：服务端每次请求现读 McpConfig.token，改完不用重启
     OverlayBottomSheet(
         show = showTokenSheet,
-        title = "自定义令牌",
+        title = t("自定义令牌", "Custom token"),
         onDismissRequest = { showTokenSheet = false },
     ) {
         Column(Modifier.padding(top = 8.dp, bottom = 24.dp)) {
             TextField(
                 value = tokenDraft,
                 onValueChange = { tokenDraft = it },
-                label = "令牌",
+                label = t("令牌", "Token"),
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth(),
             )
             Spacer(Modifier.height(20.dp))
             Row(modifier = Modifier.fillMaxWidth()) {
                 TextButton(
-                    text = "取消",
+                    text = t("取消", "Cancel"),
                     onClick = { showTokenSheet = false },
                     modifier = Modifier.weight(1f),
                 )
                 Spacer(Modifier.width(20.dp))
                 TextButton(
-                    text = "保存",
+                    text = t("保存", "Save"),
                     onClick = {
                         val value = tokenDraft.trim()
                         if (value.isEmpty()) {
-                            toast(context, "令牌不能为空")
+                            toast(context, t("令牌不能为空", "Token can't be empty"))
                             return@TextButton
                         }
                         showTokenSheet = false

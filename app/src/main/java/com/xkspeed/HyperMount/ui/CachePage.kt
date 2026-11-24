@@ -53,6 +53,7 @@ import androidx.compose.ui.unit.sp
 import com.xkspeed.HyperMount.core.CacheConfig
 import com.xkspeed.HyperMount.core.Logcat
 import com.xkspeed.HyperMount.core.Module
+import com.xkspeed.HyperMount.i18n.t
 import com.xkspeed.HyperMount.ui.component.glass.ScrollPage
 import com.xkspeed.HyperMount.ui.components.sliderTapFraction
 import top.yukonga.miuix.kmp.basic.ButtonDefaults
@@ -93,7 +94,7 @@ private fun isUnlimited(mb: Float) = mb > ONE_GB_MB + 1f
 
 /** 当前上限怎么显示 */
 private fun limitLabel(mb: Float): String = when {
-    isUnlimited(mb) -> "无限制"
+    isUnlimited(mb) -> t("无限制", "Unlimited")
     mb >= ONE_GB_MB - 1f -> "1 GB"
     else -> "${mb.roundToInt()} MB"
 }
@@ -185,7 +186,7 @@ fun CachePage(onBack: () -> Unit) {
     val fraction = ((followMb - MIN_MB) / (UNLIMITED_MB - MIN_MB)).coerceIn(0f, 1f)
 
     ScrollPage(
-        title = "缓存",
+        title = t("缓存", "Cache"),
         onBack = onBack,
         // 底部固定条不吃列表高度：末尾多留一条 滚到底时最后一项停在它上方
         bottomPadding = stableNavigationBarHeight() + 112.dp,
@@ -207,7 +208,7 @@ fun CachePage(onBack: () -> Unit) {
                 ) {
                     if (files.isEmpty() && sectionBottomPx > 0) {
                         Text(
-                            "无缓存",
+                            t("无缓存", "No cache"),
                             color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                             style = MiuixTheme.textStyles.subtitle,
                         )
@@ -235,7 +236,7 @@ fun CachePage(onBack: () -> Unit) {
                             contentAlignment = Alignment.Center,
                         ) {
                             Text(
-                                if (picked.isEmpty()) "删除" else "删除 ${picked.size} 项",
+                                if (picked.isEmpty()) t("删除", "Delete") else t("删除 ${picked.size} 项", "Delete ${picked.size}"),
                                 color = if (picked.isEmpty()) {
                                     MiuixTheme.colorScheme.onSurfaceVariantSummary
                                 } else {
@@ -277,13 +278,13 @@ fun CachePage(onBack: () -> Unit) {
                 Spacer(Modifier.height(10.dp))
                 Row(Modifier.fillMaxWidth()) {
                     Text(
-                        "已用 " + Module.fmtSize(total),
+                        t("已用 ", "Used ") + Module.fmtSize(total),
                         color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                         style = MiuixTheme.textStyles.subtitle,
                     )
                     Spacer(Modifier.weight(1f))
                     Text(
-                        "上限 " + limitLabel(limitMb),
+                        t("上限 ", "Limit ") + limitLabel(limitMb),
                         color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                         style = MiuixTheme.textStyles.subtitle,
                     )
@@ -473,26 +474,26 @@ fun CachePage(onBack: () -> Unit) {
 
     WindowDialog(
         show = askDelete,
-        title = "删除缓存",
-        summary = "释放 ${Module.fmtSize(pickedSize)}",
+        title = t("删除缓存", "Delete cache"),
+        summary = t("释放 ${Module.fmtSize(pickedSize)}", "Frees ${Module.fmtSize(pickedSize)}"),
         maxWidth = 560.dp,
         onDismissRequest = { askDelete = false },
     ) {
         Text(
-            "将删除 ${picked.size} 个 apk 缓存 下次测试会重新复制一份",
+            t("将删除 ${picked.size} 个 apk 缓存 下次测试会重新复制一份", "${picked.size} cached apks will be deleted — they're copied again on the next test"),
             color = MiuixTheme.colorScheme.onSurface,
             style = MiuixTheme.textStyles.subtitle,
         )
         Spacer(Modifier.height(20.dp))
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
             TextButton(
-                text = "取消",
+                text = t("取消", "Cancel"),
                 onClick = { askDelete = false },
                 modifier = Modifier.weight(1f),
             )
             Spacer(Modifier.width(20.dp))
             TextButton(
-                text = "删除",
+                text = t("删除", "Delete"),
                 onClick = {
                     Logcat.deleteStage(picked)
                     marked = emptySet()

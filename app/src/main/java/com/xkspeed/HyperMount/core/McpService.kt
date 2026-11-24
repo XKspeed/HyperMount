@@ -12,6 +12,7 @@ import com.xkspeed.HyperMount.MainActivity
 import com.xkspeed.HyperMount.core.mcp.McpConfig
 import com.xkspeed.HyperMount.core.mcp.McpServer
 import com.xkspeed.HyperMount.core.mcp.McpServerState
+import com.xkspeed.HyperMount.i18n.t
 
 /**
  * MCP 服务的前台壳
@@ -60,9 +61,12 @@ class McpService : Service() {
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
         return Notification.Builder(this, CHANNEL_ID)
-            .setContentTitle(if (error == null) "MCP 服务运行中" else "MCP 服务启动失败")
+            .setContentTitle(
+                if (error == null) t("MCP 服务运行中", "MCP service running")
+                else t("MCP 服务启动失败", "MCP service failed to start")
+            )
             .setContentText(
-                if (error == null) "监听 :${McpServerState.port}"
+                if (error == null) t("监听 :${McpServerState.port}", "Listening on :${McpServerState.port}")
                 else error,
             )
             .setSmallIcon(android.R.drawable.stat_sys_download_done)
@@ -78,10 +82,10 @@ class McpService : Service() {
         if (nm.getNotificationChannel(CHANNEL_ID) != null) return
         val ch = NotificationChannel(
             CHANNEL_ID,
-            "MCP 服务",
+            t("MCP 服务", "MCP service"),
             NotificationManager.IMPORTANCE_LOW,
         ).apply {
-            description = "向局域网提供 MCP 接口期间常驻"
+            description = t("向局域网提供 MCP 接口期间常驻", "Stays on while the MCP endpoint is served to the LAN")
             setShowBadge(false)
         }
         nm.createNotificationChannel(ch)

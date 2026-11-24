@@ -34,6 +34,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import com.xkspeed.HyperMount.core.Module
+import com.xkspeed.HyperMount.i18n.t
 import com.xkspeed.HyperMount.ui.component.glass.ScrollPage
 import com.xkspeed.HyperMount.ui.components.BackIcon
 import com.xkspeed.HyperMount.ui.components.SectionCard
@@ -79,7 +80,7 @@ fun VolumeCheckPage(
     var running by remember { mutableStateOf(false) }
     var upState by remember { mutableStateOf<StepState>(StepState.Idle) }
     var downState by remember { mutableStateOf<StepState>(StepState.Idle) }
-    var hint by remember { mutableStateOf("按顺序按一次音量 + 和音量 − 用来确认按键事件能读到") }
+    var hint by remember { mutableStateOf(t("按顺序按一次音量 + 和音量 − 用来确认按键事件能读到", "Press Volume + and Volume − in order, once each, to confirm key events can be read")) }
     var saved by remember { mutableStateOf(false) }
 
     val backdrop = rememberBlurBackdrop()
@@ -91,14 +92,14 @@ fun VolumeCheckPage(
         upState = StepState.Idle
         downState = StepState.Idle
         scope.launch {
-            hint = "请按一次【音量 +】"
+            hint = t("请按一次【音量 +】", "Press [Volume +] once")
             upState = StepState.Waiting
             val upOut = Module.check("up").trim()
             val upLine = upOut.lineSequence().firstOrNull { it.startsWith("OK") }
             val upOk = upLine != null
             upState = if (upOk) StepState.Passed else StepState.Failed
 
-            hint = "请按一次【音量 −】"
+            hint = t("请按一次【音量 −】", "Press [Volume −] once")
             downState = StepState.Waiting
             val downOut = Module.check("down").trim()
             val downLine = downOut.lineSequence().firstOrNull { it.startsWith("OK") }
@@ -114,17 +115,17 @@ fun VolumeCheckPage(
                 // 设置页里补校验也算数 记下这次的系统版本
                 UiConfigState.markVolumeChecked(context)
                 saved = true
-                hint = "校验通过 已写入配置"
+                hint = t("校验通过 已写入配置", "Check passed — saved to config")
                 onFinished()
             } else {
-                hint = "有按键没读到 重试一次；实在不行检查音量键是否被其他模块占用"
+                hint = t("有按键没读到 重试一次；实在不行检查音量键是否被其他模块占用", "A key press wasn't read — retry once; if it keeps failing, check whether another module has taken the volume keys")
             }
             running = false
         }
     }
 
     ScrollPage(
-        title = "音量键校验",
+        title = t("音量键校验", "Volume key check"),
         onBack = onBack,
         bottomPadding = stableNavigationBarHeight() + 24.dp,
     ) {
@@ -138,11 +139,11 @@ fun VolumeCheckPage(
                     )
                 }
 
-                item { SmallTitle("校验步骤") }
+                item { SmallTitle(t("校验步骤", "Steps")) }
                 item {
                     SectionCard {
-                        StepRow("音量 +", upState)
-                        StepRow("音量 −", downState)
+                        StepRow(t("音量 +", "Volume +"), upState)
+                        StepRow(t("音量 −", "Volume −"), downState)
                     }
                 }
 
@@ -153,11 +154,11 @@ fun VolumeCheckPage(
                             enabled = !running,
                             modifier = Modifier.fillMaxWidth(),
                         ) {
-                            Text(if (running) "等待按键…" else "开始校验")
+                            Text(if (running) t("等待按键…", "Waiting for a key…") else t("开始校验", "Start check"))
                         }
                         Spacer(Modifier.height(8.dp))
                         Text(
-                            "校验只是确认能读到按键事件 不改动系统设置 失败也可以继续用 只是救砖时按音量键可能没反应",
+                            t("校验只是确认能读到按键事件 不改动系统设置 失败也可以继续用 只是救砖时按音量键可能没反应", "This only confirms key events can be read — no system settings are changed. You can continue even if it fails; the volume keys may just not respond during rescue"),
                             color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                             style = MiuixTheme.textStyles.subtitle,
                         )
@@ -189,10 +190,10 @@ private fun StepRow(label: String, state: StepState) {
             )
             Text(
                 when (state) {
-                    is StepState.Passed -> "已识别"
-                    is StepState.Failed -> "未检测到按键"
-                    StepState.Waiting -> "等待按键…"
-                    StepState.Idle -> "未校验"
+                    is StepState.Passed -> t("已识别", "Detected")
+                    is StepState.Failed -> t("未检测到按键", "No key detected")
+                    StepState.Waiting -> t("等待按键…", "Waiting for a key…")
+                    StepState.Idle -> t("未校验", "Not verified")
                 },
                 color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                 style = MiuixTheme.textStyles.subtitle,

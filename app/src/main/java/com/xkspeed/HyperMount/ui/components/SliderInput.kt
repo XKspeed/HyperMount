@@ -26,6 +26,7 @@ import top.yukonga.miuix.kmp.basic.SliderDefaults
 import top.yukonga.miuix.kmp.preference.SliderPreference
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.window.WindowDialog
+import com.xkspeed.HyperMount.i18n.t
 import kotlin.math.roundToInt
 
 /**
@@ -110,9 +111,9 @@ fun SliderInputPreference(
         summary = buildString {
             // 中文单位前留一个空格 百分号这种符号直接贴数字
             val gap = if (inputUnit == "%") "" else " "
-            append("默认值：").append(fmtInput(defaultInput))
+            append(t("默认值：", "Default: ")).append(fmtInput(defaultInput))
             if (inputUnit.isNotBlank()) append(gap).append(inputUnit)
-            append(" ｜ 范围：")
+            append(t(" ｜ 范围：", " ｜ Range: "))
                 .append(fmtInput(inputRange.start))
                 .append("/")
                 .append(fmtInput(inputRange.endInclusive))
@@ -133,19 +134,19 @@ fun SliderInputPreference(
         Row(modifier = Modifier.fillMaxWidth()) {
             // 重置只把输入框填成默认值 还得点保存才落盘 免得误触改了配置
             TextButton(
-                text = "重置",
+                text = t("重置", "Reset"),
                 onClick = { text = fmtInput(defaultInput) },
                 modifier = Modifier.weight(1f),
             )
             Spacer(Modifier.width(12.dp))
             TextButton(
-                text = "取消",
+                text = t("取消", "Cancel"),
                 onClick = { showInput = false },
                 modifier = Modifier.weight(1f),
             )
             Spacer(Modifier.width(12.dp))
             TextButton(
-                text = "保存",
+                text = t("保存", "Save"),
                 onClick = {
                     val typed = text.trim().toFloatOrNull()
                     if (typed == null) {

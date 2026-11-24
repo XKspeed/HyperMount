@@ -68,6 +68,7 @@ import top.yukonga.miuix.kmp.utils.scrollEndHaptic
 import top.yukonga.miuix.kmp.utils.overScrollVertical
 import com.xkspeed.HyperMount.BuildConfig
 import com.xkspeed.HyperMount.core.BuildVariant
+import com.xkspeed.HyperMount.i18n.t
 import com.xkspeed.HyperMount.ui.components.UnofficialBanner
 
 /** 顶栏（小标题那一条）的高度 与列表顶部留白同源 */
@@ -108,7 +109,7 @@ fun ScrollPage(
     /** 右上角动作键的图标 传 null 用关闭图标 */
     topActionIcon: Painter? = null,
     /** 右上角动作键的无障碍描述 */
-    topActionDescription: String = "关闭",
+    topActionDescription: String = t("关闭", "Close"),
     /** 右上角动作键的图标边长 与返回键一样走 42dp 圆钮 但图标可以单独给尺寸 */
     topActionIconSize: Dp = 24.dp,
     /** 右上角动作键图标的位移 正数向右 / 向下 用来纠图标本身的重心 */
@@ -455,7 +456,7 @@ private fun GlassBackButton(
     onClick: () -> Unit,
     backdrop: Backdrop,
     icon: Painter,
-    contentDescription: String = "返回",
+    contentDescription: String = t("返回", "Back"),
     iconSize: Dp = 18.dp,
     // Sonify 原值：箭头在 42dp 圆钮里左移 2dp 做光学居中
     iconOffset: DpOffset = DpOffset((-2).dp, 0.dp),

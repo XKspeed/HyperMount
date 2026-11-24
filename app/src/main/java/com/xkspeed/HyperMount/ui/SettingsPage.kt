@@ -37,6 +37,8 @@ import com.xkspeed.HyperMount.core.BuildVariant
 import com.xkspeed.HyperMount.core.LogLevel
 import com.xkspeed.HyperMount.core.ModuleState
 import com.xkspeed.HyperMount.core.UpdateChannel
+import com.xkspeed.HyperMount.i18n.AppLang
+import com.xkspeed.HyperMount.i18n.t
 import com.xkspeed.HyperMount.ui.component.glass.ScrollPage
 import com.xkspeed.HyperMount.ui.component.glass.TopBarTuning
 import com.xkspeed.HyperMount.ui.components.SectionCard
@@ -95,7 +97,7 @@ fun SettingsPage(
         if (path == null) {
             // SAF 只给系统认识的位置 解不出来就让人手填
             AppLog.w("选目录", "这个位置解析不出真实路径 改手动填写")
-            toast(context, "这个位置拿不到真实路径 手动填一下")
+            toast(context, t("这个位置拿不到真实路径 手动填一下", "Can't resolve a real path here — type it manually"))
             manualDirText = state.logDir
             showManualDir = true
             return@rememberLauncherForActivityResult
@@ -111,7 +113,7 @@ fun SettingsPage(
         runCatching { folderPicker.launch(intent) }
             .onFailure {
                 AppLog.e("选目录", "启动选择器失败", it)
-                toast(context, "打不开文件选择器")
+                toast(context, t("打不开文件选择器", "Can't open the file picker"))
             }
     }
 
@@ -129,12 +131,12 @@ fun SettingsPage(
     }
 
     ScrollPage(
-        title = "设置",
+        title = t("设置", "Settings"),
         listState = listState,
         // 主题入口挪到右上角：与返回键同款玻璃圆钮 图标用 Miuix 的 Theme
         onTopAction = onOpenUiSettings,
         topActionIcon = rememberVectorPainter(MiuixIcons.Theme),
-        topActionDescription = "界面与主题",
+        topActionDescription = t("界面与主题", "Interface & theme"),
         // 尺寸与位移走调试页那几项 默认 24dp 居中
         topActionIconSize = TopBarTuning.actionIconSize.dp,
         topActionIconOffset = DpOffset(
@@ -145,22 +147,38 @@ fun SettingsPage(
         bottomPadding = padding.calculateBottomPadding() + 16.dp,
         overlay = { bd -> LiquidSelectHost(select, bd, bottomInset = padding.calculateBottomPadding()) },
     ) {
-                item { SmallTitle("运行") }
+                // 语言切换放整个设置页最上方：中英两份文案全在代码里 跟着这份偏好走
+                item {
+                    SectionCard {
+                        LiquidSelectPreference(
+                            title = t("语言", "Language"),
+                            items = listOf(
+                                t("跟随系统", "Follow system"),
+                                "简体中文",
+                                "English",
+                            ),
+                            selectedIndex = AppLang.pref,
+                            onSelectedIndexChange = { AppLang.setPref(it, context) },
+                            state = select,
+                        )
+                    }
+                }
+                item { SmallTitle(t("运行", "General")) }
                 item {
                     SectionCard {
                         // 运行模式挪到「界面 → 界面设置」了 这里只留路径与缓存
                         // 日志目录不再跟着运行模式收起：主页测试也往这里写日志
                         // 模式 0（完全禁用）还得能选 否则主页永远开不了测试
                         ArrowPreference(
-                            title = "日志目录",
-                            summary = state.logDir.ifBlank { "未设置 · 点击选择目录" },
+                            title = t("日志目录", "Log directory"),
+                            summary = state.logDir.ifBlank { t("未设置 · 点击选择目录", "Not set · tap to choose") },
                             // 点按跳文件选择器；长按走手填，给选择器解析不出路径时留一条主动入口
                             onClick = null,
                             modifier = Modifier
                                 .locateHighlight(LocateTarget.LOG_DIR)
                                 .combinedClickable(
-                                    onClickLabel = "选择目录",
-                                    onLongClickLabel = "手动输入目录",
+                                    onClickLabel = t("选择目录", "Choose folder"),
+                                    onLongClickLabel = t("手动输入目录", "Type path manually"),
                                     onClick = { pickLogFolder() },
                                     onLongClick = {
                                         manualDirText = state.logDir
@@ -170,21 +188,21 @@ fun SettingsPage(
                         )
                         // 缓存跟日志模式无关：关掉日志也能进来清副本
                         ArrowPreference(
-                            title = "缓存大小",
+                            title = t("缓存大小", "Cache size"),
                             onClick = onOpenCache,
                         )
                     }
                 }
 
                 // 自动救砖整组已经挪到「界面」页
-                item { SmallTitle("调试") }
+                item { SmallTitle(t("调试", "Debug")) }
                 item {
                     SectionCard {
                         // 顺序：应用日志等级 → 应用日志内容
                         // 这两行不带副标题：下拉右侧已经写着当前档位 文件行点进去就是内容
                         LiquidSelectPreference(
-                            title = "应用日志等级",
-                            items = LOG_LEVEL_LABELS,
+                            title = t("应用日志等级", "App log level"),
+                            items = LOG_LEVEL_LABELS(),
                             selectedIndex = logLevelIndex(AppLog.level),
                             onSelectedIndexChange = {
                                 AppLog.setLevel(context, LOG_LEVEL_CHOICES[it])
@@ -199,7 +217,7 @@ fun SettingsPage(
                         ) {
                             Column {
                                 ArrowPreference(
-                                    title = "应用日志内容",
+                                    title = t("应用日志内容", "App log content"),
                                     onClick = onOpenAppLog,
                                 )
                             }
@@ -208,7 +226,7 @@ fun SettingsPage(
                         // 正式包走 release 私钥 指纹对不上 这一行根本不会渲染
                         if (BuildVariant.isDebuggable) {
                             ArrowPreference(
-                                title = "调试选项",
+                                title = t("调试选项", "Debug options"),
                                 onClick = onOpenDebug,
                             )
                         }
@@ -216,27 +234,27 @@ fun SettingsPage(
                 }
 
                 // 接口：给 AI 客户端的 MCP 入口 默认关闭
-                item { SmallTitle("接口") }
+                item { SmallTitle(t("接口", "API")) }
                 item {
                     SectionCard {
                         ArrowPreference(
-                            title = "MCP 服务",
+                            title = t("MCP 服务", "MCP service"),
                             onClick = onOpenMcp,
                         )
                     }
                 }
 
                 // 关于整页挪成二级页 四行并成一张卡：关于 / 检查更新 / 自动检查更新 / 更新来源
-                item { SmallTitle("关于") }
+                item { SmallTitle(t("关于", "About")) }
                 item {
                     SectionCard {
                         ArrowPreference(
-                            title = "关于",
+                            title = t("关于", "About"),
                             onClick = onOpenAbout,
                         )
                         // 检查更新：普通基础组件 没有副标题 右边只留箭头
                         ArrowPreference(
-                            title = if (checkingUpdate) "检查中…" else "检查更新",
+                            title = if (checkingUpdate) t("检查中…", "Checking…") else t("检查更新", "Check for updates"),
                             enabled = !checkingUpdate,
                             onClick = onCheckUpdate,
                         )
@@ -246,13 +264,13 @@ fun SettingsPage(
                                 UiConfigState.autoCheckUpdate = it
                                 UiConfigState.save(context)
                             },
-                            title = "自动检查更新",
+                            title = t("自动检查更新", "Auto check"),
                         )
                         // 更新来源正好管着上面那两行查到的是哪条线 挨着放
                         // 换来源会重新查一次（见 App.kt 的 LaunchedEffect）
                         LiquidSelectPreference(
-                            title = "更新来源",
-                            items = UpdateChannel.entries.map { it.label },
+                            title = t("更新来源", "Update channel"),
+                            items = UpdateChannel.entries.map { t(it.label, it.enLabel) },
                             selectedIndex = UiConfigState.updateChannel.ordinal,
                             onSelectedIndexChange = {
                                 val channel = UpdateChannel.entries[it]
@@ -270,7 +288,7 @@ fun SettingsPage(
                 item {
                     SectionCard {
                         ArrowPreference(
-                            title = "向作者捐赠",
+                            title = t("向作者捐赠", "Donate"),
                             onClick = onOpenDonate,
                         )
                     }
@@ -280,8 +298,8 @@ fun SettingsPage(
     // MT 回不来目录路径时的兜底：手动填（默认带上当前配置值）
     WindowDialog(
         show = showManualDir,
-        title = "日志目录",
-        summary = "目录不存在会自动创建 改完对下一次抓取生效",
+        title = t("日志目录", "Log directory"),
+        summary = t("目录不存在会自动创建 改完对下一次抓取生效", "Missing folders are created automatically; applies from the next capture"),
         maxWidth = 560.dp,
         onDismissRequest = { showManualDir = false },
     ) {
@@ -289,25 +307,25 @@ fun SettingsPage(
             value = manualDirText,
             onValueChange = { manualDirText = it },
             // 空时居中、输入后上浮缩小：和示例里的 With title 同款
-            label = "目录路径",
+            label = t("目录路径", "Directory path"),
             singleLine = true,
             modifier = Modifier.fillMaxWidth(),
         )
         Spacer(Modifier.height(20.dp))
         Row(modifier = Modifier.fillMaxWidth()) {
             TextButton(
-                text = "取消",
+                text = t("取消", "Cancel"),
                 onClick = { showManualDir = false },
                 modifier = Modifier.weight(1f),
             )
             Spacer(Modifier.width(20.dp))
             TextButton(
-                text = "保存",
+                text = t("保存", "Save"),
                 onClick = {
                     val p = manualDirText.trim()
                     showManualDir = false
                     if (p.isEmpty()) {
-                        toast(context, "路径不能为空")
+                        toast(context, t("路径不能为空", "Path can't be empty"))
                         return@TextButton
                     }
                     AppLog.i("选目录", "手动提交 LOG_DIR=$p")

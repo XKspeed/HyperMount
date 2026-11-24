@@ -7,6 +7,7 @@ import android.net.Uri
 import android.provider.DocumentsContract
 import android.provider.OpenableColumns
 import com.xkspeed.HyperMount.core.AppLog
+import com.xkspeed.HyperMount.i18n.t
 import java.io.File
 
 /**
@@ -52,9 +53,9 @@ fun queryMtPickers(context: Context): List<PickSource> {
             .getOrNull() ?: return@forEach
         val raw = runCatching { info.loadLabel(pm).toString() }.getOrDefault(pkg)
         val label = when {
-            raw.isBlank() && pkg == MT_CANARY_PACKAGE -> "MT管理器 共存版"
-            raw.isBlank() -> "MT管理器"
-            pkg == MT_CANARY_PACKAGE -> "$raw 共存版"
+            raw.isBlank() && pkg == MT_CANARY_PACKAGE -> t("MT管理器 共存版", "MT Manager (coexist)")
+            raw.isBlank() -> t("MT管理器", "MT Manager")
+            pkg == MT_CANARY_PACKAGE -> t("$raw 共存版", "$raw (coexist)")
             else -> raw
         }
         out += PickSource(label, ComponentName(pkg, info.activityInfo.name))

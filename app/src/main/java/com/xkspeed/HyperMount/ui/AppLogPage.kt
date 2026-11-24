@@ -24,6 +24,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.xkspeed.HyperMount.core.AppLog
 import com.xkspeed.HyperMount.core.LogLevel
+import com.xkspeed.HyperMount.i18n.t
 import com.xkspeed.HyperMount.ui.component.glass.ScrollPage
 import top.yukonga.miuix.kmp.basic.Button
 import top.yukonga.miuix.kmp.basic.Text
@@ -46,26 +47,26 @@ fun AppLogPage(onBack: () -> Unit) {
 
     fun reload() {
         val text = AppLog.text()
-        lines = if (text.isBlank()) listOf("（还没有日志）") else text.lines()
+        lines = if (text.isBlank()) listOf(t("（还没有日志）", "(No logs yet)")) else text.lines()
     }
 
     LaunchedEffect(Unit) { reload() }
 
     ScrollPage(
-        title = "应用日志",
+        title = t("应用日志", "App log"),
         onBack = onBack,
         bottomPadding = stableNavigationBarHeight() + 24.dp,
     ) {
         item {
             Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp)) {
                 Text(
-                    "文件位置：" + (AppLog.visibleFile()?.absolutePath ?: "未知"),
+                    t("文件位置：", "File: ") + (AppLog.visibleFile()?.absolutePath ?: t("未知", "unknown")),
                     color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                     fontSize = 11.sp,
                 )
                 Spacer(Modifier.height(4.dp))
                 Text(
-                    "当前等级：${AppLog.level.label} · 共 ${lines.size} 行",
+                    t("当前等级：${AppLog.level.label} · 共 ${lines.size} 行", "Level: ${AppLog.level.enLabel} · ${lines.size} lines"),
                     color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                     fontSize = 11.sp,
                 )
@@ -80,19 +81,19 @@ fun AppLogPage(onBack: () -> Unit) {
                             cm?.setPrimaryClip(
                                 android.content.ClipData.newPlainText("app-log", text)
                             )
-                            android.widget.Toast.makeText(context, "已复制日志", android.widget.Toast.LENGTH_SHORT).show()
+                            android.widget.Toast.makeText(context, t("已复制日志", "Logs copied"), android.widget.Toast.LENGTH_SHORT).show()
                         }
-                    ) { Text("复制全部") }
+                    ) { Text(t("复制全部", "Copy all")) }
                     Spacer(Modifier.width(12.dp))
-                    Button(onClick = { reload() }) { Text("刷新") }
+                    Button(onClick = { reload() }) { Text(t("刷新", "Refresh")) }
                     Spacer(Modifier.width(12.dp))
                     Button(
                         onClick = {
                             AppLog.clear()
                             reload()
-                            android.widget.Toast.makeText(context, "已清空", android.widget.Toast.LENGTH_SHORT).show()
+                            android.widget.Toast.makeText(context, t("已清空", "Cleared"), android.widget.Toast.LENGTH_SHORT).show()
                         }
-                    ) { Text("清空") }
+                    ) { Text(t("清空", "Clear")) }
                 }
             }
         }
@@ -124,8 +125,8 @@ fun AppLogPage(onBack: () -> Unit) {
  */
 val LOG_LEVEL_CHOICES: List<LogLevel> = listOf(LogLevel.OFF, LogLevel.INFO, LogLevel.DEBUG)
 
-/** 等级下拉的文案（设置页与日志页共用一份） */
-val LOG_LEVEL_LABELS: List<String> = LOG_LEVEL_CHOICES.map { it.label }
+/** 等级下拉的文案（设置页与日志页共用一份）现取现译 语言一换立即跟着换 */
+fun LOG_LEVEL_LABELS(): List<String> = LOG_LEVEL_CHOICES.map { t(it.label, it.enLabel) }
 
 /** 当前等级落在下拉里的下标；老配置残留的 E/W 值按「正常」显示 */
 fun logLevelIndex(level: LogLevel): Int =

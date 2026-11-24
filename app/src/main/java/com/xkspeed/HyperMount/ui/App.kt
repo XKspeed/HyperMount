@@ -66,6 +66,8 @@ import com.xkspeed.HyperMount.core.Root
 import com.xkspeed.HyperMount.core.Update
 import com.xkspeed.HyperMount.core.UpdateChannel
 import com.xkspeed.HyperMount.core.UpdateInfo
+import com.xkspeed.HyperMount.i18n.AppLang
+import com.xkspeed.HyperMount.i18n.t
 import com.kyant.backdrop.backdrops.layerBackdrop as kyantLayerBackdrop
 import com.kyant.backdrop.backdrops.rememberLayerBackdrop as kyantRememberLayerBackdrop
 import com.xkspeed.HyperMount.ui.component.glass.GlassBottomNav
@@ -311,7 +313,7 @@ fun App() {
     fun openInstaller(path: String) {
         val ok = Installer.openInstaller(context, path)
         appStage = UpdateStage.ReadyToInstall(path)
-        if (!ok) toast(context, "打不开安装器 到 $path 手动安装")
+        if (!ok) toast(context, t("打不开安装器 到 $path 手动安装", "Can't open the installer — install manually from $path"))
     }
 
     /**
@@ -350,17 +352,17 @@ fun App() {
                 }
             }
             if (result.isFailure) {
-                val why = result.exceptionOrNull()?.message ?: "网络异常"
+                val why = result.exceptionOrNull()?.message ?: t("网络异常", "Network error")
                 appStage = UpdateStage.Failed(why)
                 // 卡片上不写失败原因了 用 toast 交代一句
-                toast(context, "更新包下载失败 ${why.take(50)}")
+                toast(context, t("更新包下载失败 ${why.take(50)}", "Update download failed: ${why.take(50)}"))
                 return@launch
             }
             appStage = UpdateStage.Downloading(1f)
             val path = Installer.publish(tmp, name)
             if (path == null) {
-                appStage = UpdateStage.Failed("无法写入 /sdcard/Download")
-                toast(context, "更新包存不进 /sdcard/Download")
+                appStage = UpdateStage.Failed(t("无法写入 /sdcard/Download", "Can't write to /sdcard/Download"))
+                toast(context, t("更新包存不进 /sdcard/Download", "Couldn't save the update to /sdcard/Download"))
                 return@launch
             }
             runCatching { tmp.delete() }
@@ -406,15 +408,15 @@ fun App() {
                 }
             }
             if (result.isFailure) {
-                val why = result.exceptionOrNull()?.message ?: "网络异常"
+                val why = result.exceptionOrNull()?.message ?: t("网络异常", "Network error")
                 moduleStage = UpdateStage.Failed(why)
-                toast(context, "模块包下载失败 ${why.take(50)}")
+                toast(context, t("模块包下载失败 ${why.take(50)}", "Module download failed: ${why.take(50)}"))
                 return@launch
             }
             moduleStage = UpdateStage.Downloading(1f)
             val path = Installer.publish(tmp, name) ?: tmp.absolutePath
             moduleStage = UpdateStage.Saved(path)
-            toast(context, "模块已保存到 $path")
+            toast(context, t("模块已保存到 $path", "Module saved to $path"))
         }
     }
 
@@ -435,9 +437,9 @@ fun App() {
                         context,
                         when {
                             // 内测清单是内测工作流构建时才写的 没有就是还没发过内测包
-                            channel == UpdateChannel.INTERNAL -> "内测通道暂时没有可用的包"
-                            manifest != null -> "网络不通 显示上次查到的结果"
-                            else -> "检查更新失败 网络不通"
+                            channel == UpdateChannel.INTERNAL -> t("内测通道暂时没有可用的包", "No internal beta package available yet")
+                            manifest != null -> t("网络不通 显示上次查到的结果", "No network — showing the last known result")
+                            else -> t("检查更新失败 网络不通", "Update check failed — no network")
                         },
                     )
                 }
@@ -463,20 +465,20 @@ fun App() {
                 // 内测包版本号可能跟手上这份一样 提示里先写「内测版」免得用户以为是重复弹窗
                 if (appNew) {
                     add(
-                        if (channel == UpdateChannel.INTERNAL) "内测版 v${Update.label(info)}"
+                        if (channel == UpdateChannel.INTERNAL) t("内测版 v${Update.label(info)}", "Internal beta v${Update.label(info)}")
                         else "App v${Update.label(info)}",
                     )
                 }
-                if (moduleNew) add("模块 v${Update.moduleLabel(info)}")
+                if (moduleNew) add(t("模块 v${Update.moduleLabel(info)}", "Module v${Update.moduleLabel(info)}"))
             }
             if (parts.isNotEmpty()) {
-                toast(context, "发现 ${parts.joinToString(" · ")} 更新")
+                toast(context, t("发现 ${parts.joinToString(" · ")} 更新", "Update available: ${parts.joinToString(" · ")}"))
             } else if (manual) {
                 toast(
                     context,
                     buildString {
-                        append("已是最新 App v${Update.currentName}")
-                        if (name.isNotBlank()) append(" · 模块 v$name")
+                        append(t("已是最新 App v${Update.currentName}", "Already up to date: App v${Update.currentName}"))
+                        if (name.isNotBlank()) append(t(" · 模块 v$name", " · Module v$name"))
                     },
                 )
             }
@@ -610,14 +612,14 @@ fun App() {
             if (target == PickerTarget.RESCUE) {
                 // 复制到模块根并统一改名 MiuiSystemUI.apk
                 busy = true
-                busyTitle = "救砖界面至模块根目录"
-                busySub = "正在复制…"
+                busyTitle = t("救砖界面至模块根目录", "Copying rescue build to module root")
+                busySub = t("正在复制…", "Copying…")
                 val out = Module.prepare(path)
                 if (out.contains("OK")) {
-                    busySub = "已完成"
+                    busySub = t("已完成", "Done")
                     runCatching { refresh() }
                 } else {
-                    busyTitle = "复制失败"
+                    busyTitle = t("复制失败", "Copy failed")
                     busySub = firstLine(out)
                 }
                 delay(600)
@@ -625,7 +627,7 @@ fun App() {
                 busyTitle = null
             } else {
                 writeConf("TARGET_APK_PATH", path)
-                toast(context, "已选择待测界面")
+                toast(context, t("已选择待测界面", "Test build selected"))
             }
         }
     }
@@ -639,7 +641,7 @@ fun App() {
                     // 只记真实路径 —— 开跑时由 root 直接装这个文件
                     val real = withContext(Dispatchers.IO) { folderPathOf(context, uri) }
                     if (real.isNullOrBlank()) {
-                        toast(context, "这个管理器没给出真实路径 换 MT 的 root 模式再选一次")
+                        toast(context, t("这个管理器没给出真实路径 换 MT 的 root 模式再选一次", "This manager gave no real path — pick again with MT's root mode"))
                         return@launch
                     }
                     // 只读一次做校验，不留副本
@@ -649,11 +651,11 @@ fun App() {
                         return@launch
                     }
                     if (pkg == null) {
-                        toast(context, "这个文件不是有效的 apk")
+                        toast(context, t("这个文件不是有效的 apk", "Not a valid apk file"))
                         return@launch
                     }
                     if (real == LogConfig.rescuePath) {
-                        toast(context, "待测apk不能和救砖apk是同一个文件")
+                        toast(context, t("待测apk不能和救砖apk是同一个文件", "Test apk and rescue apk can't be the same file"))
                         return@launch
                     }
                     LogConfig.targetPath = real
@@ -661,7 +663,7 @@ fun App() {
                     // 记下包名：miui.systemui.plugin 要走增强判定
                     LogConfig.targetPkg = pkg
                     LogConfig.save(context)
-                    toast(context, "已选择待测apk")
+                    toast(context, t("已选择待测apk", "Test apk selected"))
                     return@launch
                 }
 
@@ -673,7 +675,7 @@ fun App() {
                     ApkStore.installRescueFromUri(context, uri, previous)
                 }
                 if (dst == null) {
-                    toast(context, "保存失败 存储空间可能不够")
+                    toast(context, t("保存失败 存储空间可能不够", "Save failed — storage may be full"))
                     return@launch
                 }
                 val pkg = withContext(Dispatchers.IO) { packageNameOf(context, dst) }
@@ -686,7 +688,7 @@ fun App() {
                     if (pkg == SYSTEMUI_PACKAGE) {
                         sysUiBlock = SysUiBlock.Rescue
                     } else {
-                        toast(context, "这个文件不是有效的 apk")
+                        toast(context, t("这个文件不是有效的 apk", "Not a valid apk file"))
                     }
                     return@launch
                 }
@@ -699,7 +701,7 @@ fun App() {
                     LogConfig.rescuePath = ""
                     LogConfig.rescueSize = 0L
                     LogConfig.save(context)
-                    toast(context, "待测apk不能和救砖apk是同一个文件")
+                    toast(context, t("待测apk不能和救砖apk是同一个文件", "Test apk and rescue apk can't be the same file"))
                     return@launch
                 }
                 // 先不落配置：等红色警告弹窗确认
@@ -713,7 +715,7 @@ fun App() {
             if (target == PickerTarget.TARGET) {
                 val real = withContext(Dispatchers.IO) { folderPathOf(context, uri) }
                 if (real.isNullOrBlank()) {
-                    toast(context, "这个管理器没给出真实路径 换 MT 的 root 模式再选一次")
+                    toast(context, t("这个管理器没给出真实路径 换 MT 的 root 模式再选一次", "This manager gave no real path — pick again with MT's root mode"))
                     return@launch
                 }
                 // 只读一次做校验：不是系统界面的一律不收
@@ -721,7 +723,8 @@ fun App() {
                 if (pkg != SYSTEMUI_PACKAGE) {
                     toast(
                         context,
-                        if (pkg == null) "这个文件不是有效的 apk" else "包名是 $pkg 不是系统界面",
+                        if (pkg == null) t("这个文件不是有效的 apk", "Not a valid apk file")
+                        else t("包名是 $pkg 不是系统界面", "Package $pkg is not System UI"),
                     )
                     return@launch
                 }
@@ -732,12 +735,12 @@ fun App() {
             // 界面页：救砖要留副本，交给模块脚本
             val file = withContext(Dispatchers.IO) { copyPickedFile(context, uri) }
             if (file == null) {
-                toast(context, "读取失败 这个文件管理器给的地址打不开 换一个再试")
+                toast(context, t("读取失败 这个文件管理器给的地址打不开 换一个再试", "Read failed — the address from that manager won't open, try another"))
                 return@launch
             }
             if (!file.looksLikeApk()) {
                 withContext(Dispatchers.IO) { file.delete() }
-                toast(context, "不是 apk 请选择后缀为 apk 的安装包")
+                toast(context, t("不是 apk 请选择后缀为 apk 的安装包", "Not an apk — pick a package with the apk extension"))
                 return@launch
             }
 
@@ -747,7 +750,7 @@ fun App() {
                 withContext(Dispatchers.IO) { file.delete() }
                 toast(
                     context,
-                    if (pkg == null) "这个文件不是有效的 apk" else "包名是 $pkg 不是系统界面",
+                    if (pkg == null) t("这个文件不是有效的 apk", "Not a valid apk file") else t("包名是 $pkg 不是系统界面", "Package $pkg is not System UI"),
                 )
                 return@launch
             }
@@ -770,14 +773,14 @@ fun App() {
     fun pickFile(target: PickerTarget) {
         val source = queryMtPickers(context).firstOrNull()
         if (source == null) {
-            toast(context, "未找到mt管理器 你连这个都没有吗")
+            toast(context, t("未找到mt管理器 你连这个都没有吗", "MT Manager not found — install it first"))
             return
         }
         pendingPick = target
         runCatching { pickLauncher.launch(buildSourcePickIntent(source.component)) }
             .onFailure {
                 pendingPick = null
-                toast(context, "打不开 ${source.label}")
+                toast(context, t("打不开 ${source.label}", "Can't open ${source.label}"))
             }
     }
 
@@ -852,7 +855,7 @@ fun App() {
                     val target = state.targetPath
                     if (target.isBlank()) {
                         scope.launch {
-                            if (UiFeedback.show("先选一个待测界面", "去选择")) {
+                            if (UiFeedback.show(t("先选一个待测界面", "Pick a test build first"), t("去选择", "Select"))) {
                                 Locate.request(LocateTarget.HOME_TARGET)
                             }
                         }
@@ -861,7 +864,7 @@ fun App() {
                     // 只记了原路径 没有副本：开跑前现找 找不到就明确说 别让脚本空跑
                     if (!java.io.File(target).exists()) {
                         scope.launch {
-                            if (UiFeedback.show("待测 apk 不见了，重新选一次", "去选择")) {
+                            if (UiFeedback.show(t("待测 apk 不见了，重新选一次", "Test apk is missing — pick again"), t("去选择", "Select"))) {
                                 Locate.request(LocateTarget.HOME_TARGET)
                             }
                         }
@@ -871,7 +874,7 @@ fun App() {
                     // 不拦住的话用户看到「已启动」但状态立刻变回未运行，根本猜不到原因
                     if (uiState.logMode == "0") {
                         scope.launch {
-                            if (UiFeedback.show("运行模式是完全禁用，先改成「日志 + 救砖」", "去设置")) {
+                            if (UiFeedback.show(t("运行模式是完全禁用，先改成「日志 + 救砖」", "Run mode is fully disabled — switch to \"Logs + rescue\" first"), t("去设置", "Settings"))) {
                                 // 运行模式在「设置 → 界面设置」里 先切到设置页
                                 jumpTab = 2
                             }
@@ -879,24 +882,24 @@ fun App() {
                         return@start
                     }
                     busy = true
-                    busyTitle = "启动测试"
-                    busySub = "对比当前界面…"
+                    busyTitle = t("启动测试", "Starting test")
+                    busySub = t("对比当前界面…", "Comparing with current build…")
                     scope.launch {
                         // 与当前界面同一份包：原地覆盖不会让界面重启，等下去只会超时收场
                         if (Module.sameAsCurrent(target) == true) {
                             busy = false
                             busyTitle = null
-                            toast(context, "当前测试界面与正在使用的一致")
+                            toast(context, t("当前测试界面与正在使用的一致", "Test build matches the one already in use"))
                             return@launch
                         }
-                        busySub = "正在准备救砖文件…"
+                        busySub = t("正在准备救砖文件…", "Preparing rescue file…")
                         val out = Module.testRun(target)
                         if (out.contains("OK")) {
-                            busySub = "已启动"
+                            busySub = t("已启动", "Started")
                             runCatching { refresh() }
                             DaemonService.start(context)
                         } else {
-                            busyTitle = "启动失败"
+                            busyTitle = t("启动失败", "Start failed")
                             busySub = firstLine(out)
                         }
                         delay(700)
@@ -906,15 +909,15 @@ fun App() {
                 },
                 onStop = {
                     busy = true
-                    busyTitle = "停止守护"
-                    busySub = "正在结束进程…"
+                    busyTitle = t("停止守护", "Stopping daemon")
+                    busySub = t("正在结束进程…", "Ending process…")
                     scope.launch {
                         val out = Module.stop()
                         runCatching { refresh() }
                         DaemonService.stop(context)
                         busyTitle = null
                         busy = false
-                        toast(context, firstLine(out).ifBlank { "已停止" })
+                        toast(context, firstLine(out).ifBlank { t("已停止", "Stopped") })
                     }
                 },
                 onOpenUiSettings = { push(Route.UiSettings) },
@@ -932,7 +935,7 @@ fun App() {
                 moduleLatest = moduleLatest,
                 onCheckUpdate = {
                     // 点了至少要有反应 否则像没按到
-                    toast(context, "正在检查更新…")
+                    toast(context, t("正在检查更新…", "Checking for updates…"))
                     checkUpdate(manual = true)
                 },
                 checkingUpdate = checkingUpdate,
@@ -1074,12 +1077,12 @@ fun App() {
     // 上次崩溃的现场：直接把堆栈摊出来 用户复制走就能贴给我
     crashText?.let { text ->
         MiuixDialog(
-            title = "上次启动时崩溃了",
+            title = t("上次启动时崩溃了", "Crashed on last launch"),
             onDismiss = { dismissCrash() },
         ) {
             if (UiConfigState.safeMode) {
                 Text(
-                    "已连续崩溃多次 已自动关闭玻璃效果（安全模式）",
+                    t("已连续崩溃多次 已自动关闭玻璃效果（安全模式）", "Crashed repeatedly — glass effects auto-disabled (safe mode)"),
                     color = MiuixTheme.colorScheme.error,
                     style = MiuixTheme.textStyles.subtitle,
                 )
@@ -1095,8 +1098,8 @@ fun App() {
             )
             Spacer(Modifier.height(14.dp))
             Text(
-                "文件位置：" + (AppLog.externalCrashFile()?.absolutePath
-                    ?: AppLog.lastCrashFile()?.absolutePath ?: "未知"),
+                t("文件位置：", "File: ") + (AppLog.externalCrashFile()?.absolutePath
+                    ?: AppLog.lastCrashFile()?.absolutePath ?: t("未知", "unknown")),
                 color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                 style = MiuixTheme.textStyles.subtitle,
                 fontSize = 10.sp,
@@ -1106,7 +1109,7 @@ fun App() {
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.End,
             ) {
-                Button(onClick = { dismissCrash() }) { Text("关闭") }
+                Button(onClick = { dismissCrash() }) { Text(t("关闭", "Close")) }
                 Spacer(Modifier.width(10.dp))
                 Button(
                     onClick = {
@@ -1115,10 +1118,10 @@ fun App() {
                         cm?.setPrimaryClip(
                             android.content.ClipData.newPlainText("crash", text)
                         )
-                        toast(context, "已复制堆栈")
+                        toast(context, t("已复制堆栈", "Stack copied"))
                     },
                     colors = ButtonDefaults.buttonColorsPrimary(),
-                ) { Text("复制堆栈") }
+                ) { Text(t("复制堆栈", "Copy stack")) }
             }
         }
     }
@@ -1128,8 +1131,8 @@ fun App() {
     if (pending != null) {
         WindowDialog(
             show = true,
-            title = "警告",
-            summary = "请确保该界面能够正常使用",
+            title = t("警告", "Warning"),
+            summary = t("请确保该界面能够正常使用", "Make sure this build actually works"),
             summaryColor = MiuixTheme.colorScheme.error,
             maxWidth = 560.dp,
             // 点空白处不关闭 只能走下面两个按钮
@@ -1143,7 +1146,7 @@ fun App() {
             Spacer(Modifier.height(20.dp))
             Row(modifier = Modifier.fillMaxWidth()) {
                 TextButton(
-                    text = "取消",
+                    text = t("取消", "Cancel"),
                     onClick = {
                         // 取消这次选择：删掉刚写入的新包 旧配置和旧包都不动
                         runCatching { pending.delete() }
@@ -1154,7 +1157,7 @@ fun App() {
                 )
                 Spacer(Modifier.width(20.dp))
                 TextButton(
-                    text = "继续",
+                    text = t("继续", "Continue"),
                     onClick = {
                         ApkStore.commitRescue(context, pending, pendingPrevious)
                         LogConfig.rescuePath = pending.absolutePath
@@ -1162,7 +1165,7 @@ fun App() {
                         LogConfig.save(context)
                         pendingRescue = null
                         pendingPrevious = ""
-                        toast(context, "已选择救砖apk")
+                        toast(context, t("已选择救砖apk", "Rescue apk selected"))
                     },
                     modifier = Modifier.weight(1f),
                     colors = ButtonDefaults.textButtonColorsPrimary(),
@@ -1177,39 +1180,60 @@ fun App() {
         val byRescue = blocked == SysUiBlock.Rescue
         WindowDialog(
             show = true,
-            title = if (byRescue) "救砖apk不能是系统界面" else "这个包不能装",
-            summary = "系统界面本体 请走「系统界面」页的模块流程",
+            title = if (byRescue) t("救砖apk不能是系统界面", "Rescue apk can't be System UI") else t("这个包不能装", "This package can't be installed"),
+            summary = t("系统界面本体 请走「系统界面」页的模块流程", "This is System UI itself — use the module flow on the System UI page"),
             maxWidth = 560.dp,
             onDismissRequest = { sysUiBlock = null },
         ) {
             Text(
                 if (byRescue) {
-                    "$SYSTEMUI_PACKAGE 是系统界面本体 应用页的救砖是把崩掉的待测apk" +
-                        "装回正常版本 把系统界面装进去既救不回来 装错一次还会黑砖 "
+                    t(
+                        "$SYSTEMUI_PACKAGE 是系统界面本体 应用页的救砖是把崩掉的待测apk" +
+                            "装回正常版本 把系统界面装进去既救不回来 装错一次还会黑砖 ",
+                        "$SYSTEMUI_PACKAGE is System UI itself. The Apps-page rescue reinstalls the crashed test apk " +
+                            "back to the working version — installing System UI saves nothing, and one wrong move bricks the phone. ",
+                    )
                 } else {
-                    "$SYSTEMUI_PACKAGE 是系统界面本体 应用页会把待测apk直接装进系统 " +
-                        "装坏一次就是黑砖 所以这里不让选 "
+                    t(
+                        "$SYSTEMUI_PACKAGE 是系统界面本体 应用页会把待测apk直接装进系统 " +
+                            "装坏一次就是黑砖 所以这里不让选 ",
+                        "$SYSTEMUI_PACKAGE is System UI itself. The Apps page installs the test apk straight into the system — " +
+                            "one bad install bricks the phone, so it's not allowed here. ",
+                    )
                 },
                 color = MiuixTheme.colorScheme.onSurface,
                 style = MiuixTheme.textStyles.subtitle,
             )
             Spacer(Modifier.height(6.dp))
             Text(
-                "要" + (if (byRescue) "换" else "测") + "系统界面请去「系统界面」 那边走模块挂载和救砖守护 " +
-                    "崩了会自动换回救砖包",
+                if (byRescue) {
+                    t(
+                        "要换系统界面请去「系统界面」 那边走模块挂载和救砖守护 " +
+                            "崩了会自动换回救砖包",
+                        "To swap System UI, use the System UI page — module mounting and the rescue daemon run there, " +
+                            "rolling back to the rescue build automatically on crash",
+                    )
+                } else {
+                    t(
+                        "要测系统界面请去「系统界面」 那边走模块挂载和救砖守护 " +
+                            "崩了会自动换回救砖包",
+                        "To test System UI, use the System UI page — module mounting and the rescue daemon run there, " +
+                            "rolling back to the rescue build automatically on crash",
+                    )
+                },
                 color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                 style = MiuixTheme.textStyles.subtitle,
             )
             Spacer(Modifier.height(20.dp))
             Row(modifier = Modifier.fillMaxWidth()) {
                 TextButton(
-                    text = "知道了",
+                    text = t("知道了", "Got it"),
                     onClick = { sysUiBlock = null },
                     modifier = Modifier.weight(1f),
                 )
                 Spacer(Modifier.width(20.dp))
                 TextButton(
-                    text = "前往系统界面",
+                    text = t("前往系统界面", "Go to System UI"),
                     onClick = {
                         sysUiBlock = null
                         jumpTab = 0
@@ -1224,19 +1248,27 @@ fun App() {
     // 没有 root：直接给两个选择 别让用户点进一堆"操作失败"
     if (showRootDialog) {
         MiuixDialog(
-            title = "需要 ROOT 权限",
+            title = t("需要 ROOT 权限", "ROOT access required"),
             onDismiss = { showRootDialog = false },
         ) {
             Text(
-                "本应用通过 su 调用脚本读取配置 没有 root 就改不了运行模式 " +
-                    "也起不了救砖守护",
+                t(
+                    "本应用通过 su 调用脚本读取配置 没有 root 就改不了运行模式 " +
+                        "也起不了救砖守护",
+                    "This app runs scripts through su to read config — without root you can't change the run mode " +
+                        "or start the rescue daemon",
+                ),
                 color = MiuixTheme.colorScheme.onSurface,
                 style = MiuixTheme.textStyles.subtitle,
             )
             Spacer(Modifier.height(6.dp))
             Text(
-                "请在 su 授权框里选「允许」后重新打开；" +
-                    "如果之前点过拒绝 去 root 管理器的授权列表里改回来",
+                t(
+                    "请在 su 授权框里选「允许」后重新打开；" +
+                        "如果之前点过拒绝 去 root 管理器的授权列表里改回来",
+                    "Pick \"Allow\" in the su prompt and reopen; if you denied it before, " +
+                        "flip it back in your root manager's grant list",
+                ),
                 color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                 style = MiuixTheme.textStyles.subtitle,
             )
@@ -1245,12 +1277,12 @@ fun App() {
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.End,
             ) {
-                Button(onClick = { showRootDialog = false }) { Text("忽略") }
+                Button(onClick = { showRootDialog = false }) { Text(t("忽略", "Ignore")) }
                 Spacer(Modifier.width(10.dp))
                 Button(
                     onClick = { (context as? android.app.Activity)?.finish() },
                     colors = ButtonDefaults.buttonColorsPrimary(),
-                ) { Text("退出") }
+                ) { Text(t("退出", "Exit")) }
             }
         }
     }
@@ -1300,11 +1332,12 @@ private fun MainScaffold(
     val systemUiIcon = ImageVector.vectorResource(R.drawable.ic_systemui_grid)
     // 应用页换成 Android 机器人头剪影
     val androidIcon = ImageVector.vectorResource(R.drawable.ic_android)
-    val navItems = remember(systemUiIcon, androidIcon) {
+    // 语言也是 remember 的 key：切语言底栏标签要跟着换 不然缓存的还是旧字
+    val navItems = remember(AppLang.pref, systemUiIcon, androidIcon) {
         listOf(
-            GlassNavItem("系统界面", systemUiIcon),
-            GlassNavItem("应用", androidIcon),
-            GlassNavItem("设置", MiuixIcons.Settings),
+            GlassNavItem(t("系统界面", "System UI"), systemUiIcon),
+            GlassNavItem(t("应用", "Apps"), androidIcon),
+            GlassNavItem(t("设置", "Settings"), MiuixIcons.Settings),
         )
     }
     val scope = rememberCoroutineScope()

@@ -19,9 +19,9 @@ import java.util.Locale
  * 内测版读 update-internal.json（内测工作流维护 每次构建覆盖同一个 tag）。
  * 两份清单分开存 切换来源不会互相覆盖。
  */
-enum class UpdateChannel(val label: String) {
-    RELEASE("正式版"),
-    INTERNAL("内测版"),
+enum class UpdateChannel(val label: String, val enLabel: String) {
+    RELEASE("正式版", "Stable"),
+    INTERNAL("内测版", "Internal beta"),
 }
 
 /**

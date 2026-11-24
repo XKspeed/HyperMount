@@ -55,6 +55,7 @@ import com.xkspeed.HyperMount.core.AppVersion
 import com.xkspeed.HyperMount.core.Update
 import com.xkspeed.HyperMount.core.UpdateChannel
 import com.xkspeed.HyperMount.core.UpdateInfo
+import com.xkspeed.HyperMount.i18n.t
 import com.xkspeed.HyperMount.ui.component.effect.BgEffectBackground
 import com.xkspeed.HyperMount.ui.component.glass.ScrollPage
 import com.xkspeed.HyperMount.ui.util.isInDarkTheme
@@ -128,7 +129,7 @@ fun AboutPage(
     val backdrop = rememberBlurBackdrop()
 
     ScrollPage(
-        title = "关于",
+        title = t("关于", "About"),
         onBack = onBack,
         // 二级页：只让开导航栏
         bottomPadding = stableNavigationBarHeight() + 24.dp,
@@ -157,13 +158,13 @@ fun AboutPage(
             FrostedCard(backdrop = backdrop) {
                 ArrowPreference(
                     title = "XKspeed",
-                    summary = "开发者",
+                    summary = t("开发者", "Developer"),
                     startAction = { DeveloperAvatar(R.drawable.avatar_xkspeed) },
                     onClick = { showPlatforms = true },
                 )
                 BasicComponent(
                     title = "DeepSeek",
-                    summary = "代码与文档协助",
+                    summary = t("代码与文档协助", "Code & docs assistance"),
                     startAction = { DeveloperAvatar(R.drawable.avatar_deepseek) },
                 )
             }
@@ -173,10 +174,10 @@ fun AboutPage(
         item {
             FrostedCard(backdrop = backdrop) {
                 ArrowPreference(
-                    title = "应用版本",
+                    title = t("应用版本", "App version"),
                     // 装的是内测包就标出来：版本号跟正式版一样 不标分不清手上是哪条线
                     summary = "v${AppVersion.name} (${AppVersion.code})" +
-                        if (Update.isInternalBuild) " · 内测" else "",
+                        if (Update.isInternalBuild) t(" · 内测", " · Internal beta") else "",
                     onClick = {
                         runCatching {
                             uriHandler.openUri("https://github.com/XKspeed/HyperMount")
@@ -184,9 +185,9 @@ fun AboutPage(
                     },
                 )
                 BasicComponent(
-                    title = "模块版本",
+                    title = t("模块版本", "Module version"),
                     summary = when {
-                        moduleVersion.isBlank() -> "未读到"
+                        moduleVersion.isBlank() -> t("未读到", "Not read")
                         moduleLatest != null ->
                             "v$moduleVersion → v${Update.moduleLabel(moduleLatest)}"
                         else -> "v$moduleVersion"
@@ -203,17 +204,17 @@ fun AboutPage(
                     headline = "v${Update.label(latest)}",
                     subline = if (channel == UpdateChannel.INTERNAL) {
                         val built = Update.buildTimeLabel(latest)
-                        if (built.isEmpty()) "内测版" else "内测版 · 发布于 $built"
+                        if (built.isEmpty()) t("内测版", "Internal beta") else t("内测版 · 发布于 $built", "Internal beta · built $built")
                     } else {
                         null
                     },
                     notes = Update.changelogLines(latest),
-                    emptyNote = "作者没有写变更说明",
+                    emptyNote = t("作者没有写变更说明", "No changelog was written for this release"),
                     stage = appStage,
-                    idleAction = "下载并安装",
+                    idleAction = t("下载并安装", "Download & install"),
                     onAction = onInstallApp,
                     onOpenInstaller = onOpenInstaller,
-                    failedAction = "点击重试",
+                    failedAction = t("点击重试", "Tap to retry"),
                 )
             }
         }
@@ -223,14 +224,14 @@ fun AboutPage(
             item {
                 UpdateCard(
                     backdrop = backdrop,
-                    headline = "模块 v${Update.moduleLabel(moduleLatest)}",
+                    headline = t("模块 v${Update.moduleLabel(moduleLatest)}", "Module v${Update.moduleLabel(moduleLatest)}"),
                     subline = null,
                     notes = Update.moduleChangelogLines(moduleLatest),
-                    emptyNote = "模块 zip 与 App 同一个 Release 发布 详细说明见 Release 页面",
+                    emptyNote = t("模块 zip 与 App 同一个 Release 发布 详细说明见 Release 页面", "The module zip ships in the same Release as the app — see the Release page for details"),
                     stage = moduleStage,
-                    idleAction = "下载模块压缩包",
+                    idleAction = t("下载模块压缩包", "Download module zip"),
                     onAction = onDownloadModule,
-                    failedAction = "点击重试",
+                    failedAction = t("点击重试", "Tap to retry"),
                 )
             }
         }
@@ -240,7 +241,7 @@ fun AboutPage(
             FrostedCard(backdrop = backdrop) {
                 // 官网放最上面：安装教程 / 常见问题 / 模块说明都在那边
                 ArrowPreference(
-                    title = "官网",
+                    title = t("官网", "Website"),
                     onClick = {
                         runCatching {
                             uriHandler.openUri("https://xkspeed.github.io/HyperMount/")
@@ -248,7 +249,7 @@ fun AboutPage(
                     },
                 )
                 ArrowPreference(
-                    title = "GitHub 仓库",
+                    title = t("GitHub 仓库", "GitHub repo"),
                     onClick = {
                         runCatching {
                             uriHandler.openUri("https://github.com/XKspeed/HyperMount")
@@ -262,7 +263,7 @@ fun AboutPage(
                     },
                 )
                 ArrowPreference(
-                    title = "第三方许可证",
+                    title = t("第三方许可证", "Third-party licenses"),
                     onClick = onOpenThirdPartyLicenses,
                 )
             }
@@ -272,23 +273,23 @@ fun AboutPage(
     // 选平台：Miuix 的 WindowDialog（竖屏就是从底部滑出的那个宽对话框）
     WindowDialog(
         show = showPlatforms,
-        title = "选择平台",
+        title = t("选择平台", "Choose a platform"),
         maxWidth = 560.dp,
         onDismissRequest = { showPlatforms = false },
     ) {
         val dismissState = LocalDismissState.current
         Column(modifier = Modifier.fillMaxWidth()) {
-            PlatformAction("打开 GitHub") {
+            PlatformAction(t("打开 GitHub", "Open GitHub")) {
                 dismissState?.invoke()
                 runCatching { uriHandler.openUri("https://github.com/XKspeed") }
             }
-            PlatformAction("打开酷安") {
+            PlatformAction(t("打开酷安", "Open Coolapk")) {
                 dismissState?.invoke()
                 openCoolapk(context)
             }
             Spacer(Modifier.height(8.dp))
             TextButton(
-                text = "取消",
+                text = t("取消", "Cancel"),
                 onClick = { dismissState?.invoke() },
                 modifier = Modifier
                     .fillMaxWidth()
@@ -364,7 +365,7 @@ private fun UpdateCard(
                     .padding(horizontal = 16.dp, vertical = 14.dp),
             ) {
                 MiuixText(
-                    "$headline 更新内容",
+                    t("$headline 更新内容", "What's new in $headline"),
                     color = colorScheme.onSurface,
                     fontWeight = FontWeight.SemiBold,
                     fontSize = 15.sp,
@@ -415,7 +416,7 @@ private fun UpdateCard(
                             contentAlignment = Alignment.Center,
                         ) {
                             MiuixText(
-                                "查询镜像中 ${stage.done}/${stage.total}",
+                                t("查询镜像中 ${stage.done}/${stage.total}", "Probing mirrors ${stage.done}/${stage.total}"),
                                 color = colorScheme.primary,
                                 fontWeight = FontWeight.SemiBold,
                                 fontSize = 13.sp,
@@ -456,7 +457,7 @@ private fun UpdateCard(
                             colors = ButtonDefaults.buttonColorsPrimary(),
                             modifier = Modifier.fillMaxWidth(),
                         ) {
-                            MiuixText("安装")
+                            MiuixText(t("安装", "Install"))
                         }
                     }
 
@@ -477,7 +478,7 @@ private fun UpdateCard(
                             colors = ButtonDefaults.buttonColorsPrimary(),
                             modifier = Modifier.fillMaxWidth(),
                         ) {
-                            MiuixText("已保存")
+                            MiuixText(t("已保存", "Saved"))
                         }
                     }
                 }
@@ -538,7 +539,7 @@ private fun openCoolapk(context: Context) {
         .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
     if (runCatching { context.startActivity(anyApp) }.isSuccess) return
 
-    Toast.makeText(context, "没有安装酷安 先打开网页版", Toast.LENGTH_SHORT).show()
+    Toast.makeText(context, t("没有安装酷安 先打开网页版", "Coolapk isn't installed — opening the web version"), Toast.LENGTH_SHORT).show()
     runCatching {
         context.startActivity(
             Intent(Intent.ACTION_VIEW, webUri).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),

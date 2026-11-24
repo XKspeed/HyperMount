@@ -18,6 +18,7 @@ import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import com.xkspeed.HyperMount.i18n.t
 import java.util.Locale
 
 /**
@@ -104,12 +105,12 @@ class DaemonService : Service() {
     private fun buildNotification(st: DaemonStatus, now: Long): Notification {
         val since = st.since.takeIf { it > 0L } ?: startedAt
         val elapsed = (now - since).coerceAtLeast(0L)
-        val title = if (st.active) st.title else "守护中"
+        val title = if (st.active) st.title else t("守护中", "Rescue daemon")
         // 报剩余时长而不是已经跑了多久：用户关心的是还剩多少时间
         // 设了上限才倒计时 无限制（或点测试那一轮）直接写「不限」
         val remain = if (st.limit > 0L) (st.limit - elapsed).coerceAtLeast(0L) else -1L
-        val text = "已救砖：${st.protectCount}次｜剩余时长：" +
-            if (remain < 0L) "不限" else fmtDuration(remain)
+        val text = t("已救砖：${st.protectCount}次｜剩余时长：", "Rescued ${st.protectCount} times ｜ Time left: ") +
+            if (remain < 0L) t("不限", "unlimited") else fmtDuration(remain)
         val open = PendingIntent.getActivity(
             this,
             0,
@@ -144,10 +145,10 @@ class DaemonService : Service() {
         if (nm.getNotificationChannel(CHANNEL_ID) != null) return
         val ch = NotificationChannel(
             CHANNEL_ID,
-            "救砖守护",
+            t("救砖守护", "Rescue daemon"),
             NotificationManager.IMPORTANCE_LOW,
         ).apply {
-            description = "守护进程运行期间常驻"
+            description = t("守护进程运行期间常驻", "Stays on while the rescue daemon is running")
             setShowBadge(false)
         }
         nm.createNotificationChannel(ch)

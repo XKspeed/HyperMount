@@ -59,6 +59,7 @@ import com.xkspeed.HyperMount.core.Module
 import com.xkspeed.HyperMount.core.ModuleState
 import com.xkspeed.HyperMount.core.SystemVersion
 import com.xkspeed.HyperMount.core.UpdateInfo
+import com.xkspeed.HyperMount.i18n.t
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import com.xkspeed.HyperMount.ui.component.glass.ScrollPage
@@ -181,18 +182,18 @@ fun HomePage(
     )
 
     ScrollPage(
-        title = "系统界面",
+        title = t("系统界面", "System UI"),
         // 定位请求要滚动这一份才有效
         listState = listState,
         // 顶栏只留模块版本：前面那半句「救砖与界面替换」是这个页面的功能说明
         // 用户进来看一眼就知道在哪 不用再占一行
-        subtitle = if (state.version.isNotBlank()) "模块 v${state.version}" else null,
+        subtitle = if (state.version.isNotBlank()) t("模块 v${state.version}", "Module v${state.version}") else null,
         // 右上角三点：进界面设置（常驻救砖 + 救砖逻辑）
         // 不用齿轮：底栏「设置」和设置页右上角都是齿轮 再放一个就重复了
         // 尺寸定稿 24dp 不偏移 不再进调试页
         onTopAction = onOpenSettings,
         topActionIcon = rememberVectorPainter(MiuixIcons.More),
-        topActionDescription = "界面设置",
+        topActionDescription = t("界面设置", "Interface settings"),
         topActionIconSize = TopBarTuning.MENU_ICON_SIZE.dp,
         // 和主页同款：版本号右边冒一颗绿色胶囊 只有清单里的模块版本比本地新才出现
         subtitleExtra = {
@@ -218,7 +219,7 @@ fun HomePage(
                     )
                     Spacer(Modifier.width(3.dp))
                     Text(
-                        "模块有新版本",
+                        t("模块有新版本", "Module update available"),
                         color = Color.White,
                         fontSize = 11.sp,
                         fontWeight = FontWeight.Medium,
@@ -238,19 +239,19 @@ fun HomePage(
                 // 条件不满足不再灰按钮：点了统一弹提示 并带用户去对应的卡
                 onStart = {
                     when {
-                        rootOk != true -> scope.launch { UiFeedback.toast("还没拿到 root 权限") }
+                        rootOk != true -> scope.launch { UiFeedback.toast(t("还没拿到 root 权限", "Root access not granted yet")) }
                         !state.rescueReady -> scope.launch {
-                            if (UiFeedback.show("先选一个救砖界面", "去选择")) {
+                            if (UiFeedback.show(t("先选一个救砖界面", "Pick a rescue build first"), t("去选择", "Select"))) {
                                 Locate.request(LocateTarget.HOME_RESCUE)
                             }
                         }
                         state.targetPath.isBlank() -> scope.launch {
-                            if (UiFeedback.show("先选一个待测界面", "去选择")) {
+                            if (UiFeedback.show(t("先选一个待测界面", "Pick a test build first"), t("去选择", "Select"))) {
                                 Locate.request(LocateTarget.HOME_TARGET)
                             }
                         }
                         state.logDir.isBlank() -> scope.launch {
-                            if (UiFeedback.show("未指定日志目录，去设置里选一个", "去设置")) {
+                            if (UiFeedback.show(t("未指定日志目录，去设置里选一个", "No log directory set — choose one in Settings"), t("去设置", "Settings"))) {
                                 Locate.request(LocateTarget.LOG_DIR)
                             }
                         }
@@ -276,7 +277,7 @@ fun HomePage(
                                     else MiuixTheme.colorScheme.onSurfaceVariantSummary
                                 )
                                 Text(
-                                    if (state.daemonRunning) "守护中" else "空闲",
+                                    if (state.daemonRunning) t("守护中", "Guarding") else t("空闲", "Idle"),
                                     style = MiuixTheme.textStyles.title2,
                                     fontWeight = FontWeight.SemiBold,
                                     modifier = Modifier.padding(start = 8.dp),
@@ -286,9 +287,9 @@ fun HomePage(
                             Text(
                                 buildString {
                                     if (state.daemonRunning) append("PID ${state.running}")
-                                    else append("未在运行")
-                                    append(" · 已救砖 ${state.protectCount} 次")
-                                    if (state.rescueOff) append(" · 系统救援已屏蔽")
+                                    else append(t("未在运行", "Not running"))
+                                    append(t(" · 已救砖 ${state.protectCount} 次", " · Rescued ${state.protectCount} times"))
+                                    if (state.rescueOff) append(t(" · 系统救援已屏蔽", " · System rescue blocked"))
                                 },
                                 color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                                 style = MiuixTheme.textStyles.subtitle,
@@ -302,7 +303,7 @@ fun HomePage(
                                 ) {
                                     if (logLines.isEmpty()) {
                                         Text(
-                                            "等待脚本输出…",
+                                            t("等待脚本输出…", "Waiting for script output…"),
                                             color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                                             style = MiuixTheme.textStyles.subtitle,
                                         )
@@ -347,14 +348,14 @@ fun HomePage(
                         ) {
                             Column(Modifier.padding(16.dp)) {
                                 Text(
-                                    "未获得 root 权限",
+                                    t("未获得 root 权限", "Root access not granted"),
                                     color = MiuixTheme.colorScheme.error,
                                     style = MiuixTheme.textStyles.main,
                                     fontWeight = FontWeight.Medium,
                                 )
                                 Spacer(Modifier.height(4.dp))
                                 Text(
-                                    "请在弹出的授权框里允许本应用使用 su 然后重新打开",
+                                    t("请在弹出的授权框里允许本应用使用 su 然后重新打开", "Allow su for this app in the prompt, then reopen"),
                                     color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                                     style = MiuixTheme.textStyles.subtitle,
                                 )
@@ -364,11 +365,11 @@ fun HomePage(
                 }
 
                 // ---- 文件 ----
-                item { SmallTitle("文件") }
+                item { SmallTitle(t("文件", "Files")) }
                 item {
                     SectionCard {
                         ArrowPreference(
-                            title = "救砖界面",
+                            title = t("救砖界面", "Rescue build"),
                             // 没选就传 null 而不是空串：空串仍占一行行高 标题会被顶偏
                             summary = if (state.rescueReady) "MiuiSystemUI.apk" else null,
                             onClick = onPickRescue,
@@ -377,7 +378,7 @@ fun HomePage(
                             modifier = Modifier.locateHighlight(LocateTarget.HOME_RESCUE),
                         )
                         ArrowPreference(
-                            title = "待测界面",
+                            title = t("待测界面", "Test build"),
                             summary = if (state.targetPath.isNotBlank()) {
                                 state.targetPath.substringAfterLast('/')
                             } else {
@@ -393,17 +394,17 @@ fun HomePage(
                 // ---- 设备 ----
                 val sysBuild = SystemVersion.build
                 if (state.model.isNotBlank() || sysBuild.isNotBlank() || state.androidVer.isNotBlank()) {
-                    item { SmallTitle("设备") }
+                    item { SmallTitle(t("设备", "Device")) }
                     item {
                         SectionCard {
                             // 只给 ROM 的具体版本串（4.0.24.0.WOCCNXM 这种）
                             // os4.0 / Android 16 这类大版本号不参与展示
                             val sysVer = sysBuild.ifBlank { state.androidVer }
-                            if (sysVer.isNotBlank()) InfoRow("系统", sysVer)
-                            if (state.model.isNotBlank()) InfoRow("机型", state.model)
+                            if (sysVer.isNotBlank()) InfoRow(t("系统", "OS"), sysVer)
+                            if (state.model.isNotBlank()) InfoRow(t("机型", "Model"), state.model)
                             InfoRow(
-                                "音量键",
-                                if (state.volumeAssessed) "已识别" else "未校验",
+                                t("音量键", "Volume keys"),
+                                if (state.volumeAssessed) t("已识别", "Detected") else t("未校验", "Not verified"),
                             )
                         }
                     }
@@ -414,19 +415,19 @@ fun HomePage(
     if (showVolumeGate) {
         WindowDialog(
             show = true,
-            title = "未完成音量键校验",
+            title = t("未完成音量键校验", "Volume key check not done"),
             maxWidth = 560.dp,
             onDismissRequest = { showVolumeGate = false },
         ) {
             Row(modifier = Modifier.fillMaxWidth()) {
                 TextButton(
-                    text = "暂不前往",
+                    text = t("暂不前往", "Not now"),
                     onClick = { showVolumeGate = false },
                     modifier = Modifier.weight(1f),
                 )
                 Spacer(Modifier.width(20.dp))
                 TextButton(
-                    text = "前往校验",
+                    text = t("前往校验", "Check now"),
                     onClick = {
                         showVolumeGate = false
                         onOpenVolumeCheck()
@@ -442,8 +443,8 @@ fun HomePage(
     if (showStartConfirm) {
         WindowDialog(
             show = true,
-            title = "开始测试",
-            summary = "确认后立即替换界面",
+            title = t("开始测试", "Start test"),
+            summary = t("确认后立即替换界面", "The build is swapped in right after you confirm"),
             maxWidth = 560.dp,
             onDismissRequest = { showStartConfirm = false },
         ) {
@@ -455,18 +456,18 @@ fun HomePage(
             Spacer(Modifier.height(20.dp))
             Row(modifier = Modifier.fillMaxWidth()) {
                 TextButton(
-                    text = "取消",
+                    text = t("取消", "Cancel"),
                     onClick = { showStartConfirm = false },
                     modifier = Modifier.weight(1f),
                 )
                 Spacer(Modifier.width(20.dp))
                 TextButton(
-                    text = "继续",
+                    text = t("继续", "Continue"),
                     onClick = {
                         // 确认这会儿配置也可能被清空：开跑前再核一次
                         if (state.logDir.isBlank()) {
                             scope.launch {
-                                if (UiFeedback.show("未指定日志目录，去设置里选一个", "去设置")) {
+                                if (UiFeedback.show(t("未指定日志目录，去设置里选一个", "No log directory set — choose one in Settings"), t("去设置", "Settings"))) {
                                     Locate.request(LocateTarget.LOG_DIR)
                                 }
                             }

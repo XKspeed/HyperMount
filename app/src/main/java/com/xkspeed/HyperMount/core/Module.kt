@@ -2,6 +2,7 @@ package com.xkspeed.HyperMount.core
 
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import com.xkspeed.HyperMount.i18n.t
 
 /** 日志 + 救砖模式的崩溃上限 比系统默认的 12 宽 给音量键留出反应时间 */
 const val CRASH_LIMIT_MANUAL = 30
@@ -49,7 +50,7 @@ data class DaemonStatus(
     val active: Boolean get() = watching || testing
 
     /** 标题：全局守护点明对象，App 里点测试就短一点 */
-    val title: String get() = if (watching) "SystemUI守护中" else "守护中"
+    val title: String get() = if (watching) t("SystemUI守护中", "SystemUI guarded") else t("守护中", "Guarded")
 
     /** 时长从哪秒开始算：两个都在跑时以全局守护为准（它才是长时间那个） */
     val since: Long get() = when {
@@ -425,8 +426,8 @@ object Module {
                 "grep -oE 'process_crash_count_limit=[0-9]+' | cut -d= -f2 | head -1",
         ).trim()
         AppLog.i("脚本", "崩溃上限回读 ${back.ifBlank { "unknown" }}")
-        if (back == limit.toString()) "OK 崩溃上限已设为 $limit"
-        else "FAIL 设置未生效（当前 ${back.ifBlank { "unknown" }}）"
+        if (back == limit.toString()) t("OK 崩溃上限已设为 $limit", "OK crash limit set to $limit")
+        else t("FAIL 设置未生效（当前 ${back.ifBlank { "unknown" }}）", "FAIL setting didn't take effect (current ${back.ifBlank { "unknown" }})")
     }
 
     /** 目录列表（root 权限 能看到 /data 下的东西） */

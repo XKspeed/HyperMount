@@ -56,6 +56,7 @@ import com.xkspeed.HyperMount.core.ModuleState
 import com.xkspeed.HyperMount.core.Logcat
 import com.xkspeed.HyperMount.core.Module
 import com.xkspeed.HyperMount.core.UpdateInfo
+import com.xkspeed.HyperMount.i18n.t
 import com.xkspeed.HyperMount.ui.component.glass.ScrollPage
 import com.xkspeed.HyperMount.ui.component.glass.TopBarTuning
 import com.xkspeed.HyperMount.ui.components.BottomActions
@@ -205,20 +206,20 @@ fun MainPage(
     fun startTest() {
         scope.launch {
             if (!targetReady) {
-                if (UiFeedback.show("先选待测 apk", "去选择")) {
+                if (UiFeedback.show(t("先选待测 apk", "Pick a test apk first"), t("去选择", "Select"))) {
                     Locate.request(LocateTarget.MAIN_TARGET)
                 }
                 return@launch
             }
             if (autoReplace && !rescueReady) {
-                if (UiFeedback.show("自动替换开着，先选救砖 apk", "去选择")) {
+                if (UiFeedback.show(t("自动替换开着，先选救砖 apk", "Auto-replace is on — pick a rescue apk first"), t("去选择", "Select"))) {
                     Locate.request(LocateTarget.MAIN_RESCUE)
                 }
                 return@launch
             }
             // 二次确认这一会儿也可能被清空：开跑前再核一次 免得脚本空跑一趟
             if (state.logDir.isBlank()) {
-                if (UiFeedback.show("未指定日志目录，去设置里选一个", "去设置")) {
+                if (UiFeedback.show(t("未指定日志目录，去设置里选一个", "No log directory set — choose one in Settings"), t("去设置", "Settings"))) {
                     Locate.request(LocateTarget.LOG_DIR)
                 }
                 return@launch
@@ -228,7 +229,7 @@ fun MainPage(
             val target = LogConfig.targetPath
             if (!Logcat.exists(target)) {
                 starting = false
-                if (UiFeedback.show("待测 apk 不见了，重新选一次", "去选择")) {
+                if (UiFeedback.show(t("待测 apk 不见了，重新选一次", "Test apk is missing — pick again"), t("去选择", "Select"))) {
                     Locate.request(LocateTarget.MAIN_TARGET)
                 }
                 return@launch
@@ -236,7 +237,7 @@ fun MainPage(
             // 救砖只认私有目录里的副本：原文件被删也能救，缺了就让人重选
             if (autoReplace && !withContext(Dispatchers.IO) { ApkStore.ensureRescue(context) }) {
                 starting = false
-                if (UiFeedback.show("救砖 apk 不见了，重新选一次", "去选择")) {
+                if (UiFeedback.show(t("救砖 apk 不见了，重新选一次", "Rescue apk is missing — pick again"), t("去选择", "Select"))) {
                     Locate.request(LocateTarget.MAIN_RESCUE)
                 }
                 return@launch
@@ -244,7 +245,7 @@ fun MainPage(
             val rescue = if (autoReplace) LogConfig.rescuePath else ""
             if (autoReplace && !Logcat.exists(rescue)) {
                 starting = false
-                if (UiFeedback.show("救砖 apk 不见了，重新选一次", "去选择")) {
+                if (UiFeedback.show(t("救砖 apk 不见了，重新选一次", "Rescue apk is missing — pick again"), t("去选择", "Select"))) {
                     Locate.request(LocateTarget.MAIN_RESCUE)
                 }
                 return@launch
@@ -313,7 +314,7 @@ fun MainPage(
     }
 
     ScrollPage(
-        title = "应用",
+        title = t("应用", "Apps"),
         // 定位请求要滚动这一份才有效
         listState = listState,
         subtitle = "v${AppVersion.name}",
@@ -341,7 +342,7 @@ fun MainPage(
                     )
                     Spacer(Modifier.width(3.dp))
                     Text(
-                        "有新版本可用",
+                        t("有新版本可用", "Update available"),
                         color = Color.White,
                         fontSize = 11.sp,
                         fontWeight = FontWeight.Medium,
@@ -361,20 +362,20 @@ fun MainPage(
                 // 条件不满足不再灰按钮：点了统一弹提示 并带用户去对应的卡
                 onStart = {
                     when {
-                        rootOk != true -> scope.launch { UiFeedback.toast("还没拿到 root 权限") }
+                        rootOk != true -> scope.launch { UiFeedback.toast(t("还没拿到 root 权限", "Root access not granted yet")) }
                         !targetReady -> scope.launch {
-                            if (UiFeedback.show("先选待测 apk", "去选择")) {
+                            if (UiFeedback.show(t("先选待测 apk", "Pick a test apk first"), t("去选择", "Select"))) {
                                 Locate.request(LocateTarget.MAIN_TARGET)
                             }
                         }
                         autoReplace && !rescueReady -> scope.launch {
-                            if (UiFeedback.show("自动替换开着，先选救砖 apk", "去选择")) {
+                            if (UiFeedback.show(t("自动替换开着，先选救砖 apk", "Auto-replace is on — pick a rescue apk first"), t("去选择", "Select"))) {
                                 Locate.request(LocateTarget.MAIN_RESCUE)
                             }
                         }
                         // 只判「有没有配」：目录不存在会由脚本 mkdir -p 建出来
                         state.logDir.isBlank() -> scope.launch {
-                            if (UiFeedback.show("未指定日志目录，去设置里选一个", "去设置")) {
+                            if (UiFeedback.show(t("未指定日志目录，去设置里选一个", "No log directory set — choose one in Settings"), t("去设置", "Settings"))) {
                                 Locate.request(LocateTarget.LOG_DIR)
                             }
                         }
@@ -387,7 +388,7 @@ fun MainPage(
         // 右上角三点：进配置页（目标包名 / 抓取时长 / 日志大小判定）
         onTopAction = onOpenConfig,
         topActionIcon = rememberVectorPainter(MiuixIcons.More),
-        topActionDescription = "配置",
+        topActionDescription = t("配置", "Config"),
         topActionIconSize = TopBarTuning.MENU_ICON_SIZE.dp,
     ) {
         // ---- 状态卡 ----
@@ -403,7 +404,7 @@ fun MainPage(
                             else MiuixTheme.colorScheme.onSurfaceVariantSummary
                         )
                         Text(
-                            if (running) "测试中" else "空闲",
+                            if (running) t("测试中", "Testing") else t("空闲", "Idle"),
                             style = MiuixTheme.textStyles.title2,
                             fontWeight = FontWeight.SemiBold,
                             modifier = Modifier.padding(start = 8.dp),
@@ -413,19 +414,19 @@ fun MainPage(
                     Text(
                         buildString {
                             if (running) {
-                                append(LogConfig.pkg.ifBlank { "全部进程" })
-                                append(" · 抓取 ").append(LogConfig.seconds).append(" 秒")
+                                append(LogConfig.pkg.ifBlank { t("全部进程", "All processes") })
+                                append(t(" · 抓取 ", " · Capturing ")).append(LogConfig.seconds).append(t(" 秒", " s"))
                             } else {
                                 val last = LastRun.text()
                                 if (last.isBlank()) {
-                                    append("未在运行")
+                                    append(t("未在运行", "Not running"))
                                 } else {
-                                    append("上次 ").append(LastRun.timeText()).append(" · ").append(last)
+                                    append(t("上次 ", "Last ")).append(LastRun.timeText()).append(" · ").append(last)
                                 }
                             }
-                            append(" · 自动替换").append(if (autoReplace) "开" else "关")
-                            if (LogConfig.targetPkg == Logcat.PLUGIN_PKG) append(" · plugin 增强")
-                            if (rescueCount > 0) append(" · 已救砖 ").append(rescueCount).append(" 次")
+                            append(t(" · 自动替换", " · Auto-replace")).append(if (autoReplace) t("开", " on") else t("关", " off"))
+                            if (LogConfig.targetPkg == Logcat.PLUGIN_PKG) append(t(" · plugin 增强", " · plugin enhanced"))
+                            if (rescueCount > 0) append(t(" · 已救砖 ", " · Rescued ")).append(rescueCount).append(t(" 次", " times"))
                             if (logSize > 0) append(" · ").append(Module.fmtSize(logSize))
                         },
                         color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
@@ -440,7 +441,7 @@ fun MainPage(
                         ) {
                             if (logLines.isEmpty()) {
                                 Text(
-                                    "等待输出…",
+                                    t("等待输出…", "Waiting for output…"),
                                     color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                                     style = MiuixTheme.textStyles.subtitle,
                                 )
@@ -486,14 +487,14 @@ fun MainPage(
                 ) {
                     Column(Modifier.padding(16.dp)) {
                         Text(
-                            "未获得 root 权限",
+                            t("未获得 root 权限", "Root access not granted"),
                             color = MiuixTheme.colorScheme.error,
                             style = MiuixTheme.textStyles.main,
                             fontWeight = FontWeight.Medium,
                         )
                         Spacer(Modifier.height(4.dp))
                         Text(
-                            "请在弹出的授权框里允许本应用使用 su 然后重新打开",
+                            t("请在弹出的授权框里允许本应用使用 su 然后重新打开", "Allow su for this app in the prompt, then reopen"),
                             color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                             style = MiuixTheme.textStyles.subtitle,
                         )
@@ -503,7 +504,7 @@ fun MainPage(
         }
 
         // ---- 文件：先开关 再展开选 apk ----
-        item { SmallTitle("文件") }
+        item { SmallTitle(t("文件", "Files")) }
         item {
             SectionCard {
                 SwitchPreference(
@@ -512,8 +513,8 @@ fun MainPage(
                         LogConfig.autoReplace = it
                         LogConfig.save(context)
                     },
-                    title = "自动替换",
-                    summary = "在apk崩溃后 换回救砖apk",
+                    title = t("自动替换", "Auto-replace"),
+                    summary = t("在apk崩溃后 换回救砖apk", "Roll back to the rescue apk after a crash"),
                     enabled = !locked,
                 )
                 AnimatedVisibility(
@@ -523,7 +524,7 @@ fun MainPage(
                 ) {
                     Column {
                         ArrowPreference(
-                            title = "救砖apk",
+                            title = t("救砖apk", "Rescue apk"),
                             // 没选就给 null（不是空串）：库按「有没有 summary」排版，
                             // 空串仍会占一行空白 标题就被顶到上面去了
                             summary = if (rescueReady) {
@@ -538,7 +539,7 @@ fun MainPage(
                     }
                 }
                 ArrowPreference(
-                    title = "待测apk",
+                    title = t("待测apk", "Test apk"),
                     summary = if (targetReady) {
                         LogConfig.targetPath.substringAfterLast('/')
                     } else {
@@ -556,8 +557,8 @@ fun MainPage(
     if (showStartConfirm) {
         WindowDialog(
             show = true,
-            title = "开始测试",
-            summary = "确认后立即安装待测apk",
+            title = t("开始测试", "Start test"),
+            summary = t("确认后立即安装待测apk", "The test apk is installed right after you confirm"),
             maxWidth = 560.dp,
             onDismissRequest = { showStartConfirm = false },
         ) {
@@ -569,13 +570,13 @@ fun MainPage(
             Spacer(Modifier.height(20.dp))
             Row(modifier = Modifier.fillMaxWidth()) {
                 TextButton(
-                    text = "取消",
+                    text = t("取消", "Cancel"),
                     onClick = { showStartConfirm = false },
                     modifier = Modifier.weight(1f),
                 )
                 Spacer(Modifier.width(20.dp))
                 TextButton(
-                    text = "继续",
+                    text = t("继续", "Continue"),
                     onClick = {
                         showStartConfirm = false
                         startTest()

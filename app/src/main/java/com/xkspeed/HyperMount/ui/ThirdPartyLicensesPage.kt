@@ -7,6 +7,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.unit.dp
 import com.xkspeed.HyperMount.ui.components.SectionCard
+import com.xkspeed.HyperMount.i18n.t
 import com.xkspeed.HyperMount.ui.component.glass.ScrollPage
 import top.yukonga.miuix.kmp.basic.SmallTitle
 import top.yukonga.miuix.kmp.preference.ArrowPreference
@@ -38,7 +39,7 @@ fun ThirdPartyLicensesPage(
     val libraries = listOf(
         OssLibrary(
             name = "Jetpack Compose",
-            version = "1.11.x（由 Miuix 传递）",
+            version = t("1.11.x（由 Miuix 传递）", "1.11.x (via Miuix)"),
             license = "Apache-2.0",
             website = "https://developer.android.com/jetpack/androidx/releases/compose",
         ),
@@ -73,8 +74,8 @@ fun ThirdPartyLicensesPage(
             website = "https://github.com/compose-miuix-ui/miuix",
         ),
         OssLibrary(
-            name = "miuix-nav（内嵌导航）",
-            version = "0.9.4",
+            name = "miuix-nav",
+            version = t("0.9.4（内嵌导航）", "0.9.4 (embedded navigation)"),
             license = "Apache-2.0",
             website = "https://github.com/compose-miuix-ui/miuix",
         ),
@@ -99,11 +100,11 @@ fun ThirdPartyLicensesPage(
     )
 
     ScrollPage(
-        title = "第三方许可证",
+        title = t("第三方许可证", "Third-party licenses"),
         onBack = onBack,
         bottomPadding = 16.dp,
     ) {
-        item { SmallTitle("开源依赖") }
+        item { SmallTitle(t("开源依赖", "Open-source dependencies")) }
         libraries.forEach { lib ->
             item {
                 SectionCard {
@@ -122,7 +123,7 @@ fun ThirdPartyLicensesPage(
         item {
             SectionCard {
                 ArrowPreference(
-                    title = "移植参考",
+                    title = t("移植参考", "Porting notes"),
                     onClick = onOpenPorting,
                 )
             }

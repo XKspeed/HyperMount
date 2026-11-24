@@ -5,6 +5,7 @@ import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.unit.dp
+import com.xkspeed.HyperMount.i18n.t
 
 /**
  * 底栏三个图标的尺寸与位置（dp 与纵向缩放）。
@@ -26,9 +27,10 @@ data class NavIconTune(
 )
 
 object NavIconTuning {
-    /** 底栏顺序：系统界面 / 应用 / 设置 */
+    /** 底栏顺序：系统界面 / 应用 / 设置（labels get 现取现译 语言一换立即跟着换） */
     val keys = listOf("systemUi", "apps", "settings")
-    val labels = listOf("系统界面", "应用", "设置")
+    val labels
+        get() = listOf(t("系统界面", "System UI"), t("应用", "Apps"), t("设置", "Settings"))
 
     /** 图标在布局里固定占这么大 尺寸变化只缩放绘制内容 */
     const val BASE_SIZE = 26f

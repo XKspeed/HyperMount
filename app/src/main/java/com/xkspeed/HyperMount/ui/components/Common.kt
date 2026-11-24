@@ -44,6 +44,7 @@ import com.kyant.shapes.Capsule
 import com.xkspeed.HyperMount.ui.Locate
 import com.xkspeed.HyperMount.ui.LocateTarget
 import com.xkspeed.HyperMount.ui.UiConfigState
+import com.xkspeed.HyperMount.i18n.t
 import com.xkspeed.HyperMount.ui.component.glass.bottomBarTopOffset
 import com.xkspeed.HyperMount.ui.component.glass.frostedCapsule
 import top.yukonga.miuix.kmp.basic.Button
@@ -281,9 +282,9 @@ fun MiuixDialog(
 
 @Composable
 fun DialogActions(
-    confirmText: String = "确定",
+    confirmText: String = t("确定", "OK"),
     onConfirm: () -> Unit,
-    cancelText: String = "取消",
+    cancelText: String = t("取消", "Cancel"),
     onCancel: () -> Unit,
 ) {
     Spacer(Modifier.height(18.dp))
@@ -302,7 +303,7 @@ fun BackIcon(onClick: () -> Unit, modifier: Modifier = Modifier) {
     IconButton(modifier = modifier, onClick = onClick) {
         Icon(
             imageVector = MiuixIcons.Back,
-            contentDescription = "返回",
+            contentDescription = t("返回", "Back"),
             tint = MiuixTheme.colorScheme.onBackground,
         )
     }
@@ -346,9 +347,9 @@ fun BoxScope.BottomActions(
         ActionCard(
             backdrop = if (glass) backdrop else null,
             label = when {
-                busy -> "启动中…"
-                running -> "停止"
-                else -> "开始测试"
+                busy -> t("启动中…", "Starting…")
+                running -> t("停止", "Stop")
+                else -> t("开始测试", "Start test")
             },
             enabled = !busy,
             tone = if (running) ActionTone.Danger else ActionTone.Accent,

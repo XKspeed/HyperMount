@@ -64,6 +64,7 @@ import androidx.core.graphics.drawable.toBitmap
 import com.xkspeed.HyperMount.core.Module
 import com.xkspeed.HyperMount.core.ModuleState
 import com.xkspeed.HyperMount.core.Root
+import com.xkspeed.HyperMount.i18n.t
 import kotlinx.coroutines.delay
 import top.yukonga.miuix.kmp.basic.Button
 import top.yukonga.miuix.kmp.basic.ButtonDefaults
@@ -189,7 +190,7 @@ fun OnboardingPage(
             volAlready = true
             upState = KeyState.Passed
             downState = KeyState.Passed
-            volHint = "之前已经校验过 直接继续就行"
+            volHint = t("之前已经校验过 直接继续就行", "Verified before — you can continue directly")
         }
         envChecking = false
     }
@@ -203,7 +204,7 @@ fun OnboardingPage(
         if (!rootNow) {
             upState = KeyState.Failed
             downState = KeyState.Failed
-            volHint = "没有 ROOT 权限 读不到按键设备 先去授权再来"
+            volHint = t("没有 ROOT 权限 读不到按键设备 先去授权再来", "No ROOT access — key devices can't be read. Grant it first and come back")
             return@LaunchedEffect
         }
 
@@ -218,24 +219,24 @@ fun OnboardingPage(
 
         upState = KeyState.Waiting
         downState = KeyState.Idle
-        volHint = "请按一次【音量 +】"
+        volHint = t("请按一次【音量 +】", "Press [Volume +] once")
         val up = runCatching { Module.check("up") }.getOrDefault("").trim()
         val upLine = up.lineSequence().firstOrNull { it.startsWith("OK") }
         if (upLine == null) {
             upState = KeyState.Failed
-            volHint = "没读到音量 + 确认键没坏 点下面的重试再来一次"
+            volHint = t("没读到音量 + 确认键没坏 点下面的重试再来一次", "Volume + wasn't read — make sure the key isn't broken, then retry below")
             return@LaunchedEffect
         }
         upState = KeyState.Passed
         val upDev = upLine.removePrefix("OK").trim()
 
         downState = KeyState.Waiting
-        volHint = "请按一次【音量 −】"
+        volHint = t("请按一次【音量 −】", "Press [Volume −] once")
         val down = runCatching { Module.check("down") }.getOrDefault("").trim()
         val downLine = down.lineSequence().firstOrNull { it.startsWith("OK") }
         if (downLine == null) {
             downState = KeyState.Failed
-            volHint = "音量 + 通过了 音量 − 没读到 再试一次"
+            volHint = t("音量 + 通过了 音量 − 没读到 再试一次", "Volume + passed, but Volume − wasn't read — try again")
             return@LaunchedEffect
         }
         downState = KeyState.Passed
@@ -246,9 +247,9 @@ fun OnboardingPage(
         if (save.contains("OK")) {
             // 记下这次校验时的系统版本 下次系统升级才会再拉一次
             UiConfigState.markVolumeChecked(context)
-            volHint = "校验通过 已写入模块配置"
+            volHint = t("校验通过 已写入模块配置", "Check passed — saved to the module config")
         } else {
-            volHint = "按键能读到 但写入配置失败 去设置里再校验一次"
+            volHint = t("按键能读到 但写入配置失败 去设置里再校验一次", "Keys are readable, but saving failed — run the check again in Settings")
         }
     }
 
@@ -262,15 +263,15 @@ fun OnboardingPage(
         else -> true
     }
     val buttonLabel = when (step) {
-        0 -> "开始"
-        1 -> "同意并继续"
+        0 -> t("开始", "Start")
+        1 -> t("同意并继续", "Agree & continue")
         2 -> when {
-            envChecking -> "检测中…"
-            !envReady -> "等待环境检查通过"
-            else -> "继续"
+            envChecking -> t("检测中…", "Checking…")
+            !envReady -> t("等待环境检查通过", "Waiting for the environment check")
+            else -> t("继续", "Continue")
         }
-        3 -> if (volDone) "继续" else "跳过校验"
-        else -> "开始使用"
+        3 -> if (volDone) t("继续", "Continue") else t("跳过校验", "Skip check")
+        else -> t("开始使用", "Get started")
     }
 
     fun next() {
@@ -348,7 +349,7 @@ fun OnboardingPage(
                             } else {
                                 Toast.makeText(
                                     context,
-                                    "没找到自启动管理页 去手机管家里手动允许",
+                                    t("没找到自启动管理页 去手机管家里手动允许", "Couldn't find the autostart page — allow it manually in your phone manager"),
                                     Toast.LENGTH_SHORT,
                                 ).show()
                             }
@@ -385,14 +386,14 @@ fun OnboardingPage(
                         )
                         Spacer(Modifier.width(6.dp))
                         Text(
-                            "我已阅读并了解以上内容",
+                            t("我已阅读并了解以上内容", "I have read and understood the above"),
                             style = MiuixTheme.textStyles.main,
                         )
                         // 倒计时没走完时在勾选文字右边说明为什么按钮点不了
                         if (agreeLeft > 0) {
                             Spacer(Modifier.weight(1f))
                             Text(
-                                "$agreeLeft 秒后可继续",
+                                t("$agreeLeft 秒后可继续", "Continuing in $agreeLeft s"),
                                 style = MiuixTheme.textStyles.subtitle,
                                 color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                                 maxLines = 1,
@@ -466,23 +467,23 @@ private fun WelcomeStep(icon: androidx.compose.ui.graphics.ImageBitmap?) {
 
         FeatureRow(
             icon = MiuixIcons.Backup,
-            title = "崩了自动换回",
-            desc = "崩溃到阈值 / 日志疯长 / 堆栈刷屏 任一命中就装回救砖包",
+            title = t("崩了自动换回", "Auto roll-back on crash"),
+            desc = t("崩溃到阈值 / 日志疯长 / 堆栈刷屏 任一命中就装回救砖包", "Crash threshold hit, runaway logs, or a flooding stack — the rescue apk goes back in"),
         )
         FeatureRow(
             icon = MiuixIcons.VolumeUp,
-            title = "音量键兜底",
-            desc = "屏幕点不动时 音量 + 直接换回 音量 − 取消",
+            title = t("音量键兜底", "Volume-key fallback"),
+            desc = t("屏幕点不动时 音量 + 直接换回 音量 − 取消", "When the screen is untouchable, Volume + rolls back, Volume − cancels"),
         )
         FeatureRow(
             icon = MiuixIcons.Layers,
-            title = "不碰系统分区",
-            desc = "模块挂载 卸载模块就回到原界面 改坏了也能退",
+            title = t("不碰系统分区", "No system partitions touched"),
+            desc = t("模块挂载 卸载模块就回到原界面 改坏了也能退", "Mounted as a module — uninstall it and the original build is back, so a mistake is recoverable"),
         )
         FeatureRow(
             icon = MiuixIcons.Info,
-            title = "也能测任意 APK",
-            desc = "主页是独立流程 不依赖模块守护 装完就看崩不崩",
+            title = t("也能测任意 APK", "Test any APK too"),
+            desc = t("主页是独立流程 不依赖模块守护 装完就看崩不崩", "The Home page is a standalone flow with no module daemon — install and see if it crashes"),
         )
         Spacer(Modifier.height(24.dp))
     }
@@ -538,21 +539,31 @@ private fun NoticeStep() {
             .padding(horizontal = 24.dp),
     ) {
         Spacer(Modifier.height(30.dp))
-        Text("使用之前", style = MiuixTheme.textStyles.title1, fontWeight = FontWeight.SemiBold)
+        Text(t("使用之前", "Before you start"), style = MiuixTheme.textStyles.title1, fontWeight = FontWeight.SemiBold)
         Spacer(Modifier.height(22.dp))
 
         NoticeItem(
-            "需要 ROOT 与模块",
-            "所有操作都走 root shell 调用 systemui_mount 的 webctl.sh 和 check.sh " +
-                "没装模块时只能看不能救 ",
+            t("需要 ROOT 与模块", "ROOT and the module are required"),
+            t(
+                "所有操作都走 root shell 调用 systemui_mount 的 webctl.sh 和 check.sh " +
+                    "没装模块时只能看不能救 ",
+                "Everything runs through a root shell calling systemui_mount's webctl.sh and check.sh — " +
+                    "without the module you can look but not rescue ",
+            ),
         )
         NoticeItem(
-            "救砖包必须能用",
-            "换回去的包得是能正常启动的系统界面 如果救砖包本身也是坏的 换回去照样黑屏 ",
+            t("救砖包必须能用", "The rescue build must actually work"),
+            t(
+                "换回去的包得是能正常启动的系统界面 如果救砖包本身也是坏的 换回去照样黑屏 ",
+                "The package you roll back to must boot normally — a broken rescue build still means a black screen ",
+            ),
         )
         NoticeItem(
-            "出问题自己负责",
-            "改系统界面有风险 刷机、模块冲突导致的后果需要你自己承担 ",
+            t("出问题自己负责", "You are responsible for what happens"),
+            t(
+                "改系统界面有风险 刷机、模块冲突导致的后果需要你自己承担 ",
+                "Swapping the SystemUI carries risks — consequences of flashing or module conflicts are on you ",
+            ),
         )
 
         Spacer(Modifier.height(12.dp))
@@ -622,17 +633,17 @@ private fun EnvStep(
             .padding(horizontal = 24.dp),
     ) {
         Spacer(Modifier.height(30.dp))
-        Text("环境检查", style = MiuixTheme.textStyles.title1, fontWeight = FontWeight.SemiBold)
+        Text(t("环境检查", "Environment check"), style = MiuixTheme.textStyles.title1, fontWeight = FontWeight.SemiBold)
         Spacer(Modifier.height(22.dp))
 
         Card(Modifier.fillMaxWidth()) {
-            EnvRow("ROOT 权限", if (checking) "检测中…" else if (env.root) "已授权" else "未授权", env.root, checking)
+            EnvRow(t("ROOT 权限", "ROOT access"), if (checking) t("检测中…", "Checking…") else if (env.root) t("已授权", "Granted") else t("未授权", "Not granted"), env.root, checking)
             EnvRow(
-                "救砖模块",
+                t("救砖模块", "Rescue module"),
                 when {
-                    checking -> "检测中…"
-                    env.moduleVersion.isBlank() -> "未安装"
-                    !env.moduleOk -> "不是 XKspeed 版"
+                    checking -> t("检测中…", "Checking…")
+                    env.moduleVersion.isBlank() -> t("未安装", "Not installed")
+                    !env.moduleOk -> t("不是 XKspeed 版", "Not an XKspeed build")
                     else -> "v${env.moduleVersion} · XKspeed"
                 },
                 env.moduleOk,
@@ -648,7 +659,7 @@ private fun EnvStep(
                 .padding(horizontal = 12.dp, vertical = 8.dp)
         ) {
             Text(
-                if (checking) "正在检测…" else "重新检测",
+                if (checking) t("正在检测…", "Checking…") else t("重新检测", "Check again"),
                 style = MiuixTheme.textStyles.subtitle,
                 color = MiuixTheme.colorScheme.primary,
             )
@@ -657,7 +668,7 @@ private fun EnvStep(
         // 自启动：守护要在后台常驻 光有前台服务不够 系统照样清
         Spacer(Modifier.height(10.dp))
         Card(Modifier.fillMaxWidth()) {
-            ArrowPreference(title = "自启动", onClick = onOpenAutostart)
+            ArrowPreference(title = t("自启动", "Autostart"), onClick = onOpenAutostart)
         }
 
         Spacer(Modifier.height(8.dp))
@@ -671,7 +682,7 @@ private fun EnvStep(
                     .padding(horizontal = 14.dp, vertical = 12.dp),
             ) {
                 Text(
-                    "两项都通过才能继续",
+                    t("两项都通过才能继续", "Both checks must pass to continue"),
                     style = MiuixTheme.textStyles.main,
                     fontWeight = FontWeight.Medium,
                     color = MiuixTheme.colorScheme.error,
@@ -679,9 +690,9 @@ private fun EnvStep(
                 Spacer(Modifier.height(4.dp))
                 Text(
                     when {
-                        !env.root -> "先在 ROOT 管理器里给 HyperMount 授权 然后点上面的「重新检测」 "
-                        env.moduleVersion.isBlank() -> "还没装救砖模块 去 Magisk / KernelSU 里刷入模块 重启后再回来检测 "
-                        else -> "当前模块不是 XKspeed 版 它的脚本对不上 请换成官方发布的那份 "
+                        !env.root -> t("先在 ROOT 管理器里给 HyperMount 授权 然后点上面的「重新检测」 ", "Grant HyperMount in your ROOT manager first, then tap \"Check again\" above ")
+                        env.moduleVersion.isBlank() -> t("还没装救砖模块 去 Magisk / KernelSU 里刷入模块 重启后再回来检测 ", "The rescue module isn't installed yet — flash it in Magisk / KernelSU, reboot, then check again ")
+                        else -> t("当前模块不是 XKspeed 版 它的脚本对不上 请换成官方发布的那份 ", "The current module isn't an XKspeed build and its scripts don't match — use the official release ")
                     },
                     style = MiuixTheme.textStyles.subtitle,
                     color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
@@ -691,7 +702,7 @@ private fun EnvStep(
 
         Spacer(Modifier.height(12.dp))
         Text(
-            "模块作者必须是 XKspeed 用的才是这套脚本 别家挂载的调不了 sh ",
+            t("模块作者必须是 XKspeed 用的才是这套脚本 别家挂载的调不了 sh ", "The module author must be XKspeed — only that one carries these scripts; modules mounted by others can't be driven "),
             style = MiuixTheme.textStyles.subtitle,
             color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
         )
@@ -734,12 +745,12 @@ private fun VolumeStep(
             .padding(horizontal = 24.dp),
     ) {
         Spacer(Modifier.height(30.dp))
-        Text("音量键校验", style = MiuixTheme.textStyles.title1, fontWeight = FontWeight.SemiBold)
+        Text(t("音量键校验", "Volume key check"), style = MiuixTheme.textStyles.title1, fontWeight = FontWeight.SemiBold)
         Spacer(Modifier.height(22.dp))
 
         Card(Modifier.fillMaxWidth()) {
-            KeyRow("音量 +", up)
-            KeyRow("音量 −", down)
+            KeyRow(t("音量 +", "Volume +"), up)
+            KeyRow(t("音量 −", "Volume −"), down)
         }
 
         Spacer(Modifier.height(16.dp))
@@ -749,7 +760,7 @@ private fun VolumeStep(
                 Spacer(Modifier.width(8.dp))
             }
             Text(
-                hint.ifBlank { "准备中…" },
+                hint.ifBlank { t("准备中…", "Getting ready…") },
                 style = MiuixTheme.textStyles.subtitle,
                 color = when {
                     up is KeyState.Failed || down is KeyState.Failed ->
@@ -770,7 +781,7 @@ private fun VolumeStep(
                     .padding(horizontal = 12.dp, vertical = 8.dp)
             ) {
                 Text(
-                    "重新校验",
+                    t("重新校验", "Check again"),
                     style = MiuixTheme.textStyles.subtitle,
                     color = MiuixTheme.colorScheme.primary,
                 )
@@ -790,10 +801,10 @@ private fun KeyRow(label: String, state: KeyState) {
         Text(label, style = MiuixTheme.textStyles.main, modifier = Modifier.weight(1f))
         Text(
             when (state) {
-                KeyState.Idle -> "等待"
-                KeyState.Waiting -> "请按键…"
-                KeyState.Passed -> "已识别"
-                KeyState.Failed -> "没读到"
+                KeyState.Idle -> t("等待", "Waiting")
+                KeyState.Waiting -> t("请按键…", "Press a key…")
+                KeyState.Passed -> t("已识别", "Detected")
+                KeyState.Failed -> t("没读到", "Not read")
             },
             style = MiuixTheme.textStyles.subtitle,
             color = when (state) {
@@ -863,7 +874,7 @@ private fun DoneStep() {
             }
         }
         Spacer(Modifier.height(24.dp))
-        Text("设置完毕", style = MiuixTheme.textStyles.title1, fontWeight = FontWeight.SemiBold)
+        Text(t("设置完毕", "All set"), style = MiuixTheme.textStyles.title1, fontWeight = FontWeight.SemiBold)
         Spacer(Modifier.height(34.dp))
 
         Card(Modifier.fillMaxWidth()) {
@@ -874,8 +885,8 @@ private fun DoneStep() {
                     UiConfigState.autoCheckUpdate = it
                     UiConfigState.save(context)
                 },
-                title = "自动检查更新",
-                summary = "启动时看一眼 GitHub 上有没有新版本",
+                title = t("自动检查更新", "Auto check"),
+                summary = t("启动时看一眼 GitHub 上有没有新版本", "Look for new releases on GitHub at launch"),
             )
         }
         Spacer(Modifier.height(20.dp))

@@ -15,6 +15,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.xkspeed.HyperMount.core.LogConfig
 import com.xkspeed.HyperMount.core.Logcat
+import com.xkspeed.HyperMount.i18n.t
 import com.xkspeed.HyperMount.ui.component.glass.ScrollPage
 import com.xkspeed.HyperMount.ui.components.SectionCard
 import com.xkspeed.HyperMount.ui.components.SliderInputPreference
@@ -34,12 +35,12 @@ fun ConfigPage(onBack: () -> Unit) {
     val context = LocalContext.current
 
     ScrollPage(
-        title = "配置",
-        subtitle = "目标包名 · 抓取时长 · 日志大小判定",
+        title = t("配置", "Config"),
+        subtitle = t("目标包名 · 抓取时长 · 日志大小判定", "Target package · capture time · log size limit"),
         onBack = onBack,
         bottomPadding = stableNavigationBarHeight() + 24.dp,
     ) {
-        item { SmallTitle("抓取") }
+        item { SmallTitle(t("抓取", "Capture")) }
         item {
             SectionCard {
                 Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
@@ -50,27 +51,27 @@ fun ConfigPage(onBack: () -> Unit) {
                             LogConfig.save(context)
                         },
                         // 空时居中、输入后上浮缩小：和示例里的 With title 同款
-                        label = "目标包名",
+                        label = t("目标包名", "Target package"),
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth(),
                     )
                     Spacer(Modifier.height(4.dp))
                     SliderInputPreference(
-                        title = "抓取时长",
-                        summary = "装完 2 秒后开始算 下一轮生效",
+                        title = t("抓取时长", "Capture time"),
+                        summary = t("装完 2 秒后开始算 下一轮生效", "Counts from 2 s after install; applies to the next run"),
                         value = LogConfig.seconds.toFloat(),
                         defaultValue = Logcat.DEFAULT_SECONDS.toFloat(),
                         onValueChange = { LogConfig.seconds = it.roundToInt() },
                         onValueChangeFinished = { LogConfig.save(context) },
                         valueRange = Logcat.MIN_SECONDS.toFloat()..Logcat.MAX_SECONDS.toFloat(),
                         steps = Logcat.MAX_SECONDS - Logcat.MIN_SECONDS - 1,
-                        valueText = "${LogConfig.seconds} 秒",
-                        inputUnit = "秒",
+                        valueText = t("${LogConfig.seconds} 秒", "${LogConfig.seconds} s"),
+                        inputUnit = t("秒", "s"),
                         insideMargin = PaddingValues(horizontal = 0.dp, vertical = 14.dp),
                     )
                     SliderInputPreference(
-                        title = "日志大小判定",
-                        summary = "crash 日志超过这个大小也算崩",
+                        title = t("日志大小判定", "Log size limit"),
+                        summary = t("crash 日志超过这个大小也算崩", "Crash logs past this size count as a crash too"),
                         value = LogConfig.sizeLimitKb.toFloat(),
                         defaultValue = Logcat.DEFAULT_SIZE_KB.toFloat(),
                         onValueChange = { LogConfig.sizeLimitKb = it.roundToInt() },

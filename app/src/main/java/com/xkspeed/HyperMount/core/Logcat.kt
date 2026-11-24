@@ -11,6 +11,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
+import com.xkspeed.HyperMount.i18n.t
 import java.util.Date
 import java.util.Locale
 
@@ -441,13 +442,13 @@ object Logcat {
         // 和 stop 串行：手动停止还没收完尾就点开始 会互相踩 PID 文件
         lifecycle.withLock {
             // 目录空着就不跑：兜底到隐藏目录 只会在用户不知道的地方堆一堆日志
-            if (dir.isBlank()) return@withContext StartResult.Fail("未指定日志目录")
+            if (dir.isBlank()) return@withContext StartResult.Fail(t("未指定日志目录", "No log directory set"))
             val target = dir
             val SCRIPT = scriptFile()
             val PID_FILE = pidFile()
             val RUN_LOG = runLog()
             if (SCRIPT.isBlank() || PID_FILE.isBlank()) {
-                return@withContext StartResult.Fail("应用私有目录不可用")
+                return@withContext StartResult.Fail(t("应用私有目录不可用", "App-private storage is unavailable"))
             }
 
             // 日志目录探针：logcat -f 写不进去不会报错 只会整轮 0 字节
@@ -457,7 +458,7 @@ object Logcat {
                     "rm -f ${Root.q("$target/.hm_probe")} 2>/dev/null",
             )
             if (!probe.contains("PROBE_OK")) {
-                return@withContext StartResult.Fail("日志目录不可写 $target")
+                return@withContext StartResult.Fail(t("日志目录不可写 $target", "Log directory is not writable: $target"))
             }
 
             val file = "$target/logcat_${safeName(pkg)}_${stamp()}.log"
@@ -501,7 +502,7 @@ object Logcat {
             )
             AppLog.i("脚本", "待测=$targetApk 救砖=${rescueApk.ifBlank { "(未启用)" }}")
             if (pid.toIntOrNull() == null) {
-                return@withContext StartResult.Fail("脚本没有起来 检查 root 授权")
+                return@withContext StartResult.Fail(t("脚本没有起来 检查 root 授权", "The script didn't start — check the root grant"))
             }
             resetAppLogSync()
             StartResult.Ok(Session(pkg = pkg, seconds = seconds, file = file))
@@ -545,8 +546,8 @@ object Logcat {
      * 复制前先看剩余空间：空间不够时明确说还差多少，而不是丢一句「读不出来」。
      */
     suspend fun stageTarget(src: String): StageResult = withContext(Dispatchers.IO) {
-        val ctx = app ?: return@withContext StageResult.Fail("应用私有目录不可用")
-        if (src.isBlank()) return@withContext StageResult.Fail("还没有选待测apk")
+        val ctx = app ?: return@withContext StageResult.Fail(t("应用私有目录不可用", "App-private storage is unavailable"))
+        if (src.isBlank()) return@withContext StageResult.Fail(t("还没有选待测apk", "No test apk picked yet"))
         val dir = java.io.File(ctx.cacheDir, STAGE_DIR).apply { mkdirs() }
         val name = src.substringAfterLast('/').ifBlank { "target.apk" }
         val dst = java.io.File(dir, name)
@@ -556,7 +557,7 @@ object Logcat {
             .trim().toLongOrNull() ?: 0L
         if (srcSize <= 0L) {
             AppLog.e("测试", "待测apk读不到 $src")
-            return@withContext StageResult.Fail("待测apk读不到 检查文件是否还在")
+            return@withContext StageResult.Fail(t("待测apk读不到 检查文件是否还在", "Test apk can't be read — check the file is still there"))
         }
 
         // 上一轮留下的同一份直接复用：先比大小 再比内容
@@ -576,7 +577,7 @@ object Logcat {
         if (free in 1 until (srcSize + srcSize / 10)) {
             val need = Module.fmtSize(srcSize - free)
             AppLog.e("测试", "缓存空间不足 需要${Module.fmtSize(srcSize)} 可用${Module.fmtSize(free)}")
-            return@withContext StageResult.Fail("存储空间不足 还差 $need")
+            return@withContext StageResult.Fail(t("存储空间不足 还差 $need", "Not enough storage — short by $need"))
         }
 
         dst.delete()
@@ -593,7 +594,7 @@ object Logcat {
         if (got != srcSize) {
             AppLog.e("测试", "待测apk复制到缓存失败 期望${srcSize}B 实际${got}B\n$out")
             tmp.delete()
-            return@withContext StageResult.Fail("复制到缓存失败 再试一次")
+            return@withContext StageResult.Fail(t("复制到缓存失败 再试一次", "Copy to cache failed — try again"))
         }
         if (dst.exists()) dst.delete()
         if (!tmp.renameTo(dst)) {
@@ -605,7 +606,7 @@ object Logcat {
         if (!dst.isFile || dst.length() != srcSize) {
             AppLog.e("测试", "待测apk缓存副本落盘失败 ${dst.absolutePath}")
             dst.delete()
-            return@withContext StageResult.Fail("缓存副本落盘失败")
+            return@withContext StageResult.Fail(t("缓存副本落盘失败", "Writing the cached copy failed"))
         }
         pruneStage(dst)
         AppLog.i("测试", "待测apk已复制到缓存 ${dst.name} ${srcSize / 1024 / 1024}MB 原路径不动")
@@ -932,13 +933,13 @@ object LastRun {
         java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault())
             .format(java.util.Date(at))
 
-    /** 结论翻成一句人话 */
+    /** 结论翻成一句人话（现取现译 语言一换立即跟着换） */
     fun text(): String = when (result) {
-        "rescued" -> "已自动救砖"
-        "rescue_failed" -> "救砖失败"
-        "crash" -> "检测到崩溃 未执行救砖"
-        "no_crash" -> "未检测到崩溃"
-        "dir_unwritable" -> "日志目录不可写"
+        "rescued" -> t("已自动救砖", "Rescued automatically")
+        "rescue_failed" -> t("救砖失败", "Rescue failed")
+        "crash" -> t("检测到崩溃 未执行救砖", "Crash detected — no rescue")
+        "no_crash" -> t("未检测到崩溃", "No crash detected")
+        "dir_unwritable" -> t("日志目录不可写", "Log directory is not writable")
         else -> ""
     }
 }

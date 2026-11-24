@@ -19,13 +19,13 @@ import java.util.Locale
  * 低等级包含高等级：选 [INFO] 时 ERROR/WARN 也照样记
  * [OFF] 只停应用流水 崩溃堆栈仍然会落盘（不然出事没法查）
  */
-enum class LogLevel(val label: String, val tag: String) {
-    OFF("关闭", "OFF"),
+enum class LogLevel(val label: String, val enLabel: String, val tag: String) {
+    OFF("关闭", "Off", "OFF"),
     // 下面三级是写入级别（决定行首的 E/W/I 标记），界面上只暴露「正常 / 调试」两档
-    ERROR("仅错误", "E"),
-    WARN("警告", "W"),
-    INFO("正常", "I"),
-    DEBUG("调试", "D"),
+    ERROR("仅错误", "Errors only", "E"),
+    WARN("警告", "Warnings", "W"),
+    INFO("正常", "Normal", "I"),
+    DEBUG("调试", "Debug", "D"),
 }
 
 /**

@@ -18,6 +18,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.xkspeed.HyperMount.R
+import com.xkspeed.HyperMount.i18n.t
 import com.xkspeed.HyperMount.ui.component.effect.BgEffectBackground
 import com.xkspeed.HyperMount.ui.component.glass.ScrollPage
 import com.xkspeed.HyperMount.ui.util.isInDarkTheme
@@ -36,7 +37,7 @@ fun DonatePage(onBack: () -> Unit) {
     val dark = isInDarkTheme()
 
     ScrollPage(
-        title = "向作者捐赠",
+        title = t("向作者捐赠", "Donate"),
         onBack = onBack,
         // 二级页：只让开导航栏
         bottomPadding = stableNavigationBarHeight() + 24.dp,
@@ -62,7 +63,7 @@ fun DonatePage(onBack: () -> Unit) {
                         painter = painterResource(
                             if (dark) R.drawable.donate_qr_dark else R.drawable.donate_qr_light,
                         ),
-                        contentDescription = "捐赠二维码",
+                        contentDescription = t("捐赠二维码", "Donation QR code"),
                         contentScale = ContentScale.Fit,
                         modifier = Modifier.fillMaxSize(),
                     )
@@ -76,10 +77,16 @@ fun DonatePage(onBack: () -> Unit) {
                 }
                 Spacer(Modifier.height(24.dp))
                 Text(
-                    text = "觉得做的不错的 可以支持下\n" +
-                        "你的支持就是我开发最大的动力\n" +
-                        "捐赠不会带来任何特殊权益\n" +
-                        "本应用永久免费使用",
+                    text = t(
+                        "觉得做的不错的 可以支持下\n" +
+                            "你的支持就是我开发最大的动力\n" +
+                            "捐赠不会带来任何特殊权益\n" +
+                            "本应用永久免费使用",
+                        "If you find it useful, you can support the development\n" +
+                            "Your support is my biggest motivation\n" +
+                            "Donating grants no special privileges\n" +
+                            "This app is free to use, forever",
+                    ),
                     color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                     fontSize = 14.sp,
                     lineHeight = 24.sp,

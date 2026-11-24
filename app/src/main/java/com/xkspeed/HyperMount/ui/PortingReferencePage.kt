@@ -7,6 +7,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.unit.dp
 import com.xkspeed.HyperMount.ui.component.glass.ScrollPage
+import com.xkspeed.HyperMount.i18n.t
 import com.xkspeed.HyperMount.ui.components.SectionCard
 import top.yukonga.miuix.kmp.basic.SmallTitle
 import top.yukonga.miuix.kmp.preference.ArrowPreference
@@ -23,30 +24,30 @@ fun PortingReferencePage(onBack: () -> Unit) {
     val uriHandler = LocalUriHandler.current
 
     ScrollPage(
-        title = "移植参考",
+        title = t("移植参考", "Porting notes"),
         onBack = onBack,
         bottomPadding = 16.dp,
     ) {
-        item { SmallTitle("参考项目") }
+        item { SmallTitle(t("参考项目", "Referenced projects")) }
         item {
             SectionCard {
                 ArrowPreference(
                     title = "AndroidLiquidGlass",
-                    summary = "液态玻璃原始实现 · Apache-2.0",
+                    summary = t("液态玻璃原始实现 · Apache-2.0", "Original liquid-glass implementation · Apache-2.0"),
                     onClick = {
                         runCatching { uriHandler.openUri("https://github.com/Kyant0/AndroidLiquidGlass") }
                     },
                 )
                 ArrowPreference(
                     title = "NexioSchedule",
-                    summary = "玻璃菜单参考 · AGPL-3.0",
+                    summary = t("玻璃菜单参考 · AGPL-3.0", "Glass menu reference · AGPL-3.0"),
                     onClick = {
                         runCatching { uriHandler.openUri("https://github.com/HaoZai000/NexioSchedule") }
                     },
                 )
                 ArrowPreference(
                     title = "Sonify",
-                    summary = "玻璃组件结构参考",
+                    summary = t("玻璃组件结构参考", "Glass component structure reference"),
                     onClick = {
                         runCatching { uriHandler.openUri("https://github.com/XiaoZhi0729/Sonify") }
                     },

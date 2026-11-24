@@ -12,6 +12,7 @@ import java.net.URL
 import java.nio.ByteBuffer
 import java.nio.channels.FileChannel
 import java.security.MessageDigest
+import com.xkspeed.HyperMount.i18n.t
 import java.util.concurrent.atomic.AtomicLong
 
 /**
@@ -62,7 +63,7 @@ object Downloader {
         val usable = probes.filter { it.second.ok }
             // 支持分片的排前面：多源并行优先
             .sortedByDescending { it.second.supportsRange }
-        if (usable.isEmpty()) throw IOException("所有下载源都不可用")
+        if (usable.isEmpty()) throw IOException(t("所有下载源都不可用", "No usable download source"))
 
         val total = usable.firstOrNull { it.second.size > 0 }?.second?.size ?: 0L
         val ranged = usable.filter { it.second.supportsRange }.map { it.first }
@@ -82,11 +83,11 @@ object Downloader {
             val actual = sha256Of(dest)
             if (!actual.equals(sha256.trim(), ignoreCase = true)) {
                 dest.delete()
-                throw IOException("校验失败 期望 ${sha256.take(12)}… 实际 ${actual.take(12)}…")
+                throw IOException(t("校验失败 期望 ${sha256.take(12)}… 实际 ${actual.take(12)}…", "Checksum mismatch — expected ${sha256.take(12)}… got ${actual.take(12)}…"))
             }
         } else if (total > 0 && dest.length() != total) {
             dest.delete()
-            throw IOException("大小不符 期望 ${total} 实际 ${dest.length()}")
+            throw IOException(t("大小不符 期望 ${total} 实际 ${dest.length()}", "Size mismatch — expected ${total} got ${dest.length()}"))
         }
         dest
     }
@@ -127,7 +128,7 @@ object Downloader {
                 last = e
             }
         }
-        throw last ?: IOException("下载失败")
+        throw last ?: IOException(t("下载失败", "Download failed"))
     }
 
     // ---------------- 分段 ----------------
@@ -178,7 +179,7 @@ object Downloader {
                                 attempt++
                             }
                         }
-                        throw last ?: IOException("分段 ${i} 失败")
+                        throw last ?: IOException(t("分段 ${i} 失败", "Chunk ${i} failed"))
                     }
                 }.awaitAll()
             }
@@ -197,7 +198,7 @@ object Downloader {
         val conn = open(url)
         try {
             conn.setRequestProperty("Range", "bytes=$start-$end")
-            if (conn.responseCode != 206) throw IOException("不支持分段 HTTP ${conn.responseCode}")
+            if (conn.responseCode != 206) throw IOException(t("不支持分段 HTTP ${conn.responseCode}", "Range requests not supported (HTTP ${conn.responseCode})"))
             conn.inputStream.use { input ->
                 val buf = ByteArray(BUF)
                 var pos = start
@@ -210,7 +211,7 @@ object Downloader {
                     pos += r
                     emit(done.addAndGet(r.toLong()))
                 }
-                if (pos != end + 1) throw IOException("分段不完整 ${pos - start}/${end - start + 1}")
+                if (pos != end + 1) throw IOException(t("分段不完整 ${pos - start}/${end - start + 1}", "Chunk incomplete ${pos - start}/${end - start + 1}"))
             }
         } finally {
             runCatching { conn.disconnect() }

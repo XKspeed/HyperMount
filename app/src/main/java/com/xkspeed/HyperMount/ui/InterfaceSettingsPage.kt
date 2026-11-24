@@ -53,6 +53,7 @@ import com.xkspeed.HyperMount.core.DaemonStatus
 import com.xkspeed.HyperMount.core.Module
 import com.xkspeed.HyperMount.core.ModuleState
 import com.xkspeed.HyperMount.core.WatchStatus
+import com.xkspeed.HyperMount.i18n.t
 import com.xkspeed.HyperMount.ui.component.glass.ScrollPage
 import com.xkspeed.HyperMount.ui.components.LiquidSelectHost
 import com.xkspeed.HyperMount.ui.components.LiquidSelectPreference
@@ -91,12 +92,17 @@ private val WATCH_NODES = listOf(120f, 240f, 360f, WATCH_UNLIMITED_MIN)
 /** 吸附范围（分钟） */
 private const val WATCH_SNAP_MIN = 15f
 
-/** 运行模式三档：增强救砖是 LOG_MODE=3，下拉里按「日志 + 救砖」显示 */
-private val MODE_LABELS = listOf("完全禁用", "仅日志", "日志 + 救砖")
-private val MODE_SUMMARIES = listOf(
-    "不记录日志 也不启动守护",
-    "只记录日志 不执行救砖",
-    "音量+ 触发救砖 音量- 取消",
+/** 运行模式三档：增强救砖是 LOG_MODE=3，下拉里按「日志 + 救砖」显示
+ *  现取现译 语言一换立即跟着换 */
+private fun modeLabels(): List<String> = listOf(
+    t("完全禁用", "Fully disabled"),
+    t("仅日志", "Logs only"),
+    t("日志 + 救砖", "Logs + rescue"),
+)
+private fun modeSummaries(): List<String> = listOf(
+    t("不记录日志 也不启动守护", "No logs, no rescue daemon"),
+    t("只记录日志 不执行救砖", "Logs only, no automatic rescue"),
+    t("音量+ 触发救砖 音量- 取消", "Volume+ triggers rescue, Volume− cancels"),
 )
 
 /** 上一次选的时长：存秒数 0 = 无限制 */
@@ -116,11 +122,11 @@ private fun watchUnlimited(min: Float): Boolean = min > WATCH_MAX_MIN + 1f
 
 /** 滑条 / 胶囊里显示的时长 */
 private fun watchLabel(min: Float): String {
-    if (watchUnlimited(min)) return "无限制"
+    if (watchUnlimited(min)) return t("无限制", "Unlimited")
     val total = min.roundToInt()
     val h = total / 60
     val m = total % 60
-    return if (m == 0) "$h 小时" else "$h 小时 $m 分"
+    return if (m == 0) t("$h 小时", "${h} h") else t("$h 小时 $m 分", "$h h $m min")
 }
 
 /** 靠近锚点就吸附；拖过 6 小时直接落到无限制 */
@@ -231,7 +237,7 @@ fun InterfaceSettingsPage(
         if (busy) return
         // --now 那一轮沿用原逻辑：模式不对根本没日志可判 起了也是白跑
         if (on && modeIndex < 2) {
-            toast(context, "先在设置把运行模式改成「日志 + 救砖」")
+            toast(context, t("先在设置把运行模式改成「日志 + 救砖」", "Set the run mode to \"Logs + rescue\" in Settings first"))
             return
         }
         scope.launch {
@@ -243,7 +249,7 @@ fun InterfaceSettingsPage(
             if (!out.contains("OK")) {
                 toast(context, firstLine(out))
             } else if (on != status.running) {
-                toast(context, if (on) "没能启动 检查一下 root 授权" else "没能停止")
+                toast(context, if (on) t("没能启动 检查一下 root 授权", "Couldn't start — check the root grant") else t("没能停止", "Couldn't stop"))
             } else if (on) {
                 // 守护跑起来就把前台服务拉起来 切后台/锁屏才不会被系统清掉
                 DaemonService.start(context)
@@ -299,7 +305,7 @@ fun InterfaceSettingsPage(
     }
 
     ScrollPage(
-        title = "设置",
+        title = t("设置", "Settings"),
         onBack = onBack,
         bottomPadding = stableNavigationBarHeight() + 24.dp,
         overlay = { bd ->
@@ -311,13 +317,13 @@ fun InterfaceSettingsPage(
         },
     ) {
         // ---- 运行模式 ----
-        item { SmallTitle("运行") }
+        item { SmallTitle(t("运行", "Run")) }
         item {
             SectionCard {
                 LiquidSelectPreference(
-                    title = "运行模式",
-                    summary = MODE_SUMMARIES[modeIndex],
-                    items = MODE_LABELS,
+                    title = t("运行模式", "Run mode"),
+                    summary = modeSummaries()[modeIndex],
+                    items = modeLabels(),
                     selectedIndex = modeIndex,
                     onSelectedIndexChange = { applyMode(it) },
                     state = select,
@@ -334,7 +340,7 @@ fun InterfaceSettingsPage(
                 exit = fadeOut() + shrinkVertically(),
             ) {
                 Column {
-                    SmallTitle("全局常驻救砖")
+                    SmallTitle(t("全局常驻救砖", "Always-on rescue"))
                     // 和界面页那张状态卡同款：圆点 + 大标题 + 一行说明
                     val unsupported = loaded && !status.supported
                     val live = loaded && status.supported && status.running
@@ -345,17 +351,17 @@ fun InterfaceSettingsPage(
                         else -> MiuixTheme.colorScheme.onSurfaceVariantSummary
                     }
                     val head = when {
-                        !loaded -> "读取中"
-                        unsupported -> "模块版本不支持"
-                        live -> "全局救砖中"
-                        else -> "未启用"
+                        !loaded -> t("读取中", "Reading")
+                        unsupported -> t("模块版本不支持", "Module version unsupported")
+                        live -> t("全局救砖中", "Global rescue running")
+                        else -> t("未启用", "Not enabled")
                     }
                     val sub = when {
-                        !loaded -> "正在检查模块是否带常驻守护"
-                        unsupported -> "当前模块没有常驻守护 更新模块后再用"
-                        !live -> "开启后界面反复重启会自动救砖"
-                        status.remaining(nowSec) < 0 -> "不限制时长"
-                        else -> "剩余 ${fmtRemain(status.remaining(nowSec))}"
+                        !loaded -> t("正在检查模块是否带常驻守护", "Checking whether the module ships the always-on daemon")
+                        unsupported -> t("当前模块没有常驻守护 更新模块后再用", "This module has no always-on daemon — update the module first")
+                        !live -> t("开启后界面反复重启会自动救砖", "Once on, repeated SystemUI restarts trigger automatic rescue")
+                        status.remaining(nowSec) < 0 -> t("不限制时长", "No time limit")
+                        else -> t("剩余 ${fmtRemain(status.remaining(nowSec))}", "${fmtRemain(status.remaining(nowSec))} left")
                     }
                     Card(
                         modifier = Modifier
@@ -376,7 +382,7 @@ fun InterfaceSettingsPage(
                             Text(
                                 buildString {
                                     append(sub)
-                                    if (live && status.count > 0) append(" · 本轮重启 ${status.count} 次")
+                                    if (live && status.count > 0) append(t(" · 本轮重启 ${status.count} 次", " · ${status.count} restarts this session"))
                                 },
                                 color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                                 style = MiuixTheme.textStyles.subtitle,
@@ -388,7 +394,7 @@ fun InterfaceSettingsPage(
                             checked = status.running,
                             enabled = loaded && status.supported && !busy,
                             onCheckedChange = { toggleWatch(it) },
-                            title = "全局守护",
+                            title = t("全局守护", "Global daemon"),
                             // 正下方就是滑条：底部内缩收一半，别把滑条推得太远
                             insideMargin = PaddingValues(
                                 start = 16.dp,
@@ -544,14 +550,18 @@ fun InterfaceSettingsPage(
                                         .padding(top = 8.dp),
                                 ) {
                                     Text(
-                                        "${watchWindow.roundToInt()} 秒内 SystemUI 重启 " +
-                                            "${watchCount.roundToInt()} 次则进入守护",
+                                        t(
+                                            "${watchWindow.roundToInt()} 秒内 SystemUI 重启 " +
+                                                "${watchCount.roundToInt()} 次则进入守护",
+                                            "SystemUI restarting ${watchCount.roundToInt()} times within " +
+                                                "${watchWindow.roundToInt()} s enters the daemon",
+                                        ),
                                         style = MiuixTheme.textStyles.subtitle,
                                         fontWeight = FontWeight.SemiBold,
                                     )
                                     Spacer(Modifier.height(2.dp))
                                     Text(
-                                        "此时便可以等待自动救援 / 音量键救砖",
+                                        t("此时便可以等待自动救援 / 音量键救砖", "Automatic rescue and volume-key rescue become available"),
                                         color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                                         style = MiuixTheme.textStyles.subtitle,
                                     )
@@ -560,7 +570,7 @@ fun InterfaceSettingsPage(
                                 // 两条滑条都按无极档走：拖动时值是浮点，松手才吸到最近的整数。
                                 // 外层 Column 已经给了 16dp，insideMargin 再收掉水平方向，否则双倍内缩。
                                 SliderInputPreference(
-                                    title = "监控时长",
+                                    title = t("监控时长", "Watch window"),
                                     value = watchWindow,
                                     defaultValue = 30f,
                                     onValueChange = { watchWindow = it },
@@ -572,13 +582,13 @@ fun InterfaceSettingsPage(
                                     valueRange = 5f..60f,
                                     // 不设档位：5~60 秒之间连续拖，松手吸附到整秒
                                     steps = 0,
-                                    valueText = "最近 ${watchWindow.roundToInt()} 秒",
+                                    valueText = t("最近 ${watchWindow.roundToInt()} 秒", "Last ${watchWindow.roundToInt()} s"),
                                     inputRange = 5f..60f,
-                                    inputUnit = "秒",
+                                    inputUnit = t("秒", "s"),
                                     insideMargin = PaddingValues(top = 8.dp, bottom = 6.dp),
                                 )
                                 SliderInputPreference(
-                                    title = "崩溃次数",
+                                    title = t("崩溃次数", "Restart count"),
                                     value = watchCount,
                                     defaultValue = 3f,
                                     onValueChange = { watchCount = it },
@@ -589,9 +599,9 @@ fun InterfaceSettingsPage(
                                     },
                                     valueRange = 2f..5f,
                                     steps = 0,
-                                    valueText = "${watchCount.roundToInt()} 次",
+                                    valueText = t("${watchCount.roundToInt()} 次", "${watchCount.roundToInt()} times"),
                                     inputRange = 2f..5f,
-                                    inputUnit = "次",
+                                    inputUnit = t("次", "times"),
                                     insideMargin = PaddingValues(top = 14.dp, bottom = 8.dp),
                                 )
                             }
@@ -613,14 +623,14 @@ fun InterfaceSettingsPage(
                 exit = fadeOut() + shrinkVertically(),
             ) {
                 Column {
-                    SmallTitle("救砖逻辑")
+                    SmallTitle(t("救砖逻辑", "Rescue logic"))
                     SectionCard {
                         ArrowPreference(
-                            title = "音量键校验",
+                            title = t("音量键校验", "Volume key check"),
                             summary = if (state.volumeAssessed) {
-                                "已识别"
+                                t("已识别", "Detected")
                             } else {
-                                "未校验 · 救砖时音量键可能没反应"
+                                t("未校验 · 救砖时音量键可能没反应", "Not verified · volume keys may not respond during rescue")
                             },
                             onClick = onOpenVolumeCheck,
                         )
@@ -637,15 +647,15 @@ fun InterfaceSettingsPage(
                                     onSetCrashLimit(CRASH_LIMIT_MANUAL)
                                 }
                             },
-                            title = "增强救砖",
-                            summary = "崩溃达到阈值自动替换 SystemUI",
+                            title = t("增强救砖", "Enhanced rescue"),
+                            summary = t("崩溃达到阈值自动替换 SystemUI", "Swaps SystemUI automatically once crashes hit the threshold"),
                         )
                         SliderInputPreference(
-                            title = "崩溃阈值",
+                            title = t("崩溃阈值", "Crash threshold"),
                             summary = if (enhanced) {
-                                "累计多少条 fatal 日志后自动救砖"
+                                t("累计多少条 fatal 日志后自动救砖", "How many fatal log entries trigger rescue")
                             } else {
-                                "开启增强救砖后生效"
+                                t("开启增强救砖后生效", "Takes effect with Enhanced rescue on")
                             },
                             value = fatalThreshold,
                             defaultValue = 3f,
@@ -659,8 +669,8 @@ fun InterfaceSettingsPage(
                             enabled = enhanced,
                             valueRange = 1f..10f,
                             steps = 8,
-                            valueText = "${fatalThreshold.roundToInt()} 次",
-                            inputUnit = "次",
+                            valueText = t("${fatalThreshold.roundToInt()} 次", "${fatalThreshold.roundToInt()} entries"),
+                            inputUnit = t("次", "entries"),
                         )
                         // 增强救砖和屏蔽系统救援绑死：开了增强就必须屏蔽
                         // 否则系统先崩到上限 自动救砖还没轮到就已经把界面收了
@@ -674,7 +684,7 @@ fun InterfaceSettingsPage(
                                 }
                             },
                             enabled = !enhanced,
-                            title = "屏蔽系统救援",
+                            title = t("屏蔽系统救援", "System rescue override"),
                         )
                     }
                 }
@@ -686,27 +696,31 @@ fun InterfaceSettingsPage(
     if (askEnhance) {
         WindowDialog(
             show = askEnhance,
-            title = "警告",
-            summary = "该功能安全性未知 谨慎开启",
+            title = t("警告", "Warning"),
+            summary = t("该功能安全性未知 谨慎开启", "Safety of this feature is unknown — enable with care"),
             maxWidth = 560.dp,
             onDismissRequest = { askEnhance = false },
         ) {
             Text(
-                "开启后崩溃次数达到阈值会自动替换 SystemUI 不需要按音量键\n" +
-                    "替换失败可能导致无法开机 建议先确认救援 APK 可用",
+                t(
+                    "开启后崩溃次数达到阈值会自动替换 SystemUI 不需要按音量键\n" +
+                        "替换失败可能导致无法开机 建议先确认救援 APK 可用",
+                    "Once on, SystemUI is swapped automatically when crashes hit the threshold — no volume keys needed\n" +
+                        "A failed swap can leave the phone unbootable; verify the rescue apk works first",
+                ),
                 color = MiuixTheme.colorScheme.onSurface,
                 style = MiuixTheme.textStyles.subtitle,
             )
             Spacer(Modifier.height(20.dp))
             Row(modifier = Modifier.fillMaxWidth()) {
                 TextButton(
-                    text = "取消",
+                    text = t("取消", "Cancel"),
                     onClick = { askEnhance = false },
                     modifier = Modifier.weight(1f),
                 )
                 Spacer(Modifier.width(20.dp))
                 TextButton(
-                    text = "继续开启",
+                    text = t("继续开启", "Turn on"),
                     onClick = {
                         askEnhance = false
                         enhanced = true
@@ -729,4 +743,4 @@ private fun toast(context: Context, msg: String) {
 }
 
 private fun firstLine(out: String): String =
-    out.lineSequence().map { it.trim() }.firstOrNull { it.isNotEmpty() } ?: "操作失败"
+    out.lineSequence().map { it.trim() }.firstOrNull { it.isNotEmpty() } ?: t("操作失败", "Operation failed")

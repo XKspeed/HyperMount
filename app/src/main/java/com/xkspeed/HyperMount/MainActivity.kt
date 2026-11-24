@@ -16,6 +16,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import com.xkspeed.HyperMount.core.McpService
 import com.xkspeed.HyperMount.core.mcp.McpConfig
+import com.xkspeed.HyperMount.i18n.AppLang
 import com.xkspeed.HyperMount.ui.App
 import com.xkspeed.HyperMount.ui.UiConfigState
 import top.yukonga.miuix.kmp.theme.ColorSchemeMode
@@ -56,6 +57,8 @@ class MainActivity : ComponentActivity() {
         // 先恢复设置 再进 setContent 否则重启永远回到"跟随系统"
         ThemeState.load(this)
         UiConfigState.load(this)
+        // 语言也一样：跟随系统/中文/English 切换立即生效 靠组合期重读
+        AppLang.load(this)
         // MCP 开关是常驻的：上次开着 这次启动直接恢复监听
         McpConfig.load(this)
         if (McpConfig.enabled) McpService.start(this)

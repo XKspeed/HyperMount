@@ -40,6 +40,7 @@ import com.xkspeed.HyperMount.ThemeState
 import com.xkspeed.HyperMount.core.AppLog
 import com.xkspeed.HyperMount.core.UpdateChannel
 import com.xkspeed.HyperMount.core.SystemVersion
+import com.xkspeed.HyperMount.i18n.t
 import com.xkspeed.HyperMount.ui.component.glass.GlassEffectState
 import com.xkspeed.HyperMount.ui.component.glass.ScrollPage
 import com.xkspeed.HyperMount.ui.components.BackIcon
@@ -188,8 +189,12 @@ object UiConfigState {
     }
 }
 
-/** 主题弹窗里的第一组：明暗三档 */
-private val THEME_BRIGHTNESS_ITEMS = listOf("跟随系统", "浅色模式", "深色模式")
+/** 主题弹窗里的第一组：明暗三档（现取现译 语言一换立即跟着换） */
+private fun themeBrightnessItems(): List<String> = listOf(
+    t("跟随系统", "Follow system"),
+    t("浅色模式", "Light"),
+    t("深色模式", "Dark"),
+)
 
 /**
  * 调色风格 / 色彩规范：与 miuix 示例 App 的 ThemePaletteStyle / ThemeColorSpec 一一对应
@@ -199,22 +204,22 @@ private val PALETTE_STYLES = listOf(
     "TonalSpot", "Neutral", "Vibrant", "Expressive", "Rainbow",
     "FruitSalad", "Monochrome", "Fidelity", "Content",
 )
-private val PALETTE_STYLE_SUMMARIES = listOf(
-    "经典色调（默认）",
-    "低饱和中性",
-    "高饱和鲜艳",
-    "夸张表达",
-    "彩虹渐变",
-    "水果拼盘",
-    "单色",
-    "忠于原色",
-    "跟随内容取色",
+private fun paletteStyleSummaries(): List<String> = listOf(
+    t("经典色调（默认）", "Tonal spot (default)"),
+    t("低饱和中性", "Low-saturation neutral"),
+    t("高饱和鲜艳", "High-saturation vivid"),
+    t("夸张表达", "Expressive"),
+    t("彩虹渐变", "Rainbow"),
+    t("水果拼盘", "Fruit salad"),
+    t("单色", "Monochrome"),
+    t("忠于原色", "Fidelity"),
+    t("跟随内容取色", "Content-based"),
 )
 
 private val COLOR_SPECS = listOf("Spec2021", "Spec2025")
-private val COLOR_SPEC_SUMMARIES = listOf(
+private fun colorSpecSummaries(): List<String> = listOf(
     "Material You 2021",
-    "Material You 2025（部分风格支持）",
+    t("Material You 2025（部分风格支持）", "Material You 2025 (some styles)"),
 )
 
 @Composable
@@ -225,7 +230,8 @@ fun UiSettingsPage(onBack: () -> Unit) {
 
     val backdrop = rememberBlurBackdrop()
 
-    val seedItems = remember { listOf("跟随壁纸") + KeyColors.map { it.first } }
+    // 不 remember：种子色名字现取现译 语言一换立即跟着换
+    val seedItems = listOf(t("跟随壁纸", "Wallpaper")) + KeyColors.map { t(it.zh, it.en) }
     val mode = ThemeState.mode
     val monet = mode >= ThemeState.MODE_MONET_SYSTEM
     val brightnessIndex = mode % 3
@@ -238,7 +244,7 @@ fun UiSettingsPage(onBack: () -> Unit) {
     val select = rememberLiquidSelectState()
 
     ScrollPage(
-        title = "主题",
+        title = t("主题", "Theme"),
         onBack = onBack,
         bottomPadding = stableNavigationBarHeight() + 24.dp,
         overlay = { bd -> LiquidSelectHost(select, bd) },
@@ -248,8 +254,8 @@ fun UiSettingsPage(onBack: () -> Unit) {
                     SectionCard {
                         // 一：明暗三档
                         LiquidSelectPreference(
-                            title = "主题模式",
-                            items = THEME_BRIGHTNESS_ITEMS,
+                            title = t("主题模式", "Theme mode"),
+                            items = themeBrightnessItems(),
                             selectedIndex = brightnessIndex,
                             onSelectedIndexChange = {
                                 saveMode(
@@ -260,7 +266,7 @@ fun UiSettingsPage(onBack: () -> Unit) {
                         )
                         // 二：莫奈取色
                         SwitchPreference(
-                            title = "莫奈取色",
+                            title = t("莫奈取色", "Monet color"),
                             checked = monet,
                             onCheckedChange = { on ->
                                 saveMode(
@@ -277,7 +283,7 @@ fun UiSettingsPage(onBack: () -> Unit) {
                         ) {
                             Column {
                                 LiquidSelectPreference(
-                                    title = "种子色",
+                                    title = t("种子色", "Seed color"),
                                     items = seedItems,
                                     selectedIndex = ThemeState.seedIndex
                                         .coerceIn(0, seedItems.size - 1),
@@ -295,8 +301,8 @@ fun UiSettingsPage(onBack: () -> Unit) {
                                 ) {
                                     Column {
                                         LiquidSelectPreference(
-                                            title = "调色风格",
-                                            summary = PALETTE_STYLE_SUMMARIES[
+                                            title = t("调色风格", "Palette style"),
+                                            summary = paletteStyleSummaries()[
                                                 ThemeState.paletteStyle.coerceIn(
                                                     0,
                                                     PALETTE_STYLES.size - 1,
@@ -314,8 +320,8 @@ fun UiSettingsPage(onBack: () -> Unit) {
                                             state = select,
                                         )
                                         LiquidSelectPreference(
-                                            title = "色彩规范",
-                                            summary = COLOR_SPEC_SUMMARIES[
+                                            title = t("色彩规范", "Color spec"),
+                                            summary = colorSpecSummaries()[
                                                 ThemeState.colorSpec.coerceIn(
                                                     0,
                                                     COLOR_SPECS.size - 1,
@@ -340,11 +346,11 @@ fun UiSettingsPage(onBack: () -> Unit) {
                 }
 
                 // 底栏紧跟主题：都是外观总开关 排在玻璃效果前面
-                item { SmallTitle("底栏") }
+                item { SmallTitle(t("底栏", "Bottom bar")) }
                 item {
                     SectionCard {
                         SwitchPreference(
-                            title = "iOS 底栏",
+                            title = t("iOS 底栏", "iOS bottom bar"),
                             checked = UiConfigState.iosBottomBar,
                             onCheckedChange = {
                                 UiConfigState.iosBottomBar = it
@@ -360,7 +366,7 @@ fun UiSettingsPage(onBack: () -> Unit) {
                         ) {
                             Column {
                                 SwitchPreference(
-                                    title = "底栏折射",
+                                    title = t("底栏折射", "Bottom bar refraction"),
                                     checked = UiConfigState.enableBlur,
                                     onCheckedChange = {
                                         UiConfigState.enableBlur = it
@@ -372,11 +378,11 @@ fun UiSettingsPage(onBack: () -> Unit) {
                     }
                 }
 
-                item { SmallTitle("玻璃效果") }
+                item { SmallTitle(t("玻璃效果", "Glass effects")) }
                 item {
                     SectionCard {
                         SliderInputPreference(
-                            title = "模糊强度",
+                            title = t("模糊强度", "Blur strength"),
                             value = GlassEffectState.blurScale,
                             // 出厂就是 1.0 倍
                             defaultValue = 1f,
@@ -392,7 +398,7 @@ fun UiSettingsPage(onBack: () -> Unit) {
                             inputUnit = "%",
                         )
                         BasicComponent(
-                            title = "重置",
+                            title = t("重置", "Reset"),
                             onClick = {
                                 GlassEffectState.blurScale = 1f
                                 GlassEffectState.save(context)
@@ -401,11 +407,11 @@ fun UiSettingsPage(onBack: () -> Unit) {
                     }
                 }
 
-                item { SmallTitle("交互") }
+                item { SmallTitle(t("交互", "Interaction")) }
                 item {
                     SectionCard {
                         SwitchPreference(
-                            title = "预测性返回手势",
+                            title = t("预测性返回手势", "Predictive back"),
                             checked = UiConfigState.predictiveBack,
                             onCheckedChange = {
                                 UiConfigState.predictiveBack = it

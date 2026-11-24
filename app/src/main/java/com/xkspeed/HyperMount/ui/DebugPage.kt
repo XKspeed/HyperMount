@@ -20,6 +20,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.xkspeed.HyperMount.ui.component.glass.NavIconTuning
+import com.xkspeed.HyperMount.i18n.t
 import com.xkspeed.HyperMount.ui.component.glass.ScrollPage
 import com.xkspeed.HyperMount.ui.components.SectionCard
 import com.xkspeed.HyperMount.ui.components.SliderInputPreference
@@ -38,28 +39,28 @@ import com.xkspeed.HyperMount.ui.util.stableNavigationBarHeight
 @Composable
 fun DebugPage(onBack: () -> Unit, onOpenOnboarding: () -> Unit) {
     ScrollPage(
-        title = "调试",
+        title = t("调试", "Debug"),
         onBack = onBack,
         bottomPadding = stableNavigationBarHeight() + 24.dp,
     ) {
-        item { SmallTitle("引导") }
+        item { SmallTitle(t("引导", "Onboarding")) }
         item {
             SectionCard {
                 BasicComponent(
-                    title = "重新查看引导",
-                    summary = "功能说明 · 环境检查 · 音量键校验",
+                    title = t("重新查看引导", "Replay onboarding"),
+                    summary = t("功能说明 · 环境检查 · 音量键校验", "Intro · environment check · volume key check"),
                     onClick = onOpenOnboarding,
                 )
             }
         }
 
         // ---- 底栏图标 ----
-        item { SmallTitle("底栏图标") }
+        item { SmallTitle(t("底栏图标", "Bottom bar icons")) }
         item {
             SectionCard {
                 BasicComponent(
-                    title = "三项一起恢复默认",
-                    summary = "只重置底栏 不动顶栏",
+                    title = t("三项一起恢复默认", "Reset all three"),
+                    summary = t("只重置底栏 不动顶栏", "Resets the bottom bar only, not the top bar"),
                     onClick = { NavIconTuning.resetAll() },
                 )
             }
@@ -71,8 +72,8 @@ fun DebugPage(onBack: () -> Unit, onOpenOnboarding: () -> Unit) {
                 val tune = NavIconTuning.items[index]
                 SectionCard {
                     SliderInputPreference(
-                        title = "图标大小",
-                        summary = "底栏这一项的图标边长",
+                        title = t("图标大小", "Icon size"),
+                        summary = t("底栏这一项的图标边长", "Icon edge length for this tab"),
                         value = tune.size,
                         defaultValue = NavIconTuning.defaultTune(index).size,
                         onValueChange = { NavIconTuning.setSize(index, it) },
@@ -84,8 +85,8 @@ fun DebugPage(onBack: () -> Unit, onOpenOnboarding: () -> Unit) {
                         inputUnit = "dp",
                     )
                     SliderInputPreference(
-                        title = "水平偏移",
-                        summary = "正数向右 负数向左",
+                        title = t("水平偏移", "Horizontal offset"),
+                        summary = t("正数向右 负数向左", "Positive moves right, negative left"),
                         value = tune.offsetX,
                         defaultValue = NavIconTuning.defaultTune(index).offsetX,
                         onValueChange = { NavIconTuning.setOffsetX(index, it) },
@@ -96,8 +97,8 @@ fun DebugPage(onBack: () -> Unit, onOpenOnboarding: () -> Unit) {
                         inputUnit = "dp",
                     )
                     SliderInputPreference(
-                        title = "垂直偏移",
-                        summary = "正数向下 负数向上",
+                        title = t("垂直偏移", "Vertical offset"),
+                        summary = t("正数向下 负数向上", "Positive moves down, negative up"),
                         value = tune.offsetY,
                         defaultValue = NavIconTuning.defaultTune(index).offsetY,
                         onValueChange = { NavIconTuning.setOffsetY(index, it) },
@@ -108,8 +109,8 @@ fun DebugPage(onBack: () -> Unit, onOpenOnboarding: () -> Unit) {
                         inputUnit = "dp",
                     )
                     SliderInputPreference(
-                        title = "上下压缩",
-                        summary = "小于 1 压扁 大于 1 拉高 只改高度不改宽度",
+                        title = t("上下压缩", "Vertical scale"),
+                        summary = t("小于 1 压扁 大于 1 拉高 只改高度不改宽度", "Below 1 squashes, above 1 stretches — height only"),
                         value = tune.scaleY,
                         defaultValue = NavIconTuning.defaultTune(index).scaleY,
                         onValueChange = { NavIconTuning.setScaleY(index, it) },
@@ -122,8 +123,8 @@ fun DebugPage(onBack: () -> Unit, onOpenOnboarding: () -> Unit) {
                         inputUnit = "×",
                     )
                     BasicComponent(
-                        title = "恢复这一项",
-                        summary = "只重置 $label",
+                        title = t("恢复这一项", "Reset this one"),
+                        summary = t("只重置 $label", "Resets $label only"),
                         onClick = { NavIconTuning.reset(index) },
                     )
                 }
@@ -131,7 +132,7 @@ fun DebugPage(onBack: () -> Unit, onOpenOnboarding: () -> Unit) {
         }
 
         // ---- 导出 ----
-        item { SmallTitle("导出") }
+        item { SmallTitle(t("导出", "Export")) }
         item {
             SectionCard {
                 val context = LocalContext.current
@@ -151,7 +152,7 @@ fun DebugPage(onBack: () -> Unit, onOpenOnboarding: () -> Unit) {
                                     )
                                     Toast.makeText(
                                         context,
-                                        "已复制底栏图标 JSON",
+                                        t("已复制底栏图标 JSON", "Bottom-bar icon JSON copied"),
                                         Toast.LENGTH_SHORT,
                                     ).show()
                                 },
@@ -160,13 +161,13 @@ fun DebugPage(onBack: () -> Unit, onOpenOnboarding: () -> Unit) {
                         .padding(horizontal = 16.dp, vertical = 14.dp),
                 ) {
                     Text(
-                        text = "导出 JSON",
+                        text = t("导出 JSON", "Export JSON"),
                         style = MiuixTheme.textStyles.subtitle,
                         fontWeight = FontWeight.Medium,
                     )
                     Spacer(Modifier.height(2.dp))
                     Text(
-                        text = "长按这一行复制当前三个图标的参数",
+                        text = t("长按这一行复制当前三个图标的参数", "Long-press this row to copy all three icons' values"),
                         color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                         style = MiuixTheme.textStyles.subtitle,
                     )
