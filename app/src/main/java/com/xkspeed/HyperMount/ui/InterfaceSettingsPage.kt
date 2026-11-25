@@ -180,6 +180,12 @@ fun InterfaceSettingsPage(
         mutableStateOf((state.logMode.toIntOrNull() ?: 0) >= 3)
     }
     var rescueOff by remember(state.rescueOff) { mutableStateOf(state.rescueOff) }
+    // 开机行为：和运行模式一起放在「运行」卡里，写下去要等回读 先改本地值
+    var bootLog by remember(state.bootLog) { mutableStateOf(state.bootLog) }
+    var bootWatch by remember(state.bootWatch) { mutableStateOf(state.bootWatch) }
+    // 开机自启守护的前提：模式到「日志 + 救砖」且选了日志目录
+    // 用乐观值算，切模式的那一下这一行就跟着出现/收起，不用等回读
+    val bootWatchReady = modeIndex >= 2 && state.logDir.isNotBlank()
 
     // ---- 全局常驻救砖 ----
     var status by remember { mutableStateOf(WatchStatus()) }
@@ -328,6 +334,38 @@ fun InterfaceSettingsPage(
                     onSelectedIndexChange = { applyMode(it) },
                     state = select,
                 )
+                // 开机行为跟着运行模式走 所以放在同一张卡里
+                // 不满足条件整行收起（不置灰）：留一个点不动的开关反而让人以为坏了
+                AnimatedVisibility(
+                    visible = modeIndex >= 1,
+                    enter = fadeIn() + expandVertically(),
+                    exit = fadeOut() + shrinkVertically(),
+                ) {
+                    SwitchPreference(
+                        checked = bootLog,
+                        onCheckedChange = {
+                            bootLog = it
+                            onSetConf("BOOT_LOG", if (it) "1" else "0")
+                        },
+                        title = t("开机记录日志", "Log at boot"),
+                        summary = t("开机后自动抓一段崩溃日志", "Captures crash logs right after boot"),
+                    )
+                }
+                AnimatedVisibility(
+                    visible = bootWatchReady,
+                    enter = fadeIn() + expandVertically(),
+                    exit = fadeOut() + shrinkVertically(),
+                ) {
+                    SwitchPreference(
+                        checked = bootWatch,
+                        onCheckedChange = {
+                            bootWatch = it
+                            onSetConf("BOOT_WATCH", if (it) "1" else "0")
+                        },
+                        title = t("开机启动全局救砖", "Start rescue at boot"),
+                        summary = t("开机稳定后自动开始守护 不限制时长", "Starts the daemon once boot settles, no time limit"),
+                    )
+                }
             }
         }
 

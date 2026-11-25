@@ -148,10 +148,15 @@ fun HomePage(
             // 新的一轮：先把上一轮留下的输出清掉，避免开场闪一下旧日志
             if (hasRun) HomeUiState.logLines = emptyList()
             HomeUiState.hasRun = true
+            // 输出不再增长就慢慢看，守护静静待着时不必每 1.5 秒问一次
+            var lastLen = -1
+            var idle = 0
             while (true) {
                 val text = Module.tailLog(300)
                 HomeUiState.logLines = if (text.isBlank()) emptyList() else text.lines()
-                delay(1500)
+                idle = if (text.length != lastLen) 0 else idle + 1
+                lastLen = text.length
+                delay(if (idle < 2) 1500L else 5000L)
             }
         } else if (hasRun) {
             // 流程结束（走完页面 / 音量键）时再补读一次：

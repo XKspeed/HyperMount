@@ -31,6 +31,28 @@ jobs:
         with:
           fetch-depth: 0
 
+      # 发版前先卡一道：模块包里每个二进制都必须有同名源码
+      # 避免以后有人直接塞一个预编译文件进 bin/ 而源码没跟上
+      # 仓库对外只认「源码可复现」这条路 没有源码的二进制不许进包
+      - name: Verify binaries have source
+        run: |
+          set -euo pipefail
+          missing=0
+          shopt -s nullglob
+          for f in module/main/bin/*; do
+            name=$(basename "$f")
+            if [ ! -f "module/src/${name}.c" ]; then
+              echo "::error::module/main/bin/${name} 缺少源码 module/src/${name}.c"
+              missing=1
+            else
+              echo "ok  ${name}  <-  module/src/${name}.c"
+            fi
+          done
+          if [ "$missing" -ne 0 ]; then
+            exit 1
+          fi
+          echo "bin 与 src 一一对应"
+
       - name: Set up JDK 21
         uses: actions/setup-java@v6
         with:

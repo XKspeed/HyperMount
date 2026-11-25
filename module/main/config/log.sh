@@ -26,6 +26,12 @@ logcat -c -b crash 2>/dev/null
 set_desc "日志记录中"
 LOG_FILE="${LOG_DIR}/$(get_time).log"
 timeout "${LOG_TIMEOUT:-60}" logcat -b crash >> "${LOG_FILE}" 2>&1
-set_desc "日志已停止"
 [ -s "${LOG_FILE}" ] || rm -f "${LOG_FILE}" 2>/dev/null
+# 开机自启的守护这会儿可能已经在跑了 别把模块卡片写成「日志已停止」
+_wp=$(cat "${MODDIR}/scripts/.work/watch.pid" 2>/dev/null)
+if [ -n "${_wp}" ] && kill -0 "${_wp}" 2>/dev/null; then
+    set_desc "全局守护中"
+else
+    set_desc "日志已停止"
+fi
 exit 0

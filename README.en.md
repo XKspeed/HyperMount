@@ -88,6 +88,23 @@ Built around one loop: **prepare a rescue build → swap in the build under test
 
 ---
 
+## 🧩 Source & Build
+
+This repository is the **complete source** of every release: no closed components, no packing shells, no code fetched at runtime. Every binary shipped in a release maps to source you can read here.
+
+| Path | Contents |
+| --- | --- |
+| `app/` | Android client (Kotlin / Compose) |
+| `module/main/` | Magisk module (`customize.sh` / `service.sh` / `action.sh`, scripts and default config) |
+| `module/src/` | C source of the module daemons and CLI (`actiond.c` / `watchd.c` / `ctl.c`) |
+| `module/bin/build-bin.sh` | Cross-compiles `module/src` into the arm64 executables in `module/main/bin/` |
+
+The binaries in `module/main/bin/` are committed so machines without an NDK can still produce a complete module package (the daemon has no shell fallback — dropping it drops the feature). They are built from the same-named `.c` files in `module/src/`; rebuild them yourself and compare byte for byte.
+
+> Release packages contain build artifacts only, never source. The source of truth is this repository.
+
+---
+
 ## ⚠️ Disclaimer
 
 This tool exists to recover a SystemUI you broke yourself. It swaps system components — use at your own risk: **always prepare a working rescue build before swapping in a test build**

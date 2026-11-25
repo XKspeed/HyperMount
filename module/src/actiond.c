@@ -54,7 +54,6 @@ static char p_prop[PATH_MAX];
 static char p_selfmark[PATH_MAX];
 static char p_watchpid[PATH_MAX];
 static char p_pidfile[PATH_MAX];
-static char p_legacy[PATH_MAX];     /* action.sh，exec 失败时回落 */
 static char p_actiond[PATH_MAX];    /* 自己，留给日志 */
 static char logfile[PATH_MAX + 300];
 static char rescue_apk[PATH_MAX];
@@ -139,6 +138,13 @@ static void out(const char *fmt, ...) {
     va_end(ap);
     printf("\n");
     fflush(stdout);
+}
+
+/* 收一个子进程。SIGKILL 之后那一下 WNOHANG 往往还是 0（进程还没变僵尸），
+ * 单次调用等于没收 —— 短轮询一小会儿，别让僵尸留在 PID 表里。 */
+static void reap(pid_t p) {
+    if (p <= 0) return;
+    for (int k = 0; k < 20 && waitpid(p, NULL, WNOHANG) == 0; k++) usleep(10000);
 }
 
 static char *trim(char *s) {
@@ -726,7 +732,8 @@ static int ge_add(const char *dev, int flags) {
     fcntl(pfd[0], F_SETFL, fl | O_NONBLOCK);
     if (ge_n >= (int)(sizeof ge_pids / sizeof ge_pids[0])) {
         close(pfd[0]);
-        kill(c, SIGTERM);
+        kill(c, SIGKILL);
+        reap(c);
         return -1;
     }
     ge_pids[ge_n] = c;
@@ -745,7 +752,7 @@ static void ge_stop_all(void) {
     for (int i = 0; i < ge_n; i++) {
         kill(ge_pids[i], SIGKILL);
         kill(-ge_pids[i], SIGKILL);
-        waitpid(ge_pids[i], NULL, WNOHANG);
+        reap(ge_pids[i]);
         if (ge_fds[i] >= 0) close(ge_fds[i]);
     }
     ge_n = 0;
@@ -760,7 +767,15 @@ static void ge_poll(int *up, int *down) {
         if (ge_fds[i] < 0) continue;
         for (;;) {
             ssize_t n = read(ge_fds[i], tmp, sizeof tmp - 1);
-            if (n <= 0) break;
+            if (n < 0) break;           /* EAGAIN：这一轮没数据 */
+            if (n == 0) {
+                /* 管道关了 = 那个 getevent 已经没了（没权限 / 设备消失 / exec 失败）。
+                 * 这里顺手收尸并摘掉 fd：不然它会一直僵在那，PID 表里越攒越多。 */
+                close(ge_fds[i]);
+                ge_fds[i] = -1;
+                waitpid(ge_pids[i], NULL, WNOHANG);
+                break;
+            }
             tmp[n] = 0;
             if ((ge_flags[i] & 1) && strstr(tmp, "KEY_VOLUMEUP")) *up = 1;
             if ((ge_flags[i] & 2) && strstr(tmp, "KEY_VOLUMEDOWN")) *down = 1;
@@ -807,13 +822,23 @@ static int verify_key(const char *name, const char *want, const char *devs,
     static char sink[65536];
     size_t slen = 0;
     sink[0] = 0;
-    int found = 0, warned = 0;
-    for (int round = 0; round < 100 && !found; round++) {
+    int found = 0, warned = 0, alive = n;
+    for (int round = 0; round < 100 && !found && alive > 0; round++) {
         for (int i = 0; i < n; i++) {
+            if (fds[i] < 0) continue;
             char tmp[4096];
             for (;;) {
                 ssize_t r = read(fds[i], tmp, sizeof tmp - 1);
-                if (r <= 0) break;
+                if (r < 0) break;
+                if (r == 0) {
+                    /* getevent 没了（没权限 / 打不开）：当场收尸，
+                     * 一个都不剩就别再空等十秒了，直接判「未检测到」 */
+                    close(fds[i]);
+                    fds[i] = -1;
+                    reap(pids[i]);
+                    alive--;
+                    break;
+                }
                 tmp[r] = 0;
                 if (slen + (size_t)r + 1 < sizeof sink) {
                     memcpy(sink + slen, tmp, (size_t)r);
@@ -834,8 +859,8 @@ static int verify_key(const char *name, const char *want, const char *devs,
     usleep(200000);
     for (int i = 0; i < n; i++) {
         kill(pids[i], SIGKILL);
-        waitpid(pids[i], NULL, WNOHANG);
-        close(fds[i]);
+        reap(pids[i]);
+        if (fds[i] >= 0) close(fds[i]);
     }
 
     if (found) {
@@ -936,7 +961,7 @@ static void stop_logcat(void) {
     usleep(400000);
     kill(log_pid, SIGKILL);
     kill(-log_pid, SIGKILL);
-    waitpid(log_pid, NULL, WNOHANG);
+    reap(log_pid);
     log_pid = 0;
 }
 
@@ -1118,7 +1143,6 @@ int main(int argc, char **argv) {
     join(p_prop, sizeof p_prop, moddir, "module.prop");
     join(p_selfmark, sizeof p_selfmark, cfgdir, ".self_restart");
     join(p_watchpid, sizeof p_watchpid, workdir, "watch.pid");
-    join(p_legacy, sizeof p_legacy, moddir, "action.sh");
     join(p_actiond, sizeof p_actiond, moddir, "bin/actiond");
     join(rescue_apk, sizeof rescue_apk, moddir, "MiuiSystemUI.apk");
     join(aim_apk, sizeof aim_apk, moddir, "system_ext/priv-app/MiuiSystemUI/MiuiSystemUI.apk");
@@ -1372,11 +1396,11 @@ int main(int argc, char **argv) {
             debug("等待替换超时（%ld秒），退出", cfg.key_timeout);
             out("等待替换界面超时（%ld秒），未检测到 SystemUI 重启", cfg.key_timeout);
             out("FAIL 界面没有重启：排查日志目录，或手动结束一次系统界面进程后重试");
-            if (cover_pid > 0) { kill(cover_pid, SIGTERM); waitpid(cover_pid, NULL, WNOHANG); }
+            if (cover_pid > 0) { kill(cover_pid, SIGTERM); reap(cover_pid); }
             cleanup();
             return 1;
         }
-        if (cover_pid > 0) waitpid(cover_pid, NULL, WNOHANG);
+        if (cover_pid > 0) reap(cover_pid);
     }
 
     /* ===== 抓日志 ===== */

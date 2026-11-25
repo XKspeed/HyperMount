@@ -66,7 +66,7 @@ static char p_guard[PATH_MAX];
 static char p_limit[PATH_MAX];
 static char p_stop[PATH_MAX];
 static char p_selfmark[PATH_MAX];
-static char p_action[PATH_MAX];
+static char p_shell[PATH_MAX];      /* action-shell.sh：C 版起不来时的完整实现 */
 static char p_actiond[PATH_MAX];
 
 static int WINDOW = 30;
@@ -258,7 +258,7 @@ static void count_push(time_t ts) {
     stamps[nstamps++] = ts;
 }
 
-/* 模块自己换界面引起的那次重启不算崩溃：action.sh 覆盖完成后写时间戳，
+/* 模块自己换界面引起的那次重启不算崩溃：救砖覆盖完成后写时间戳，
  * 紧随其后的第一条事件跳过。消费即删，超过 5 分钟作废，免得吞掉真崩溃。 */
 static int skip_self_restart(time_t ts) {
     if (access(p_selfmark, F_OK) != 0) return 0;
@@ -293,7 +293,7 @@ static void fire(int n) {
 
     pid_t p = fork();
     if (p < 0) {
-        logmsg("拉起 action.sh 失败");
+        logmsg("拉起救砖进程失败");
         return;
     }
     if (p == 0) {
@@ -307,8 +307,8 @@ static void fire(int n) {
         if (access(p_actiond, X_OK) == 0) {
             execl(p_actiond, "actiond", "--dir", moddir, "--now", (char *)NULL);
         }
-        execl("/system/bin/sh", "sh", p_action, "--now", (char *)NULL);
-        execlp("sh", "sh", p_action, "--now", (char *)NULL);
+        execl("/system/bin/sh", "sh", p_shell, "--now", (char *)NULL);
+        execlp("sh", "sh", p_shell, "--now", (char *)NULL);
         _exit(127);
     }
     action_pid = p;
@@ -506,7 +506,7 @@ static void resolve_dirs(const char *opt, const char *argv0) {
     join(p_limit, sizeof p_limit, workdir, "watch.limit");
     join(p_stop, sizeof p_stop, workdir, "watch.stop");
     join(p_selfmark, sizeof p_selfmark, cfgdir, ".self_restart");
-    join(p_action, sizeof p_action, moddir, "action.sh");
+    join(p_shell, sizeof p_shell, moddir, "action-shell.sh");
     join(p_actiond, sizeof p_actiond, moddir, "bin/actiond");
 }
 

@@ -5,6 +5,7 @@
 #  把 module/src 下每个 .c 编成 module/main/bin/<同名>：
 #    src/watchd.c  → bin/watchd    全局守护
 #    src/actiond.c → bin/actiond   救砖执行体
+#    src/ctl.c     → bin/ctl       控制命令（webctl + check）
 #  新增源文件不用改这个脚本。
 #
 #  用法:
@@ -102,7 +103,7 @@ for _src in "${SRC_DIR}"/*.c; do
     _out="${OUT_DIR}/${_name}"
     # -Os 体积优先；-fno-unwind-tables 省掉 unwind 段（这份代码不用 C++ 异常）
     if ! "$CC" -Os -s -fno-unwind-tables -fno-asynchronous-unwind-tables \
-        -Wall -Wextra -Wno-unused-parameter \
+        -Wall -Wextra -Wno-unused-parameter -Wno-format-truncation \
         -o "$_out" "$_src"; then
         echo "编译 ${_name} 失败"
         exit 1

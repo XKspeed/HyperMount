@@ -265,7 +265,7 @@ else
 fi
 
 # ---------- 原生二进制 ----------
-# 仓库里带着 main/bin/ 下的两个二进制（arm64），CI 上没有 NDK 也能把包打全。
+# 仓库里带着 main/bin/ 下的二进制（arm64），CI 上没有 NDK 也能把包打全。
 # 本机有 NDK 就重编一份覆盖，改完 C 源码不用记得手动编。
 BIN_LOG=$(mktemp 2>/dev/null || echo "/tmp/bin-build.$$")
 BIN_TMP=$(mktemp -d) || { echo "错误: 无法创建临时目录"; exit 1; }
@@ -281,7 +281,7 @@ else
 fi
 rm -rf "${BIN_TMP}" "${BIN_LOG}"
 
-# watchd 没有 sh 兜底：包里没它就别发；actiond 缺了会回落 action.sh
+# watchd 没有 sh 兜底：包里没它就别发；actiond / ctl 缺了会回落到各自的全壳脚本
 [ -x "${MAIN}/bin/watchd" ] || {
     echo "错误: main/bin/watchd 不存在，先在有 NDK 的机器上跑一次 module/build-bin.sh"
     exit 1
@@ -360,7 +360,10 @@ printf "  ----------------------------------------------------------------\n"
 printf "  合计 %d 个文件：%d → %d 字节，减少 %d（%d%%）\n" "${N_FILE}" "${B_TOTAL}" "${A_TOTAL}" "${SAVE}" "${PCT}"
 
 # ---------- 权限 ----------
-chmod 755 "${PACK}/service.sh" "${PACK}/customize.sh" "${PACK}/action.sh" "${PACK}/config/log.sh" 2>/dev/null
+chmod 755 "${PACK}/service.sh" "${PACK}/service-shell.sh" \
+    "${PACK}/customize.sh" "${PACK}/action.sh" "${PACK}/action-shell.sh" \
+    "${PACK}/config/log.sh" "${PACK}/scripts/webctl.sh" "${PACK}/scripts/webctl-shell.sh" \
+    "${PACK}/scripts/check.sh" "${PACK}/scripts/check-shell.sh" 2>/dev/null
 # 原生二进制必须可执行
 [ -d "${PACK}/bin" ] && chmod 755 "${PACK}"/bin/* 2>/dev/null
 

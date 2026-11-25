@@ -24,11 +24,17 @@
 ├── config/settings.conf           运行参数（应用写的都在这）
 ├── config/functions.sh            脚本函数（升级时整体替换 不碰用户配置）
 ├── scripts/                       应用调用的脚本目录
-│   ├── webctl.sh                  应用调用的入口脚本
-│   └── check.sh                   音量键校验
+│   ├── webctl.sh                  应用调用的入口（转交给 bin/ctl）
+│   ├── webctl-shell.sh            webctl 的 shell 实现（ctl 起不来时用）
+│   ├── check.sh                   音量键校验（转交给 bin/ctl check）
+│   └── check-shell.sh             校验的 shell 实现
+├── bin/ctl                        控制命令（状态 / 准备 / 测试 / 校验）
 ├── bin/watchd                     常驻救砖守护（arm64 单进程）
 ├── bin/actiond                    救砖执行体（抓日志 / 判定 / 替换）
-└── action.sh                      救砖执行体的 shell 版（actiond 起不来时用）
+├── service.sh                     开机入口（转交给 bin/ctl boot-start）
+├── service-shell.sh               开机逻辑的 shell 实现
+├── action.sh                      转交给 bin/actiond（管理器「操作」按钮跑的是它）
+└── action-shell.sh                救砖执行体的 shell 版（actiond 起不来时用）
 ```
 
 日志默认不记录 需要先在设置页选一个日志目录

@@ -6,7 +6,18 @@ LATESTARTSERVICE=true
 # 覆盖安装时保留用户原有配置：模块配置里存着日志目录、运行模式、待测 apk 路径，
 # 直接换成新包里的默认值等于把用户设过的东西全清了。
 # 做法是以新配置为底，把旧配置里的 KEY=VALUE 逐条覆盖上去，新版本新增的键仍然生效。
-MODID=$(grep '^id=' "${MODPATH}/module.prop" 2>/dev/null | head -1 | cut -d= -f2 | tr -d ' \r')
+# 从 module.prop 取一个键的值
+# 以前是 grep | head | cut | tr 四个进程，换成一次 awk：安装时能省的 fork 就省
+prop_val() {
+    awk -v k="$2" 'index($0, k "=") == 1 {
+        v = substr($0, length(k) + 2)
+        gsub(/[ \t\r]/, "", v)
+        print v
+        exit
+    }' "$1" 2>/dev/null
+}
+
+MODID=$(prop_val "${MODPATH}/module.prop" id)
 
 # ------------------------------------------------------------
 #  必须自带界面才能装
@@ -144,7 +155,7 @@ md_section() {
     ' "${MODPATH}/update.md"
 }
 if [ -f "${MODPATH}/update.md" ]; then
-    CUR_VER=$(grep '^version=' "${MODPATH}/module.prop" 2>/dev/null | head -1 | cut -d= -f2 | tr -d ' \r')
+    CUR_VER=$(prop_val "${MODPATH}/module.prop" version)
     CUR_NUM="${CUR_VER#v}"
     ui_print "--------------- 更新说明 v${CUR_NUM} ---------------"
     case "${CUR_NUM}" in
@@ -164,22 +175,22 @@ if [ -f "${MODPATH}/update.md" ]; then
     ui_print ""
     rm -f "${MODPATH}/update.md"
 fi
-# 旧版 App 找的是 webroot/webctl.sh，新版是 scripts。这里留一个相对软链接，
-# 让「先刷模块、后更新 App」这段窗口期里旧 App 也能正常跑；新 App 优先认 scripts，
-# 不受影响。等确认没有旧版 App 在用了，这四行可以删。
-if [ -d "${MODPATH}/scripts" ]; then
-    rm -rf "${MODPATH}/webroot" 2>/dev/null
-    ln -s scripts "${MODPATH}/webroot" 2>/dev/null
-fi
+# 模块根不能有 webroot：KernelSU / APatch 把它当 WebUI 目录，跟进去没有 index.html，
+# 管理器里就多一个点开白屏的入口。早期为了兼容只会找 webroot 的旧 App 建过这个软链，
+# 这里只删软链（真实目录不动），也不再建新的。
+for _wr in "${MODPATH}/webroot" "/data/adb/modules/${MODID}/webroot"; do
+    [ -L "${_wr}" ] && rm -f "${_wr}" 2>/dev/null
+done
 
 # 原生二进制：zip 里的权限万一没保住（某些解压工具会丢），这里补一次。
 # watchd 是守护的唯一实现（没有 sh 兜底），执行位丢了这个功能就起不来；
-# actiond 起不来还能回落 action.sh。
+# actiond / ctl 起不来还能回落到各自的 shell 实现。
 if [ -d "${MODPATH}/bin" ]; then
     chmod 755 "${MODPATH}"/bin/* 2>/dev/null
 fi
 [ -x "${MODPATH}/bin/watchd" ] || ui_print "⚠️ 包里没有可执行的 bin/watchd，全局守护将不可用"
 [ -x "${MODPATH}/bin/actiond" ] || ui_print "⚠️ 包里没有 bin/actiond，救砖将使用 shell 版"
+[ -x "${MODPATH}/bin/ctl" ] || ui_print "⚠️ 包里没有 bin/ctl，控制命令将使用 shell 版"
 
 ui_print "✅ 安装完成！"
 ui_print ""

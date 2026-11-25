@@ -135,6 +135,9 @@ fun MainPage(
         val s = session ?: return@LaunchedEffect
         // 只有「跑着 → 停下」这一刻才落盘，重进页面不刷新时间
         var wasRunning = MainUiState.running
+        // 日志不再增长就慢慢看：守护静静待着时没必要每 1.5 秒问一次
+        var lastSize = -1L
+        var idle = 0
         while (true) {
             val p = Logcat.poll(s.file)
             MainUiState.logLines = if (p.text.isBlank()) emptyList() else p.text.lines()
@@ -152,7 +155,9 @@ fun MainPage(
                 break
             }
             wasRunning = true
-            delay(1500)
+            idle = if (p.size != lastSize) 0 else idle + 1
+            lastSize = p.size
+            delay(if (idle < 2) 1500L else 5000L)
         }
     }
 

@@ -101,12 +101,18 @@ data class ModuleState(
     // 全局常驻守护：多少秒的窗口内重启几次才算反复崩
     val watchWindow: String = "30",
     val watchCount: String = "3",
+    // 开机行为：开机记录 60 秒崩溃日志 / 开机自动开始常驻守护
+    val bootLog: Boolean = true,
+    val bootWatch: Boolean = false,
     val protectCount: String = "0",
     val logDir: String = "",
 ) {
     val rescueReady: Boolean get() = rescueSize > 0
     val daemonRunning: Boolean get() = running.isNotBlank()
     val rescueLimitText: String get() = if (crashLimit.isBlank()) "—" else crashLimit
+
+    /** 开机自启守护的前提：运行模式到「日志 + 救砖」且选了日志目录，否则 actiond 起来就退 */
+    val bootWatchReady: Boolean get() = (logMode.toIntOrNull() ?: 0) >= 2 && logDir.isNotBlank()
 
     /**
      * 界面的乐观更新：把待写入的一项先盖到旧状态上。
@@ -120,6 +126,8 @@ data class ModuleState(
         "FATAL_THRESHOLD" -> copy(fatalThreshold = value)
         "WATCH_WINDOW" -> copy(watchWindow = value)
         "WATCH_COUNT" -> copy(watchCount = value)
+        "BOOT_LOG" -> copy(bootLog = value != "0")
+        "BOOT_WATCH" -> copy(bootWatch = value != "0")
         "LOG_DIR" -> copy(logDir = value)
         "TARGET_APK_PATH" -> copy(targetPath = value)
         // 下面两个不是 settings.conf 里的键 是对应写操作的占位 用于写前先把界面改掉
@@ -135,6 +143,8 @@ data class ModuleState(
         "FATAL_THRESHOLD" -> fatalThreshold
         "WATCH_WINDOW" -> watchWindow
         "WATCH_COUNT" -> watchCount
+        "BOOT_LOG" -> if (bootLog) "1" else "0"
+        "BOOT_WATCH" -> if (bootWatch) "1" else "0"
         "LOG_DIR" -> logDir
         "TARGET_APK_PATH" -> targetPath
         "RESCUE_OFF" -> if (rescueOff) "1" else "0"
@@ -157,11 +167,22 @@ object Module {
     @Volatile
     private var lastLogDirLogged: String? = null
 
-    /** 读取完整状态：一次 boot + 一次 cat 配置 都在 root shell 里  */
+    /**
+     * 读取完整状态：boot + 配置 + module.prop
+     *
+     * 三条命令拼成一条发出去。libsu 是常驻 shell，每条命令都要写一次、等一次回显，
+     * 分开跑就是三次往返；拼起来只等一次，守护运行时每 2 秒调一次差价就出来了。
+     * 分段用 `##::CONF::` 这种带冒号的标记，配置文件里不会出现。
+     */
     suspend fun readState(): ModuleState = withContext(Dispatchers.IO) {
-        val boot = Root.webctl("boot")
-        val conf = Root.exec("cat ${Root.q(Root.CONF)} 2>/dev/null")
-        val prop = Root.exec("cat ${Root.q(Root.MODULE_PROP)} 2>/dev/null")
+        val raw = Root.exec(
+            "sh ${Root.q(Root.script("webctl.sh"))} boot; " +
+                "echo '##::CONF::'; cat ${Root.q(Root.CONF)} 2>/dev/null; " +
+                "echo '##::PROP::'; cat ${Root.q(Root.MODULE_PROP)} 2>/dev/null"
+        )
+        val boot = raw.substringBefore("##::CONF::")
+        val conf = rawSection(raw, "::CONF::")
+        val prop = rawSection(raw, "::PROP::")
         val sec = parseSections(boot)
         val c = parseConf(conf)
         val p = parseConf(prop)
@@ -205,6 +226,9 @@ object Module {
             fatalThreshold = c["FATAL_THRESHOLD"].orEmpty().ifBlank { "3" },
             watchWindow = c["WATCH_WINDOW"].orEmpty().ifBlank { "30" },
             watchCount = c["WATCH_COUNT"].orEmpty().ifBlank { "3" },
+            // 老配置里没有这两项：与模块端 service.sh 的缺省保持一致
+            bootLog = c["BOOT_LOG"].orEmpty().ifBlank { "1" } != "0",
+            bootWatch = c["BOOT_WATCH"].orEmpty().ifBlank { "0" } != "0",
             protectCount = c["PROTECT_COUNT"].orEmpty().ifBlank { "0" },
             logDir = logDir,
         )
@@ -472,6 +496,25 @@ object Module {
     // ---------- 解析 ----------
 
     /** "##SECTION" 分节 节内是 key=value */
+    /**
+     * 取合并输出里某一段的原文（给配置这种要保留引号/注释的用）
+     *
+     * 和 [parseSections] 的区别：那个拆成 key=value 映射，这里原样留着整段。
+     */
+    private fun rawSection(text: String, name: String): String {
+        val sb = StringBuilder()
+        var on = false
+        text.lineSequence().forEach { raw ->
+            val line = raw.trimEnd('\r')
+            if (line.startsWith("##")) {
+                on = line.removePrefix("##").trim() == name
+                return@forEach
+            }
+            if (on) sb.appendLine(line)
+        }
+        return sb.toString()
+    }
+
     private fun parseSections(text: String): Map<String, Map<String, String>> {
         val out = LinkedHashMap<String, MutableMap<String, String>>()
         var cur: String? = null
