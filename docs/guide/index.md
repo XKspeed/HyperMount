@@ -5,7 +5,7 @@
 一句话流程：
 
 1. 下载模块 zip（别解压）
-2. 把手机上现在用的 `MiuiSystemUI.apk` 放进 zip 里的 `system/system_ext/priv-app/MiuiSystemUI/`
+2. 把手机上现在用的 `MiuiSystemUI.apk` 放进 zip 里的 `system/system_ext/priv-app/MiuiSystemUI/`<br>（模块列表里已经有 ID 为 `systemui_mount` 的 这步可以跳过）
 3. 刷进去 重启 装应用 点开始测试
 
 ## 1 · 装模块 {#step1}
@@ -33,9 +33,13 @@
 | Magic Mount-rs | [GitHub](https://github.com/Tools-cx-app/meta-magic_mount-rs) | Rust 重写 行为尽量贴近 Magisk |
 | NoMount | [GitHub](https://github.com/maxsteeel/nomount) | **仅支持 5.10 以上 GKI 内核** 老内核别选 |
 
-### 1.3 先把界面塞进压缩包 {#put-apk}
+### 1.3 界面：放还是不放 {#put-apk}
 
-在刷模块之前 把 `MiuiSystemUI.apk` 放进 zip 里 
+先看一眼模块列表 有没有 **ID 是 `systemui_mount`** 的模块
+
+**有** —— 跳过这节 直接去 1.4 刷入<br>装的时候会自动沿用那份界面 不用再塞一次<br>刷完日志里出现「♻️ 沿用已安装的界面」 说明确实接上了
+
+**没有** —— 按下面两步放进去
 
 **第一步 拿到文件** <br>用 MT 管理器打开 `/system_ext/priv-app/MiuiSystemUI/MiuiSystemUI.apk` 
 
@@ -61,6 +65,8 @@ systemui_mount-v1.5.5.zip
 ```
 
 **这份文件同时就是你后面的救砖包**<br>先别急着删除 等会还得用它当救砖界面
+
+注意：别的模块 ID 不叫 `systemui_mount` 的 不算上面那种情况<br>两个模块会抢同一个挂载点 只能生效一个 救砖也可能失效<br>刷之前先把那个模块停用 再按上面放界面 别指望它能顶替
 
 ### 1.4 刷入模块
 
