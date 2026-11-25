@@ -387,7 +387,12 @@ fun App() {
         }
         scope.launch {
             moduleStage = UpdateStage.Probing(0, sources.size)
-            val name = "module-${Update.moduleLabel(info)}.zip"
+            // 文件名直接用 GitHub 上的附件名（systemui_mount-v1.6.0.zip）：
+            // 下到公共目录后，用户在文件管理器里一眼认得出是哪个包、哪个版本。
+            // 主源挂了会换镜像，清单里的 moduleUrl 始终是 GitHub 那条，取它的尾段就行
+            val name = info.moduleUrl.substringAfterLast('/').substringBefore('?')
+                .takeIf { it.endsWith(".zip", ignoreCase = true) }
+                ?: "systemui_mount-v${Update.moduleLabel(info)}.zip"
             val tmp = File(Installer.stagingDir(context), name)
             val result = runCatching {
                 Downloader.fetch(
