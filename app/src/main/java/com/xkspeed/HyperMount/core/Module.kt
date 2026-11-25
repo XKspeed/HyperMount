@@ -425,9 +425,17 @@ object Module {
             }
         }
 
+    /**
+     * 屏蔽 / 恢复系统救援
+     *
+     * 关闭时必须走 [setRescueOff]，不能只在 App 里改崩溃上限：
+     * 模块侧有 30 秒的 limit.cache，绕过它 Write 会让回读继续读到 999999，
+     * 表现就是开关关掉又自己弹回开启。
+     * 恢复值跟「日志 + 救砖」对齐（30），否则救砖还没轮到系统就把界面收了。
+     */
     suspend fun setRescueOff(off: Boolean): String =
         logged(if (off) "rescue off" else "rescue on") {
-            Root.webctl(if (off) "rescue off" else "rescue on")
+            Root.webctl(if (off) "rescue off" else "rescue on $CRASH_LIMIT_MANUAL")
         }
 
     /**

@@ -290,7 +290,16 @@ static void prop(const char *name, char *out, size_t cap) {
     snprintf(out, cap, "%s", buf);
 }
 
-/* 起一个子进程并收集 stdout（最多 cap-1 字节），返回退出码；失败返回 -1 */
+/*
+ * 起一个子进程并收集 stdout（最多 cap-1 字节），返回退出码；失败返回 -1
+ *
+ * argv 的写法：execv 的第一个参数是程序路径，argv[0] 也填程序路径，
+ * **后面直接跟真正的参数，不要再把命令名写一遍**。
+ * 写成 {"/system/bin/settings", "settings", "put", "global", ...} 时，
+ * settings 收到的第一个参数是 "settings"，会报 Invalid command: settings，
+ * 退出码 255。之前所有 settings / dumpsys / device_config 调用都踩了这个坑，
+ * 于是崩溃上限永远读成 unknown，屏蔽系统救援开关拨上去就弹回。
+ */
 static int run_capture(char *const argv[], char *out, size_t cap) {
     int pfd[2];
     if (pipe(pfd) != 0) return -1;
@@ -485,7 +494,7 @@ static void detect_keys(char *up, size_t upcap, char *down, size_t downcap) {
         /* 位图读不到时退回 getevent -pl，解析 add device 段落 */
         char *out = malloc(65536);
         if (!out) return;
-        char *argv[] = {"/system/bin/getevent", "getevent", "-pl", NULL};
+        char *argv[] = {"/system/bin/getevent", "-pl", NULL};
         if (run_capture(argv, out, 65536) == 0) {
             char cur[64] = "";
             int hu = 0, hd = 0;
@@ -613,12 +622,44 @@ static int probe_key(const char *devs, const char *key, int sec,
     return hit[0] ? 1 : 0;
 }
 
-/* ---------------- dumpsys 崩溃上限 ---------------- */
+/* ---------------- AMS 崩溃上限 ---------------- */
 
-static int read_limit(void) {
+/*
+ * 这个值同时存在两处：
+ *   device_config activity_manager          —— AMS 运行期真正读的那份
+ *   settings global activity_manager_constants —— 开机时被映射进 device_config
+ *
+ * Android 10 之后 AMS 只监听 DeviceConfig 的变更；改 global 要靠 system_server
+ * 里的 SettingsToPropertiesMapper 转一道。HyperOS 上这一道经常不转，
+ * 结果就是「写了 999999，AMS 里还是 30」，开关看着写成功、回读又弹回去。
+ * 所以写的时候两份都写，读的时候按 device_config → global → dumpsys 依次退。
+ */
+
+static int dc_put(const char *key, const char *val) {
+    char *a[] = {"/system/bin/cmd", "device_config", "put",
+                 "activity_manager", (char *)key, (char *)val, NULL};
+    if (run_capture(a, NULL, 0) == 0) return 0;
+    /* 极老的系统没有 cmd，直连二进制再试一次 */
+    char *b[] = {"/system/bin/device_config", "put",
+                 "activity_manager", (char *)key, (char *)val, NULL};
+    return run_capture(b, NULL, 0) == 0 ? 0 : -1;
+}
+
+static int dc_get(const char *key, char *buf, size_t cap) {
+    buf[0] = 0;
+    char *a[] = {"/system/bin/cmd", "device_config", "get",
+                 "activity_manager", (char *)key, NULL};
+    if (run_capture(a, buf, cap) == 0) return 0;
+    char *b[] = {"/system/bin/device_config", "get",
+                 "activity_manager", (char *)key, NULL};
+    return run_capture(b, buf, cap) == 0 ? 0 : -1;
+}
+
+/* 最后的兜底：老系统没有 device_config，只能问 dumpsys */
+static int read_limit_dumpsys(void) {
     char *out = malloc(1 << 20);
     if (!out) return -1;
-    char *argv[] = {"/system/bin/dumpsys", "dumpsys", "activity", "settings", NULL};
+    char *argv[] = {"/system/bin/dumpsys", "activity", "settings", NULL};
     int rc = run_capture(argv, out, 1 << 20);
     int val = -1;
     if (rc == 0) {
@@ -629,10 +670,87 @@ static int read_limit(void) {
     return val;
 }
 
+/* 读当前上限：device_config 优先，其次 global 那条串，最后 dumpsys */
+static int ams_read_limit(void) {
+    char buf[512];
+    if (dc_get("process_crash_count_limit", buf, sizeof buf) == 0) {
+        char *s = trim(buf);
+        if (*s && strcasecmp(s, "null") != 0) {
+            int v = (int)strtol(s, NULL, 10);
+            if (v > 0) return v;
+        }
+    }
+    char *a[] = {"/system/bin/settings", "get", "global",
+                 "activity_manager_constants", NULL};
+    if (run_capture(a, buf, sizeof buf) == 0) {
+        char *p = strstr(buf, "process_crash_count_limit=");
+        if (p) {
+            int v = (int)strtol(p + strlen("process_crash_count_limit="), NULL, 10);
+            if (v > 0) return v;
+        }
+    }
+    return read_limit_dumpsys();
+}
+
+/* 写一个上限，返回写完回读到的真实值（-1 = 读不到）
+ * 每一步的返回码留着，失败时 diag_limit() 打出来给用户贴日志 */
+static int g_put_rc = -99, g_dc_rc = -99;
+static char g_put_out[256];
+
+static int ams_apply_limit(int limit) {
+    char val[16], conf[192];
+    snprintf(val, sizeof val, "%d", limit);
+    snprintf(conf, sizeof conf,
+             "process_crash_count_limit=%d,min_crash_interval=120000,"
+             "process_crash_count_reset_interval=43200000", limit);
+    char *a[] = {"/system/bin/settings", "put", "global",
+                 "activity_manager_constants", conf, NULL};
+    g_put_out[0] = 0;
+    g_put_rc = run_capture(a, g_put_out, sizeof g_put_out);
+    int rc = dc_put("process_crash_count_limit", val);
+    g_dc_rc = rc;
+    dc_put("min_crash_interval", "120000");
+    dc_put("process_crash_count_reset_interval", "43200000");
+    /* 值从 DeviceConfig 回灌到 AMS 要一小会儿，等它落定再回读 */
+    usleep(300000);
+    return ams_read_limit();
+}
+
+/* 读不到时把三条读取路径和两条写入路径的原始结果全打出来
+ * App 只 toast 第一行，完整内容在 App 日志里，贴过来就知道卡在哪一步 */
+static void diag_limit(void) {
+    char buf[256];
+    char *a[] = {"/system/bin/cmd", "device_config", "get",
+                 "activity_manager", "process_crash_count_limit", NULL};
+    if (run_capture(a, buf, sizeof buf) == 0) {
+        char *s = trim(buf);
+        printf("  diag dc-get=%s\n", *s ? s : "(空)");
+    } else {
+        printf("  diag dc-get=命令失败\n");
+    }
+    char *b[] = {"/system/bin/settings", "get", "global",
+                 "activity_manager_constants", NULL};
+    if (run_capture(b, buf, sizeof buf) == 0) {
+        char *s = trim(buf);
+        printf("  diag global-get=%s\n", *s ? s : "(空)");
+    } else {
+        printf("  diag global-get=命令失败\n");
+    }
+    printf("  diag dumpsys=%d\n", read_limit_dumpsys());
+    char line[256];
+    size_t j = 0;
+    for (const char *p = g_put_out; *p && j + 1 < sizeof line; p++) {
+        line[j++] = (*p == '\n' || *p == '\r') ? ' ' : *p;
+    }
+    line[j] = 0;
+    char *po = trim(line);
+    printf("  diag put-rc=%d dc-put-rc=%d\n", g_put_rc, g_dc_rc);
+    if (*po) printf("  diag put-says=%s\n", po);
+}
+
 /*
- * 崩溃上限只在两种情况会变：用户点了开关，或者系统自己重置。
- * 每次都跑 dumpsys 是 100~200 ms 的 Java 进程，而 App 每 1.5 秒问一次，
- * 所以这里缓存 30 秒；写配置时（rescue on/off）直接把新值写进缓存。
+ * App 每 1.5 秒问一次状态，每次都跑 device_config 也是 fork
+ * 所以这里缓存 30 秒；写配置时（rescue on/off）直接把回读值写进缓存。
  */
 static int limit_cached(void) {
     struct stat st;
@@ -644,7 +762,7 @@ static int limit_cached(void) {
             if (v > 0) return v;
         }
     }
-    int v = read_limit();
+    int v = ams_read_limit();
     if (v > 0) {
         FILE *f = fopen(p_limit_cache, "w");
         if (f) { fprintf(f, "%d\n", v); fclose(f); }
@@ -903,7 +1021,7 @@ static int cmd_stop(void) {
     return 0;
 }
 
-static int cmd_rescue(const char *action) {
+static int cmd_rescue(const char *action, const char *arg) {
     if (!action || strcmp(action, "get") == 0) {
         int v = limit_cached();
         if (v < 0) printf("limit=unknown\n"); else printf("limit=%d\n", v);
@@ -911,24 +1029,45 @@ static int cmd_rescue(const char *action) {
         return 0;
     }
     if (strcmp(action, "off") == 0) {
-        char *argv[] = {"/system/bin/settings", "settings", "put", "global",
-                        "activity_manager_constants",
-                        "process_crash_count_limit=999999,min_crash_interval=120000,process_crash_count_reset_interval=43200000",
-                        NULL};
-        run_capture(argv, NULL, 0);
-        limit_store(999999);
-        printf("OK 已屏蔽系统救援\n");
-        return 0;
+        int now = ams_apply_limit(999999);
+        if (now > 100) {
+            limit_store(now);
+            printf("OK 已屏蔽系统救援 limit=%d\n", now);
+            return 0;
+        }
+        /* 没写进去就别骗缓存：留下真实值，开关会如实弹回并由 App 提示 */
+        if (now > 0) limit_store(now);
+        if (now > 0) printf("FAIL 系统没接受屏蔽值（当前上限 %d）\n", now);
+        else printf("FAIL 系统没接受屏蔽值（读不到当前上限）\n");
+        diag_limit();
+        return 1;
     }
     if (strcmp(action, "on") == 0) {
-        char *argv[] = {"/system/bin/settings", "settings", "put", "global",
-                        "activity_manager_constants",
-                        "process_crash_count_limit=12,min_crash_interval=120000,process_crash_count_reset_interval=43200000",
-                        NULL};
-        run_capture(argv, NULL, 0);
-        limit_store(12);
-        printf("OK 已恢复系统救援\n");
-        return 0;
+        /*
+         * 恢复成多少要跟运行模式走：
+         * 「日志 + 救砖」靠音量键，上限得留在 30，写回 12 会让救砖来不及
+         * 其它模式回到系统默认 12。参数优先，App 当前模式值可以直接传进来。
+         */
+        int limit = 12;
+        if (arg && *arg) {
+            int v = (int)strtol(arg, NULL, 10);
+            if (v > 0 && v <= 100) limit = v;
+        } else {
+            char m[16];
+            conf_get("LOG_MODE", m, sizeof m, "0");
+            if (atoi(m) >= 2) limit = 30;
+        }
+        int now = ams_apply_limit(limit);
+        if (now > 0 && now <= 100) {
+            limit_store(now);
+            printf("OK 已恢复系统救援 limit=%d\n", now);
+            return 0;
+        }
+        if (now > 0) limit_store(now);
+        if (now > 0) printf("FAIL 恢复失败（当前上限 %d）\n", now);
+        else printf("FAIL 恢复失败（读不到当前上限）\n");
+        diag_limit();
+        return 1;
     }
     printf("FAIL 未知操作: %s\n", action);
     return 1;
@@ -1552,7 +1691,7 @@ static void usage(void) {
     printf("用法: ctl [--dir <模块根>] <命令> [参数]\n");
     printf("  ls <dir> | prepare <apk> | test-run <救砖> <待测>\n");
     printf("  status | output [行数] | stop\n");
-    printf("  rescue get|on|off | watch start <秒>|stop|status | boot | boot-start\n");
+    printf("  rescue get|on [上限]|off | watch start <秒>|stop|status | boot | boot-start\n");
     printf("  check env|keys|scan|up|down|save [up] [down]|verify\n");
 }
 
@@ -1617,7 +1756,7 @@ int main(int argc, char **argv) {
     if (strcmp(cmd, "status") == 0) return cmd_status();
     if (strcmp(cmd, "output") == 0) return cmd_output(a1);
     if (strcmp(cmd, "stop") == 0) return cmd_stop();
-    if (strcmp(cmd, "rescue") == 0) return cmd_rescue(a1);
+    if (strcmp(cmd, "rescue") == 0) return cmd_rescue(a1, a2);
     if (strcmp(cmd, "watch") == 0) return cmd_watch(a1, a2);
     if (strcmp(cmd, "boot") == 0) return cmd_boot();
     if (strcmp(cmd, "boot-start") == 0) return cmd_boot_start();

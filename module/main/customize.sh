@@ -192,5 +192,62 @@ fi
 [ -x "${MODPATH}/bin/actiond" ] || ui_print "⚠️ 包里没有 bin/actiond，救砖将使用 shell 版"
 [ -x "${MODPATH}/bin/ctl" ] || ui_print "⚠️ 包里没有 bin/ctl，控制命令将使用 shell 版"
 
+# ------------------------------------------------------------
+#  不重启就地生效（只换脚本，不动界面）
+#
+#  从管理器安装时 BOOTMODE=1，文件写进 modules_update，Magisk 要等下次开机
+#  才合并到 modules；而 App 调的是 modules/<id>/scripts/webctl.sh。
+#  结果就是模块显示已更新、功能还是旧的。
+#
+#  这里把能立刻用的部分（scripts / bin / config / module.prop / 根脚本）同步
+#  到已安装目录，App 下一次调用就是新版本，一次 shell 都不用多跑。
+#
+#  界面 APK 和 system/ 一个字节都不碰：magic mount 是开机时建的，
+#  运行期换文件会让挂载点和 inode 对不上，换界面仍然要整机重启。
+#
+#  两个必须守住的点：
+#   - bin/ctl 可能正被 App 调用（1.5 秒一次），直接 cp 覆盖会 EBUSY，
+#     所以一律先写临时文件再 mv 替换目录项。
+#   - 不能从 modules_update 删任何东西：Magisk 开机合并是整目录替换，
+#     删掉的文件重启后就真没了。
+# ------------------------------------------------------------
+LIVE="/data/adb/modules/${MODID}"
+HOTSYNC=0
+if [ -n "${MODID}" ] && [ -d "${LIVE}" ] && [ "${MODPATH}" != "${LIVE}" ]; then
+    # 单文件替换：临时文件 + rename，避开「目标正在执行」
+    _put() {
+        [ -f "$1" ] || return 1
+        _tmp="$2.new.$$"
+        cp -f "$1" "$_tmp" 2>/dev/null || { rm -f "$_tmp"; return 1; }
+        _m=$(stat -c%a "$1" 2>/dev/null)
+        [ -n "${_m}" ] && chmod "${_m}" "$_tmp" 2>/dev/null
+        mv -f "$_tmp" "$2" 2>/dev/null || { rm -f "$_tmp"; return 1; }
+        return 0
+    }
+    _sync_dir() {
+        [ -d "${MODPATH}/$1" ] || return 0
+        ( cd "${MODPATH}/$1" && find . -type f 2>/dev/null ) | while IFS= read -r _r; do
+            _r="${_r#./}"
+            [ -n "${_r}" ] || continue
+            mkdir -p "${LIVE}/$1/$(dirname "${_r}")" 2>/dev/null
+            _put "${MODPATH}/$1/${_r}" "${LIVE}/$1/${_r}"
+        done
+    }
+    _sync_dir scripts
+    _sync_dir bin
+    _sync_dir config
+    for _f in module.prop action.sh action-shell.sh service.sh service-shell.sh uninstall.sh; do
+        _put "${MODPATH}/${_f}" "${LIVE}/${_f}"
+    done
+    # 同步完再确认一次执行位：zip 解压工具偶尔会丢
+    [ -d "${LIVE}/bin" ] && chmod 755 "${LIVE}"/bin/* 2>/dev/null
+    HOTSYNC=1
+fi
+
 ui_print "✅ 安装完成！"
+if [ "${HOTSYNC}" = "1" ]; then
+    ui_print ""
+    ui_print "  ⚡ 脚本与配置已就地生效，不用重启"
+    ui_print "  🖼 界面仍用现在挂载的包，换界面才需要重启"
+fi
 ui_print ""

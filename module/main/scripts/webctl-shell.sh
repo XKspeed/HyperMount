@@ -186,9 +186,39 @@ case "${1:-}" in
         ;;
     rescue)
         ACTION="${2:-get}"
+        # 上限同时存在两处：device_config 是 AMS 运行期真正读的，
+        # global 里的 activity_manager_constants 只在开机时映射进去一次。
+        # HyperOS 上改 global 常常不重读，只写 global 就是「拨上去又弹回」。
+        _dc() {
+            if command -v cmd >/dev/null 2>&1; then
+                cmd device_config "$@" 2>/dev/null && return 0
+            fi
+            device_config "$@" 2>/dev/null
+        }
+        _limit() {
+            _v=$(_dc get activity_manager process_crash_count_limit)
+            case "$_v" in ''|null|*[!0-9]*) _v="" ;; esac
+            if [ -z "$_v" ]; then
+                _v=$(settings get global activity_manager_constants 2>/dev/null \
+                    | tr ',' '\n' | sed -n 's/^ *process_crash_count_limit=\([0-9][0-9]*\).*/\1/p' | head -1)
+            fi
+            if [ -z "$_v" ]; then
+                _v=$(dumpsys activity settings 2>/dev/null | grep -oE 'process_crash_count_limit=[0-9]+' | cut -d= -f2 | head -1)
+            fi
+            printf '%s' "$_v"
+        }
+        _apply() {
+            settings put global activity_manager_constants \
+                "process_crash_count_limit=$1,min_crash_interval=120000,process_crash_count_reset_interval=43200000" 2>/dev/null
+            _dc put activity_manager process_crash_count_limit "$1" >/dev/null
+            _dc put activity_manager min_crash_interval 120000 >/dev/null
+            _dc put activity_manager process_crash_count_reset_interval 43200000 >/dev/null
+            sleep 0.3
+            _limit
+        }
         case "$ACTION" in
             get)
-                V=$(dumpsys activity settings 2>/dev/null | grep -oE 'process_crash_count_limit=[0-9]+' | cut -d= -f2 | head -1)
+                V=$(_limit)
                 echo "limit=${V:-unknown}"
                 if [ "${V:-0}" -gt 100 ] 2>/dev/null; then
                     echo "state=off"
@@ -197,14 +227,30 @@ case "${1:-}" in
                 fi
                 ;;
             off)
-                settings put global activity_manager_constants \
-                    "process_crash_count_limit=999999,min_crash_interval=120000,process_crash_count_reset_interval=43200000" 2>/dev/null
-                echo "OK 已屏蔽系统救援"
+                V=$(_apply 999999)
+                if [ "${V:-0}" -gt 100 ] 2>/dev/null; then
+                    echo "OK 已屏蔽系统救援 limit=$V"
+                else
+                    echo "FAIL 系统没接受屏蔽值（当前 ${V:-unknown}）"
+                    exit 1
+                fi
                 ;;
             on)
-                settings put global activity_manager_constants \
-                    "process_crash_count_limit=12,min_crash_interval=120000,process_crash_count_reset_interval=43200000" 2>/dev/null
-                echo "OK 已恢复系统救援"
+                # 恢复值跟运行模式走：日志+救砖要留 30 才等得到人按音量键
+                L="${3:-}"
+                if [ -z "$L" ]; then
+                    case "$(grep '^LOG_MODE=' "$CONF" 2>/dev/null | cut -d= -f2)" in
+                        2|3) L=30 ;;
+                        *)   L=12 ;;
+                    esac
+                fi
+                V=$(_apply "$L")
+                if [ -n "$V" ] && [ "$V" -le 100 ] 2>/dev/null; then
+                    echo "OK 已恢复系统救援 limit=$V"
+                else
+                    echo "FAIL 恢复失败（当前 ${V:-unknown}）"
+                    exit 1
+                fi
                 ;;
             *)
                 echo "FAIL 未知操作: $ACTION"

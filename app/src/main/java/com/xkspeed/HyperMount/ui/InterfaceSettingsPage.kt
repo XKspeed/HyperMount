@@ -304,7 +304,8 @@ fun InterfaceSettingsPage(
                 onRescueToggle(true)
             }
             // 日志 + 救砖靠音量键 上限抬到 30 才等得到人按下去
-            value >= 2 -> onSetCrashLimit(CRASH_LIMIT_MANUAL)
+            // 已经屏蔽系统救援时别覆盖 999999，否则等于把屏蔽悄悄关掉
+            value >= 2 && !rescueOff -> onSetCrashLimit(CRASH_LIMIT_MANUAL)
         }
     }
 
@@ -634,7 +635,8 @@ fun InterfaceSettingsPage(
                                     enhanced = false
                                     modeIndex = 2
                                     onSetConf("LOG_MODE", "2")
-                                    onSetCrashLimit(CRASH_LIMIT_MANUAL)
+                                    // 屏蔽还开着就留着 999999：写 30 等于把它悄悄关掉
+                                    if (!rescueOff) onSetCrashLimit(CRASH_LIMIT_MANUAL)
                                 }
                             },
                             title = t("增强救砖", "Enhanced rescue"),
@@ -678,8 +680,10 @@ fun InterfaceSettingsPage(
                                 onCheckedChange = { on ->
                                     if (!enhanced) {
                                         rescueOff = on
-                                        if (on) onRescueToggle(true)
-                                        else onSetCrashLimit(CRASH_LIMIT_MANUAL)
+                                        // 两个方向都交给模块做：它写的是 999999 / 30，
+                                        // 同时更正自己的上限缓存。只在 App 里改上限的话
+                                        // 模块回读的还是旧值 开关会自己弹回去
+                                        onRescueToggle(on)
                                     }
                                 },
                                 title = t("屏蔽系统救援", "System rescue override"),
