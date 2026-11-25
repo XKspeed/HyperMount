@@ -21,14 +21,25 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.EnterExitState
+import androidx.compose.animation.core.animateDp
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.BlurredEdgeTreatment
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.CornerRadius
@@ -37,6 +48,8 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.kyant.backdrop.Backdrop
@@ -310,11 +323,14 @@ fun BackIcon(onClick: () -> Unit, modifier: Modifier = Modifier) {
 }
 
 /**
- * 页面底部的常驻操作条：一条悬浮胶囊
+ * 页面底部的操作条：一条悬浮胶囊
  *
  * 只有一张卡，按状态换文案与点击行为：空闲是「开始测试」，真正跑起来之后同一条卡变成「停止」。
  * 启动中的过渡态显示「启动中…」并禁用，避免连点两次。
  * 「停止」只是文字换成 error 色，卡片材质与普通卡片完全一样。
+ *
+ * 空闲时不是常驻：待测文件没选之前整条不出现（[ready]），选了才从底栏后面滑上来。
+ * 运行中 / 启动中一定要留着 —— 否则开跑之后按钮消失，就没地方点「停止」了。
  *
  * 浮动在列表之上、底栏之上，不跟着列表滚：
  * - 位置相对**实测的底栏顶边**（[bottomBarTopOffset]）：标准条贴底、悬浮条还多一层 inset，
@@ -331,33 +347,62 @@ fun BoxScope.BottomActions(
     backdrop: Backdrop?,
     running: Boolean,
     busy: Boolean,
+    ready: Boolean,
     onStart: () -> Unit,
     onStop: () -> Unit,
 ) {
     val glass = backdrop != null && !UiConfigState.safeMode
 
-    Row(
-        modifier = Modifier
-            .align(Alignment.BottomCenter)
-            // 宽度与底栏一致（93%） 左右边缘对齐
-            .fillMaxWidth(0.93f)
-            // 底栏顶边已含系统导航条，这里只需再让开底栏本身
-            .padding(bottom = bottomBarTopOffset() + BottomActionBarGap),
+    AnimatedVisibility(
+        visible = running || busy || ready,
+        modifier = Modifier.align(Alignment.BottomCenter),
+        // 从底栏后面升起来，曲线与缓存页删除条同一组阻尼
+        enter = slideInVertically(animationSpec = ActionSlideSpring) { it } +
+            fadeIn(tween(140)),
+        exit = slideOutVertically(animationSpec = ActionSlideSpring) { it } +
+            fadeOut(tween(120)),
     ) {
-        ActionCard(
-            backdrop = if (glass) backdrop else null,
-            label = when {
-                busy -> t("启动中…", "Starting…")
-                running -> t("停止", "Stop")
-                else -> t("开始测试", "Start test")
-            },
-            enabled = !busy,
-            tone = if (running) ActionTone.Danger else ActionTone.Accent,
-            onClick = if (running) onStop else onStart,
-            modifier = Modifier.weight(1f),
-        )
+        // 模糊渐显：出现时先糊后清，退场再糊回去
+        val blurRadius by transition.animateDp(
+            transitionSpec = { ActionBlurSpring },
+            label = "actionBlur",
+        ) { state -> if (state == EnterExitState.Visible) 0.dp else ActionBlurRadius }
+
+        Row(
+            modifier = Modifier
+                // 宽度与底栏一致（93%） 左右边缘对齐
+                .fillMaxWidth(0.93f)
+                // 底栏顶边已含系统导航条，这里只需再让开底栏本身
+                .padding(bottom = bottomBarTopOffset() + BottomActionBarGap)
+                .blur(blurRadius, BlurredEdgeTreatment.Unbounded),
+        ) {
+            ActionCard(
+                backdrop = if (glass) backdrop else null,
+                label = when {
+                    busy -> t("启动中…", "Starting…")
+                    running -> t("停止", "Stop")
+                    else -> t("开始测试", "Start test")
+                },
+                enabled = !busy,
+                tone = if (running) ActionTone.Danger else ActionTone.Accent,
+                onClick = if (running) onStop else onStart,
+                modifier = Modifier.weight(1f),
+            )
+        }
     }
 }
+
+/**
+ * 操作条进出的阻尼：与缓存页删除条 / 上限滑条同一组（0.86 / 380）
+ *
+ * 位移动画要 IntOffset、模糊要 Dp，类型不同没法共用一个对象，所以各留一份，
+ * 改的时候两条一起改。
+ */
+private val ActionSlideSpring = spring<IntOffset>(dampingRatio = 0.86f, stiffness = 380f)
+private val ActionBlurSpring = spring<Dp>(dampingRatio = 0.86f, stiffness = 380f)
+
+/** 入场起手的模糊半径：够糊、又不至于糊成一团认不出是张卡 */
+private val ActionBlurRadius = 18.dp
 
 /** 操作卡高度：调用方（Snackbar 定位）也算这份值，别各写各的 */
 val BottomActionCardHeight = 52.dp

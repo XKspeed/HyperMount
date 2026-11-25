@@ -58,14 +58,12 @@ import com.xkspeed.HyperMount.ui.component.glass.ScrollPage
 import com.xkspeed.HyperMount.ui.components.LiquidSelectHost
 import com.xkspeed.HyperMount.ui.components.LiquidSelectPreference
 import com.xkspeed.HyperMount.ui.components.SectionCard
-import com.xkspeed.HyperMount.ui.components.StatusDot
 import com.xkspeed.HyperMount.ui.components.rememberLiquidSelectState
 import com.xkspeed.HyperMount.ui.components.SliderInputPreference
 import kotlin.math.abs
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import top.yukonga.miuix.kmp.basic.ButtonDefaults
-import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.Slider
 import top.yukonga.miuix.kmp.basic.SliderDefaults
 import top.yukonga.miuix.kmp.basic.SmallTitle
@@ -134,16 +132,6 @@ private fun snapWatch(min: Float): Float {
     if (min > WATCH_MAX_MIN + WATCH_SNAP_MIN) return WATCH_UNLIMITED_MIN
     val near = WATCH_NODES.minByOrNull { abs(it - min) } ?: return min
     return if (abs(near - min) <= WATCH_SNAP_MIN) near else min
-}
-
-/** 剩余时间：超过一小时才带小时位 */
-private fun fmtRemain(sec: Long): String {
-    val s = sec.coerceAtLeast(0)
-    val h = s / 3600
-    val m = (s % 3600) / 60
-    val ss = s % 60
-    fun two(v: Long) = if (v < 10) "0$v" else "$v"
-    return if (h > 0) "$h:${two(m)}:${two(ss)}" else "${two(m)}:${two(ss)}"
 }
 
 /**
@@ -244,6 +232,16 @@ fun InterfaceSettingsPage(
         // --now 那一轮沿用原逻辑：模式不对根本没日志可判 起了也是白跑
         if (on && modeIndex < 2) {
             toast(context, t("先在设置把运行模式改成「日志 + 救砖」", "Set the run mode to \"Logs + rescue\" in Settings first"))
+            return
+        }
+        // 原来的状态卡会说明「读取中 / 模块版本不支持」，卡去掉后改在这里拦：
+        // 点下去没反应比弹一句更让人困惑
+        if (on && !loaded) {
+            toast(context, t("正在读取模块状态 稍后再试", "Still reading module state — try again in a moment"))
+            return
+        }
+        if (on && !status.supported) {
+            toast(context, t("当前模块没有常驻守护 更新模块后再用", "This module has no always-on daemon — update the module first"))
             return
         }
         scope.launch {
@@ -348,7 +346,6 @@ fun InterfaceSettingsPage(
                             onSetConf("BOOT_LOG", if (it) "1" else "0")
                         },
                         title = t("开机记录日志", "Log at boot"),
-                        summary = t("开机后自动抓一段崩溃日志", "Captures crash logs right after boot"),
                     )
                 }
                 AnimatedVisibility(
@@ -379,58 +376,13 @@ fun InterfaceSettingsPage(
             ) {
                 Column {
                     SmallTitle(t("全局常驻救砖", "Always-on rescue"))
-                    // 和界面页那张状态卡同款：圆点 + 大标题 + 一行说明
-                    val unsupported = loaded && !status.supported
-                    val live = loaded && status.supported && status.running
-                    val dot = when {
-                        !loaded -> MiuixTheme.colorScheme.onSurfaceVariantSummary
-                        unsupported -> MiuixTheme.colorScheme.error
-                        live -> MiuixTheme.colorScheme.primary
-                        else -> MiuixTheme.colorScheme.onSurfaceVariantSummary
-                    }
-                    val head = when {
-                        !loaded -> t("读取中", "Reading")
-                        unsupported -> t("模块版本不支持", "Module version unsupported")
-                        live -> t("全局救砖中", "Global rescue running")
-                        else -> t("未启用", "Not enabled")
-                    }
-                    val sub = when {
-                        !loaded -> t("正在检查模块是否带常驻守护", "Checking whether the module ships the always-on daemon")
-                        unsupported -> t("当前模块没有常驻守护 更新模块后再用", "This module has no always-on daemon — update the module first")
-                        !live -> t("开启后界面反复重启会自动救砖", "Once on, repeated SystemUI restarts trigger automatic rescue")
-                        status.remaining(nowSec) < 0 -> t("不限制时长", "No time limit")
-                        else -> t("剩余 ${fmtRemain(status.remaining(nowSec))}", "${fmtRemain(status.remaining(nowSec))} left")
-                    }
-                    Card(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 12.dp, vertical = 4.dp),
-                    ) {
-                        Column(Modifier.padding(horizontal = 16.dp, vertical = 14.dp)) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                StatusDot(dot)
-                                Text(
-                                    head,
-                                    style = MiuixTheme.textStyles.title2,
-                                    fontWeight = FontWeight.SemiBold,
-                                    modifier = Modifier.padding(start = 8.dp),
-                                )
-                            }
-                            Spacer(Modifier.height(6.dp))
-                            Text(
-                                buildString {
-                                    append(sub)
-                                    if (live && status.count > 0) append(t(" · 本轮重启 ${status.count} 次", " · ${status.count} restarts this session"))
-                                },
-                                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                                style = MiuixTheme.textStyles.subtitle,
-                            )
-                        }
-                    }
+                    // 状态卡已去掉：模块不支持 / 还没读完时点开关会弹提示，不再常驻一块灰字
                     SectionCard {
                         SwitchPreference(
                             checked = status.running,
-                            enabled = loaded && status.supported && !busy,
+                            // 永远能点：不支持 / 没读完都在 toggleWatch 里拦下并说明原因，
+                            // 留一个点不动的开关只会让人以为坏了
+                            enabled = !busy,
                             onCheckedChange = { toggleWatch(it) },
                             title = t("全局守护", "Global daemon"),
                             // 正下方就是滑条：底部内缩收一半，别把滑条推得太远
@@ -688,42 +640,51 @@ fun InterfaceSettingsPage(
                             title = t("增强救砖", "Enhanced rescue"),
                             summary = t("崩溃达到阈值自动替换 SystemUI", "Swaps SystemUI automatically once crashes hit the threshold"),
                         )
-                        SliderInputPreference(
-                            title = t("崩溃阈值", "Crash threshold"),
-                            summary = if (enhanced) {
-                                t("累计多少条 fatal 日志后自动救砖", "How many fatal log entries trigger rescue")
-                            } else {
-                                t("开启增强救砖后生效", "Takes effect with Enhanced rescue on")
-                            },
-                            value = fatalThreshold,
-                            defaultValue = 3f,
-                            onValueChange = { fatalThreshold = it },
-                            onValueChangeFinished = {
-                                onSetConf(
-                                    "FATAL_THRESHOLD",
-                                    fatalThreshold.roundToInt().toString(),
-                                )
-                            },
-                            enabled = enhanced,
-                            valueRange = 1f..10f,
-                            steps = 8,
-                            valueText = t("${fatalThreshold.roundToInt()} 次", "${fatalThreshold.roundToInt()} entries"),
-                            inputUnit = t("次", "entries"),
-                        )
+                        // 阈值只对增强救砖有意义：没开时整行收起，
+                        // 不摆一条拖不动的滑条（拖不动等于点了没反应）
+                        AnimatedVisibility(
+                            visible = enhanced,
+                            enter = fadeIn() + expandVertically(),
+                            exit = fadeOut() + shrinkVertically(),
+                        ) {
+                            SliderInputPreference(
+                                title = t("崩溃阈值", "Crash threshold"),
+                                summary = t("累计多少条 fatal 日志后自动救砖", "How many fatal log entries trigger rescue"),
+                                value = fatalThreshold,
+                                defaultValue = 3f,
+                                onValueChange = { fatalThreshold = it },
+                                onValueChangeFinished = {
+                                    onSetConf(
+                                        "FATAL_THRESHOLD",
+                                        fatalThreshold.roundToInt().toString(),
+                                    )
+                                },
+                                valueRange = 1f..10f,
+                                steps = 8,
+                                valueText = t("${fatalThreshold.roundToInt()} 次", "${fatalThreshold.roundToInt()} entries"),
+                                inputUnit = t("次", "entries"),
+                            )
+                        }
                         // 增强救砖和屏蔽系统救援绑死：开了增强就必须屏蔽
                         // 否则系统先崩到上限 自动救砖还没轮到就已经把界面收了
-                        SwitchPreference(
-                            checked = enhanced || rescueOff,
-                            onCheckedChange = { on ->
-                                if (!enhanced) {
-                                    rescueOff = on
-                                    if (on) onRescueToggle(true)
-                                    else onSetCrashLimit(CRASH_LIMIT_MANUAL)
-                                }
-                            },
-                            enabled = !enhanced,
-                            title = t("屏蔽系统救援", "System rescue override"),
-                        )
+                        // 开着增强时这一行整条收起（不置灰）：它本来就恒为开，摆着只会让人想点
+                        AnimatedVisibility(
+                            visible = !enhanced,
+                            enter = fadeIn() + expandVertically(),
+                            exit = fadeOut() + shrinkVertically(),
+                        ) {
+                            SwitchPreference(
+                                checked = enhanced || rescueOff,
+                                onCheckedChange = { on ->
+                                    if (!enhanced) {
+                                        rescueOff = on
+                                        if (on) onRescueToggle(true)
+                                        else onSetCrashLimit(CRASH_LIMIT_MANUAL)
+                                    }
+                                },
+                                title = t("屏蔽系统救援", "System rescue override"),
+                            )
+                        }
                     }
                 }
             }

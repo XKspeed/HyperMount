@@ -364,6 +364,8 @@ fun MainPage(
                 backdrop = pageBackdrop,
                 running = running,
                 busy = starting,
+                // 待测 apk 选好才把按钮升上来；救砖、日志目录缺的话点了会拦一道
+                ready = targetReady,
                 // 条件不满足不再灰按钮：点了统一弹提示 并带用户去对应的卡
                 onStart = {
                     when {

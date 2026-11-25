@@ -48,7 +48,6 @@ fun DebugPage(onBack: () -> Unit, onOpenOnboarding: () -> Unit) {
             SectionCard {
                 BasicComponent(
                     title = t("重新查看引导", "Replay onboarding"),
-                    summary = t("功能说明 · 环境检查 · 音量键校验", "Intro · environment check · volume key check"),
                     onClick = onOpenOnboarding,
                 )
             }
@@ -73,7 +72,6 @@ fun DebugPage(onBack: () -> Unit, onOpenOnboarding: () -> Unit) {
                 SectionCard {
                     SliderInputPreference(
                         title = t("图标大小", "Icon size"),
-                        summary = t("底栏这一项的图标边长", "Icon edge length for this tab"),
                         value = tune.size,
                         defaultValue = NavIconTuning.defaultTune(index).size,
                         onValueChange = { NavIconTuning.setSize(index, it) },
@@ -110,7 +108,7 @@ fun DebugPage(onBack: () -> Unit, onOpenOnboarding: () -> Unit) {
                     )
                     SliderInputPreference(
                         title = t("上下压缩", "Vertical scale"),
-                        summary = t("小于 1 压扁 大于 1 拉高 只改高度不改宽度", "Below 1 squashes, above 1 stretches — height only"),
+                        summary = t("小于 1 压扁 大于 1 拉高", "Below 1 squashes, above 1 stretches"),
                         value = tune.scaleY,
                         defaultValue = NavIconTuning.defaultTune(index).scaleY,
                         onValueChange = { NavIconTuning.setScaleY(index, it) },
@@ -124,7 +122,6 @@ fun DebugPage(onBack: () -> Unit, onOpenOnboarding: () -> Unit) {
                     )
                     BasicComponent(
                         title = t("恢复这一项", "Reset this one"),
-                        summary = t("只重置 $label", "Resets $label only"),
                         onClick = { NavIconTuning.reset(index) },
                     )
                 }

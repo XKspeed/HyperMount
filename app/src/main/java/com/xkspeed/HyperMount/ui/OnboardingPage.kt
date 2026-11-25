@@ -1273,7 +1273,6 @@ private fun DoneStep() {
                     UiConfigState.save(context)
                 },
                 title = t("自动检查更新", "Auto check"),
-                summary = t("启动时看一眼 GitHub 上有没有新版本", "Look for new releases on GitHub at launch"),
             )
         }
         Spacer(Modifier.height(24.dp))

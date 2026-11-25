@@ -1,5 +1,10 @@
 package com.xkspeed.HyperMount.ui
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
@@ -48,6 +53,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.state.ToggleableState
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.xkspeed.HyperMount.core.CacheConfig
@@ -88,6 +94,9 @@ private const val SNAP_MB = 48f
 
 /** iOS 底栏那种弹性：起步猛 落位带一点点回弹 */
 private val IosTabSpring = spring<Float>(dampingRatio = 0.86f, stiffness = 380f)
+
+/** 同一组阻尼，给需要 IntOffset 的位移动画用（删除条从底部滑入） */
+private val IosTabSpringOffset = spring<IntOffset>(dampingRatio = 0.86f, stiffness = 380f)
 
 /** 超过 1 GB 那一档就算无限制：中间不会停在 1050 MB 这种没意义的数 */
 private fun isUnlimited(mb: Float) = mb > ONE_GB_MB + 1f
@@ -214,37 +223,44 @@ fun CachePage(onBack: () -> Unit) {
                         )
                     }
                 }
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .background(
-                            Brush.verticalGradient(
-                                listOf(Color.Transparent, MiuixTheme.colorScheme.surface)
-                            )
-                        )
-                        .padding(top = 20.dp)
-                        .stableNavigationBarsPadding()
-                        .padding(horizontal = 12.dp)
-                        .padding(bottom = 12.dp),
+                // 没勾文件时整条删除栏不出现：留一颗灰按钮只会让人点一下发现没反应
+                AnimatedVisibility(
+                    visible = picked.isNotEmpty(),
+                    // 从底部滑上来（initialOffsetY 取正 = 自身高度以下的起点），
+                    // 曲线跟上限滑条同一组阻尼（IosTabSpring），别自己另配一条
+                    enter = slideInVertically(animationSpec = IosTabSpringOffset) { it } +
+                        fadeIn(tween(120)),
+                    exit = slideOutVertically(animationSpec = IosTabSpringOffset) { it } +
+                        fadeOut(tween(120)),
                 ) {
-                    Card(modifier = Modifier.fillMaxWidth()) {
-                        Box(
-                            Modifier
-                                .fillMaxWidth()
-                                .clickable(enabled = picked.isNotEmpty()) { askDelete = true }
-                                .padding(vertical = 14.dp),
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            Text(
-                                if (picked.isEmpty()) t("删除", "Delete") else t("删除 ${picked.size} 项", "Delete ${picked.size}"),
-                                color = if (picked.isEmpty()) {
-                                    MiuixTheme.colorScheme.onSurfaceVariantSummary
-                                } else {
-                                    MiuixTheme.colorScheme.error
-                                },
-                                style = MiuixTheme.textStyles.main,
-                                fontWeight = FontWeight.Medium,
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(
+                                Brush.verticalGradient(
+                                    listOf(Color.Transparent, MiuixTheme.colorScheme.surface)
+                                )
                             )
+                            .padding(top = 20.dp)
+                            .stableNavigationBarsPadding()
+                            .padding(horizontal = 12.dp)
+                            .padding(bottom = 12.dp),
+                    ) {
+                        Card(modifier = Modifier.fillMaxWidth()) {
+                            Box(
+                                Modifier
+                                    .fillMaxWidth()
+                                    .clickable { askDelete = true }
+                                    .padding(vertical = 14.dp),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Text(
+                                    t("删除 ${picked.size} 项", "Delete ${picked.size}"),
+                                    color = MiuixTheme.colorScheme.error,
+                                    style = MiuixTheme.textStyles.main,
+                                    fontWeight = FontWeight.Medium,
+                                )
+                            }
                         }
                     }
                 }

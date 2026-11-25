@@ -241,6 +241,8 @@ fun HomePage(
                 backdrop = pageBackdrop,
                 running = state.daemonRunning,
                 busy = busy,
+                // 待测界面选好才把按钮升上来；救砖界面缺的话点了会拦一道
+                ready = state.targetPath.isNotBlank(),
                 // 条件不满足不再灰按钮：点了统一弹提示 并带用户去对应的卡
                 onStart = {
                     when {
