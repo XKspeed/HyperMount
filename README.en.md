@@ -22,7 +22,7 @@ Built around one loop: **prepare a rescue build → swap in the build under test
 
 | Item | Value |
 | --- | --- |
-| **Current version** | `1.5.0` |
+| **Current version** | `1.5.0-hotfix1` |
 | **Minimum OS** | Android 15 (API 35) |
 
 ---
