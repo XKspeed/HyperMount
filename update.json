@@ -1,13 +1,13 @@
 {
-  "versionCode": 30,
-  "versionName": "1.5.0",
-  "buildTime": 1795625349083,
-  "url": "https://github.com/XKspeed/HyperMount/releases/download/v1.5.0/HyperMount-arm64-1.5.0.apk",
-  "changelog": "新增界面设置二级页\n新增配置二级页\n新增全局常驻救砖\n新增守护状态常驻通知\n新增音量键校验拦截\n新增记住上次停留页面\n新增 MCP 服务\n新增移植参考页\n新增捐赠入口\n新增守护触发条件调节\n新增中英文界面切换\n新增开机日志与自启开关\n改进应用UI\n优化更新逻辑\n移除仅日志模式的等待超时\n移除运行输出中的崩溃日志\n支持缓存上限无级调节\n支持守护时长无级调节\n优化长时间守护功耗\n修复换包后界面不再自动重启\n修复切换多任务时页面跳动",
-  "moduleVersionCode": 17,
-  "moduleVersionName": "1.6.0",
-  "moduleUrl": "https://github.com/XKspeed/HyperMount/releases/download/v1.5.0/systemui_mount-v1.6.0.zip",
-  "moduleChangelog": "新增模块更新检测\n新增全局常驻救砖守护\n新增升级保留自定义系统属性\n新增未放界面拒绝安装\n新增开机日志与开机自启\n替换界面不再计入崩溃次数\n移除模块 WebUI 入口\n优化模块运行性能\n修复换包后界面不再自动重启\n修复安装时不显示更新说明\n修复升级后救砖包丢失\n修复更新说明打印整份历史",
-  "sha256": "6bedbf25a0cd80ef11246811694984e4b01199bf21771776f78ee79187488495",
-  "moduleSha256": "f4957a4ff1a2871f01128115352770d6d64c107f9fe681e102e6a4b75122631c"
+  "versionCode": 31,
+  "versionName": "1.5.0-hotfix1",
+  "buildTime": 1795631465358,
+  "url": "https://github.com/XKspeed/HyperMount/releases/download/v1.5.0-hotfix1/HyperMount-arm64-1.5.0-hotfix1.apk",
+  "changelog": "修复屏蔽系统救援开关自动弹回",
+  "moduleVersionCode": 18,
+  "moduleVersionName": "1.6.0-hotfix1",
+  "moduleUrl": "https://github.com/XKspeed/HyperMount/releases/download/v1.5.0-hotfix1/systemui_mount-v1.6.0-hotfix1.zip",
+  "moduleChangelog": "修复屏蔽系统救援开关自动弹回\n模块更新后无需重启生效",
+  "sha256": "02db2cfde9d4d7d994b30ce40d8ff3c3b627f5029db0bf213b17dd4899423cb2",
+  "moduleSha256": "b1ef77269a8cab7f4a44c04c8f8a63b400abdb4692abd63a72b02ba572e8ef51"
 }

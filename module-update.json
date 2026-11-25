@@ -1,6 +1,6 @@
 {
-  "version": "1.6.0",
-  "versionCode": 17,
-  "zipUrl": "https://github.com/XKspeed/HyperMount/releases/download/v1.5.0/systemui_mount-v1.6.0.zip",
+  "version": "1.6.0-hotfix1",
+  "versionCode": 18,
+  "zipUrl": "https://github.com/XKspeed/HyperMount/releases/download/v1.5.0-hotfix1/systemui_mount-v1.6.0-hotfix1.zip",
   "changelog": "https://raw.githubusercontent.com/XKspeed/HyperMount/main/module/main/update.md"
 }
