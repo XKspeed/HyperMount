@@ -18,6 +18,9 @@ import top.yukonga.miuix.kmp.preference.ArrowPreference
  * 只列「参考了谁」，不算第三方依赖：玻璃组件的原始实现是 AndroidLiquidGlass（Apache-2.0），
  * 经 miuix 示例、NexioSchedule、Sonify 一路改名搬运；我们按 1.0.5 原文重写主线，
  * 中间层只作结构参考。依赖本身的许可证在「第三方许可证」里单列。
+ *
+ * HyperCeiler 是唯一一处原文搬运：引导页的 assets/glow.glsl（AGSL 光晕着色器）
+ * 与 GlowPainter 的 uniform 参数都来自它，AGPL-3.0，与本项目同协议。
  */
 @Composable
 fun PortingReferencePage(onBack: () -> Unit) {
@@ -50,6 +53,13 @@ fun PortingReferencePage(onBack: () -> Unit) {
                     summary = t("玻璃组件结构参考", "Glass component structure reference"),
                     onClick = {
                         runCatching { uriHandler.openUri("https://github.com/XiaoZhi0729/Sonify") }
+                    },
+                )
+                ArrowPreference(
+                    title = "HyperCeiler",
+                    summary = t("引导页光晕着色器原文 · AGPL-3.0", "Onboarding glow shader, verbatim · AGPL-3.0"),
+                    onClick = {
+                        runCatching { uriHandler.openUri("https://github.com/ReChronoRain/HyperCeiler") }
                     },
                 )
             }

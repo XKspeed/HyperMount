@@ -1,11 +1,25 @@
 package com.xkspeed.HyperMount.ui
 
+import android.content.ComponentName
+import android.content.Context
+import android.content.Intent
+import android.net.Uri
+import android.provider.Settings
+import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.CubicBezierEasing
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.LinearOutSlowInEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -16,6 +30,8 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -29,11 +45,13 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -43,45 +61,44 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.state.ToggleableState
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import android.content.ComponentName
-import android.content.Context
-import android.content.Intent
-import android.net.Uri
-import android.provider.Settings
-import android.widget.Toast
 import androidx.core.graphics.drawable.toBitmap
+import androidx.core.view.WindowCompat
 import com.xkspeed.HyperMount.core.Module
 import com.xkspeed.HyperMount.core.ModuleState
 import com.xkspeed.HyperMount.core.Root
 import com.xkspeed.HyperMount.i18n.t
+import com.xkspeed.HyperMount.ui.component.GlowBackdrop
+import com.xkspeed.HyperMount.ui.util.stableNavigationBarsPadding
+import com.xkspeed.HyperMount.ui.util.stableStatusBarsPadding
 import kotlinx.coroutines.delay
-import top.yukonga.miuix.kmp.basic.Button
-import top.yukonga.miuix.kmp.basic.ButtonDefaults
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.Checkbox
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.icon.MiuixIcons
-import top.yukonga.miuix.kmp.preference.ArrowPreference
 import top.yukonga.miuix.kmp.icon.extended.Backup
 import top.yukonga.miuix.kmp.icon.extended.Info
 import top.yukonga.miuix.kmp.icon.extended.Layers
 import top.yukonga.miuix.kmp.icon.extended.VolumeUp
+import top.yukonga.miuix.kmp.preference.ArrowPreference
 import top.yukonga.miuix.kmp.preference.SwitchPreference
 import top.yukonga.miuix.kmp.theme.MiuixTheme
-import com.xkspeed.HyperMount.ui.util.stableStatusBarsPadding
-import com.xkspeed.HyperMount.ui.util.stableNavigationBarsPadding
+import top.yukonga.miuix.kmp.theme.lightColorScheme
 
 /** 引导总步数：欢迎 / 须知 / 环境 / 音量键 / 完成 */
 private const val ONBOARD_STEPS = 5
@@ -93,8 +110,9 @@ private const val ONBOARD_STEPS = 5
  * App 里记着用户走完时的版本，对不上就再走一遍 —— 不跟着 App 版本号走，
  * 普通发版不会平白把老用户拉回引导页，只有真的改了引导才打扰一次。
  * 1 = 环境页加自启动权限引导这一版。
+ * 2 = 整套界面换成 OOBE 风格（深色欢迎页 + 圆形下一步）。
  */
-const val ONBOARD_VERSION = 1
+const val ONBOARD_VERSION = 2
 
 /** 音量键单步状态 */
 private sealed interface KeyState {
@@ -115,15 +133,27 @@ private data class EnvResult(
         get() = moduleVersion.isNotBlank() && moduleAuthor.equals("XKspeed", ignoreCase = true)
 }
 
+/** 欢迎页的底色，比主题深色再深一档 光斑才有地方浮 */
+private val InkBlack = Color(0xFF08080A)
+
+/** 深色页的主文字色 */
+private val OnInk = Color(0xFFF5F5F7)
+
+/** cubicOut：原作 Folme 的 FolmeEase.cubicOut，Compose 没有内置这个曲线 */
+private val CubicOut = CubicBezierEasing(0f, 0f, 0.58f, 1f)
+
 /**
  * 首次启动引导
  *
- * 流程照着 HyperCeiler 的 provision 走（欢迎 → 须知 → 环境/权限 → 基础项 → 完成），
- * 去掉了它那套联网协议与验证码；基础项换成对救砖最要紧的音量键校验：
- * 救砖靠音量键确认 装完模块第一次打开就该确认按键能读到，
- * 而不是等真崩了才发现按了没反应。
+ * 视觉照 HyperCeiler 的 provision（MIUI 首次开机向导）来：
+ * 欢迎页黑底 + 呼吸光斑 + 居中大图标，点圆形箭头进入后面几页；
+ * 后面几页回到浅色 surface、大标题、无卡片的大留白。
+ * 那套是 OpenGL 渲染 + MIUI 私有库（fan.core / fan.provision），普通 App 链接不到，
+ * 这里用 Compose 复刻同样的节奏与参数：logo 0.5→0.95→1 两段缓动、
+ * 按钮延迟 1.2 秒才淡入、光斑 9 秒一个来回。
  *
- * 全程不写 any 配置，只有音量键校验通过才落盘 VOLUME_CHECK_ASSESS=1。
+ * 流程本身没动：环境检查、音量键校验、3 秒倒计时、返回拦截全部保留。
+ * 全程不写任何配置，只有音量键校验通过才落盘 VOLUME_CHECK_ASSESS=1。
  */
 @Composable
 fun OnboardingPage(
@@ -169,12 +199,12 @@ fun OnboardingPage(
         runCatching {
             context.packageManager
                 .getApplicationIcon(context.packageName)
-                .toBitmap(168, 168)
+                .toBitmap(192, 192)
                 .asImageBitmap()
         }.getOrNull()
     }
 
-    // 进环境页就检查一遍 root / 模块 / SystemUI
+    // 进环境页就检查一遍 root / 模块
     LaunchedEffect(step, envRetry) {
         if (step != 2) return@LaunchedEffect
         envChecking = true
@@ -255,23 +285,23 @@ fun OnboardingPage(
 
     val volDone = upState is KeyState.Passed && downState is KeyState.Passed
     // 环境这两项缺一不可：没有 ROOT 或不是 XKspeed 的模块 后面所有操作都会失败
-    // 与其放进去点一路报错 不如卡在这一页把话说清楚
     val envReady = env.root && env.moduleOk
     val canNext = when (step) {
         1 -> agreed && agreeLeft == 0
         2 -> !envChecking && envReady
         else -> true
     }
-    val buttonLabel = when (step) {
-        0 -> t("开始", "Start")
-        1 -> t("同意并继续", "Agree & continue")
-        2 -> when {
-            envChecking -> t("检测中…", "Checking…")
-            !envReady -> t("等待环境检查通过", "Waiting for the environment check")
-            else -> t("继续", "Continue")
-        }
-        3 -> if (volDone) t("继续", "Continue") else t("跳过校验", "Skip check")
-        else -> t("开始使用", "Get started")
+
+    // 深色页 / 浅色页切换：状态栏图标得跟着反色，否则黑底上是黑图标
+    val surface = MiuixTheme.colorScheme.surface
+    val darkPage = step == 0 || surface.luminance() < 0.5f
+    val view = LocalView.current
+    DisposableEffect(darkPage, view) {
+        val window = (view.context as? android.app.Activity)?.window
+        val controller = window?.let { WindowCompat.getInsetsController(it, view) }
+        controller?.isAppearanceLightStatusBars = !darkPage
+        controller?.isAppearanceLightNavigationBars = !darkPage
+        onDispose { }
     }
 
     fun next() {
@@ -298,45 +328,40 @@ fun OnboardingPage(
         }
     }
 
-    Box(Modifier.fillMaxSize().background(MiuixTheme.colorScheme.surface)) {
-        Column(Modifier.fillMaxSize().stableStatusBarsPadding()) {
-            // 顶部只有步骤条：引导不给跳过 必须走到最后一步
-            Row(
-                Modifier.fillMaxWidth()
-                    .padding(horizontal = 24.dp, vertical = 10.dp),
-                verticalAlignment = Alignment.CenterVertically,
+    // 引导页固定浅色：原作就是这么做的（后几页纯白底），
+    // 跟随系统深色的话 title / 正文在深色 surface 上会颠倒
+    val pageColors = remember { lightColorScheme() }
+    MiuixTheme(colors = pageColors) {
+        val bg by animateColorAsState(
+            targetValue = if (step == 0) InkBlack else MiuixTheme.colorScheme.surface,
+            animationSpec = tween(500),
+            label = "onboardBg",
+        )
+
+        Box(Modifier.fillMaxSize().background(bg)) {
+            // 光斑只在欢迎页露头，切走时淡出
+            AnimatedVisibility(
+                visible = step == 0,
+                enter = fadeIn(tween(700)),
+                exit = fadeOut(tween(400)),
+                modifier = Modifier.fillMaxSize(),
             ) {
-                Row(
-                    Modifier.weight(1f),
-                    horizontalArrangement = Arrangement.spacedBy(5.dp),
-                ) {
-                    repeat(ONBOARD_STEPS) { i ->
-                        Box(
-                            Modifier
-                                .weight(1f)
-                                .height(3.dp)
-                                .clip(CircleShape)
-                                .background(
-                                    if (i <= step) MiuixTheme.colorScheme.primary
-                                    else MiuixTheme.colorScheme.surfaceContainer
-                                )
-                        )
-                    }
-                }
+                GlowBackdrop()
             }
 
             AnimatedContent(
                 targetState = step,
                 transitionSpec = {
                     val dir = if (targetState > initialState) 1 else -1
-                    (slideInHorizontally { it / 4 * dir } + fadeIn()) togetherWith
-                        (slideOutHorizontally { -it / 4 * dir } + fadeOut())
+                    (slideInHorizontally(tween(420, easing = FastOutSlowInEasing)) { it / 5 * dir } +
+                        fadeIn(tween(420))) togetherWith
+                        (slideOutHorizontally(tween(420)) { -it / 5 * dir } + fadeOut(tween(300)))
                 },
-                modifier = Modifier.weight(1f).fillMaxWidth(),
+                modifier = Modifier.fillMaxSize(),
                 label = "onboarding",
             ) { index ->
                 when (index) {
-                    0 -> WelcomeStep(appIcon)
+                    0 -> WelcomeStep(appIcon) { next() }
                     1 -> NoticeStep()
                     2 -> EnvStep(
                         env = env,
@@ -355,7 +380,7 @@ fun OnboardingPage(
                             }
                         },
                     )
-                    3 -> VolumeStep(upState, downState, volHint, canSkip = !volAlready) {
+                    3 -> VolumeStep(upState, downState, volHint, canRetry = !volAlready) {
                         volSkip = false
                         volRetry++
                     }
@@ -363,168 +388,299 @@ fun OnboardingPage(
                 }
             }
 
-            // 底部主按钮
-            Column(
-                Modifier
-                    .fillMaxWidth()
-                    .stableNavigationBarsPadding()
-                    .padding(horizontal = 24.dp, vertical = 14.dp),
-            ) {
-                // 勾选栏只在第 2 页出现 紧贴按钮上方
-                if (step == 1) {
-                    Row(
-                        Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(16.dp))
-                            .clickable { agreed = !agreed }
-                            .padding(vertical = 10.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Checkbox(
-                            state = if (agreed) ToggleableState.On else ToggleableState.Off,
-                            onClick = { agreed = !agreed },
-                        )
-                        Spacer(Modifier.width(6.dp))
-                        Text(
-                            t("我已阅读并了解以上内容", "I have read and understood the above"),
-                            style = MiuixTheme.textStyles.main,
-                        )
-                        // 倒计时没走完时在勾选文字右边说明为什么按钮点不了
-                        if (agreeLeft > 0) {
-                            Spacer(Modifier.weight(1f))
-                            Text(
-                                t("$agreeLeft 秒后可继续", "Continuing in $agreeLeft s"),
-                                style = MiuixTheme.textStyles.subtitle,
-                                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                                maxLines = 1,
+            // 欢迎页的按钮按 30/40/20 的比例落位（在 WelcomeStep 内部），
+            // 其余页统一用原作后几页那种 50dp 胶囊贴底
+            if (step > 0) {
+                Column(
+                    Modifier
+                        .align(Alignment.BottomCenter)
+                        .fillMaxWidth()
+                        .stableNavigationBarsPadding()
+                        .padding(horizontal = 20.dp)
+                        .padding(bottom = 44.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    if (step == 1) {
+                        // 整行仍可点，但不带 indication ——
+                        // 按下高亮只落在勾选框上，不铺满整行
+                        val rowInteraction = remember { MutableInteractionSource() }
+                        Row(
+                            Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(16.dp))
+                                .clickable(
+                                    interactionSource = rowInteraction,
+                                    indication = null,
+                                ) { agreed = !agreed }
+                                .padding(vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Checkbox(
+                                state = if (agreed) ToggleableState.On else ToggleableState.Off,
+                                onClick = { agreed = !agreed },
                             )
+                            Spacer(Modifier.width(6.dp))
+                            Text(
+                                t("我已阅读并了解以上内容", "I have read and understood the above"),
+                                style = MiuixTheme.textStyles.main,
+                                color = MiuixTheme.colorScheme.onSurface,
+                                modifier = Modifier.weight(1f),
+                            )
+                            if (agreeLeft > 0) {
+                                Text(
+                                    t("$agreeLeft 秒", "$agreeLeft s"),
+                                    style = MiuixTheme.textStyles.subtitle,
+                                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                                    maxLines = 1,
+                                )
+                            }
+                        }
+                        Spacer(Modifier.height(14.dp))
+                    }
+
+                    // 胶囊里放不下说明，状态写它上面
+                    val tip = when {
+                        step == 2 && envChecking -> t("正在检查环境…", "Checking the environment…")
+                        step == 2 && !envReady -> t("环境检查通过后才能继续", "Both checks must pass to continue")
+                        step == 3 && !volDone -> t("按一次音量 + 和音量 −", "Press Volume + then Volume −")
+                        else -> ""
+                    }
+                    if (tip.isNotBlank()) {
+                        Text(
+                            tip,
+                            style = MiuixTheme.textStyles.subtitle,
+                            color = if (step == 2 && !envReady && !envChecking) MiuixTheme.colorScheme.error
+                            else MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                        )
+                        Spacer(Modifier.height(12.dp))
+                    }
+
+                    NextPillButton(
+                        label = when (step) {
+                            1 -> t("同意并继续", "Agree and continue")
+                            4 -> t("完成", "Done")
+                            else -> t("继续", "Continue")
+                        },
+                        enabled = canNext,
+                        onClick = { next() },
+                    )
+
+                    // 音量页跳过：次要动作给文字入口
+                    if (step == 3 && !volDone) {
+                        Spacer(Modifier.height(6.dp))
+                        TextAction(t("跳过校验", "Skip check")) {
+                            volSkip = true
+                            next()
                         }
                     }
-                    Spacer(Modifier.height(8.dp))
-                }
-                Button(
-                    onClick = { next() },
-                    enabled = canNext,
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = ButtonDefaults.buttonColorsPrimary(),
-                    minHeight = 52.dp,
-                ) {
-                    Text(buttonLabel, fontSize = 16.sp)
                 }
             }
         }
     }
 }
 
-// ---------------- 第 1 页：欢迎 ----------------
+// ---------------- 底部按钮 ----------------
 
+/**
+ * 欢迎页的圆钮
+ *
+ * 原作 startup 的标准配置：70dp 纯白圆、深色箭头，容器底部留 4.5dp。
+ * 入场比 logo 晚 1.34 秒，从 0.9 缩到 1（cubicOut 450ms）。
+ */
 @Composable
-private fun WelcomeStep(icon: androidx.compose.ui.graphics.ImageBitmap?) {
-    Column(
+private fun WelcomeNextButton(onClick: () -> Unit) {
+    val interaction = remember { MutableInteractionSource() }
+    val pressed by interaction.collectIsPressedAsState()
+    val pressScale by animateFloatAsState(
+        targetValue = if (pressed) 0.92f else 1f,
+        animationSpec = spring(dampingRatio = 0.55f, stiffness = 900f),
+        label = "nextPress",
+    )
+
+    val appear = remember { Animatable(0f) }
+    LaunchedEffect(Unit) {
+        delay(1340)
+        appear.animateTo(1f, tween(450, easing = CubicOut))
+    }
+
+    Box(
         Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .padding(horizontal = 28.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-    ) {
-        Spacer(Modifier.height(48.dp))
-        Box(
-            Modifier
-                .size(92.dp)
-                .clip(RoundedCornerShape(24.dp))
-                .background(MiuixTheme.colorScheme.surfaceContainer),
-            contentAlignment = Alignment.Center,
-        ) {
-            if (icon != null) {
-                Image(
-                    bitmap = icon,
-                    contentDescription = null,
-                    modifier = Modifier.size(76.dp).clip(RoundedCornerShape(18.dp)),
-                    contentScale = ContentScale.Fit,
-                )
-            } else {
-                Icon(
-                    imageVector = MiuixIcons.Layers,
-                    contentDescription = null,
-                    modifier = Modifier.size(44.dp),
-                    tint = MiuixTheme.colorScheme.primary,
-                )
+            .graphicsLayer {
+                val s = pressScale * (0.9f + 0.1f * appear.value)
+                scaleX = s
+                scaleY = s
+                alpha = appear.value
             }
+            .size(70.dp)
+            .clip(CircleShape)
+            .background(Color.White)
+            .clickable(
+                interactionSource = interaction,
+                indication = null,
+                onClick = onClick,
+            ),
+        contentAlignment = Alignment.Center,
+    ) {
+        Canvas(Modifier.size(29.dp, 20.dp)) {
+            val w = size.width
+            val h = size.height
+            val stroke = Stroke(width = h * 0.19f, cap = StrokeCap.Round, join = StrokeJoin.Round)
+            val shaft = Path().apply {
+                moveTo(w * 0.07f, h * 0.5f)
+                lineTo(w * 0.93f, h * 0.5f)
+                moveTo(w * 0.68f, h * 0.13f)
+                lineTo(w * 0.93f, h * 0.5f)
+                lineTo(w * 0.68f, h * 0.87f)
+            }
+            drawPath(shaft, color = Color(0xFF1A1A1A), style = stroke)
         }
-        Spacer(Modifier.height(22.dp))
-        Text(
-            "HyperMount",
-            style = MiuixTheme.textStyles.title1,
-            fontWeight = FontWeight.SemiBold,
-        )
-        Spacer(Modifier.height(6.dp))
-        Text(
-            "v${com.xkspeed.HyperMount.core.Update.currentName}",
-            style = MiuixTheme.textStyles.subtitle,
-            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-        )
-        Spacer(Modifier.height(34.dp))
-
-        FeatureRow(
-            icon = MiuixIcons.Backup,
-            title = t("崩了自动换回", "Auto roll-back on crash"),
-            desc = t("崩溃到阈值 / 日志疯长 / 堆栈刷屏 任一命中就装回救砖包", "Crash threshold hit, runaway logs, or a flooding stack — the rescue apk goes back in"),
-        )
-        FeatureRow(
-            icon = MiuixIcons.VolumeUp,
-            title = t("音量键兜底", "Volume-key fallback"),
-            desc = t("屏幕点不动时 音量 + 直接换回 音量 − 取消", "When the screen is untouchable, Volume + rolls back, Volume − cancels"),
-        )
-        FeatureRow(
-            icon = MiuixIcons.Layers,
-            title = t("不碰系统分区", "No system partitions touched"),
-            desc = t("模块挂载 卸载模块就回到原界面 改坏了也能退", "Mounted as a module — uninstall it and the original build is back, so a mistake is recoverable"),
-        )
-        FeatureRow(
-            icon = MiuixIcons.Info,
-            title = t("也能测任意 APK", "Test any APK too"),
-            desc = t("主页是独立流程 不依赖模块守护 装完就看崩不崩", "The Home page is a standalone flow with no module daemon — install and see if it crashes"),
-        )
-        Spacer(Modifier.height(24.dp))
     }
 }
 
+/**
+ * 后几页的下一步
+ *
+ * 和原作一样是 50dp 高的蓝色胶囊、最宽 336dp、距底 44dp。
+ */
 @Composable
-private fun FeatureRow(
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
-    title: String,
-    desc: String,
+private fun NextPillButton(
+    label: String,
+    enabled: Boolean,
+    onClick: () -> Unit,
 ) {
-    Row(
+    val interaction = remember { MutableInteractionSource() }
+    val pressed by interaction.collectIsPressedAsState()
+    val scale by animateFloatAsState(
+        targetValue = if (pressed) 0.97f else 1f,
+        animationSpec = spring(dampingRatio = 0.6f, stiffness = 900f),
+        label = "pillPress",
+    )
+
+    Box(
         Modifier
+            .widthIn(max = 336.dp)
             .fillMaxWidth()
-            .padding(vertical = 10.dp),
-        verticalAlignment = Alignment.CenterVertically,
+            .height(50.dp)
+            .graphicsLayer {
+                scaleX = scale
+                scaleY = scale
+                alpha = if (enabled) 1f else 0.35f
+            }
+            .clip(RoundedCornerShape(25.dp))
+            .background(MiuixTheme.colorScheme.primary)
+            .clickable(
+                enabled = enabled,
+                interactionSource = interaction,
+                indication = null,
+                onClick = onClick,
+            ),
+        contentAlignment = Alignment.Center,
     ) {
+        Text(
+            label,
+            fontSize = 17.sp,
+            fontWeight = FontWeight.Medium,
+            color = MiuixTheme.colorScheme.onPrimary,
+        )
+    }
+}
+
+/** 次要动作的文字按钮 */
+@Composable
+private fun TextAction(label: String, onClick: () -> Unit) {
+    Box(
+        Modifier
+            .clip(RoundedCornerShape(50))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 14.dp, vertical = 8.dp),
+    ) {
+        Text(
+            label,
+            style = MiuixTheme.textStyles.subtitle,
+            color = MiuixTheme.colorScheme.primary,
+        )
+    }
+}
+
+// ---------------- 第 1 页：欢迎（深色） ----------------
+
+/**
+ * 欢迎页：只有 logo 和圆钮，和原作一样不放任何说明文字
+ *
+ * 纵向按原作的 30 : 90dp : 40 : 20 分配（图标固定 90dp，其余三段按比例分剩余高度），
+ * 所以按钮落在屏幕下方约 18% 的位置，而不是贴着底边。
+ */
+@Composable
+private fun WelcomeStep(icon: androidx.compose.ui.graphics.ImageBitmap?, onNext: () -> Unit) {
+    // logo：0.5 → 0.95（sinOut 440ms）→ 1（cubicOut 700ms），照原作两段缓动
+    val logoScale = remember { Animatable(0.5f) }
+    val logoAlpha = remember { Animatable(0f) }
+    // 文字 logo 比图标晚一拍淡入
+    val markAlpha = remember { Animatable(0f) }
+
+    LaunchedEffect(Unit) {
+        logoAlpha.animateTo(1f, tween(420, easing = LinearOutSlowInEasing))
+        logoScale.animateTo(0.95f, tween(440, easing = FastOutSlowInEasing))
+        logoScale.animateTo(1f, tween(700, easing = CubicOut))
+    }
+    LaunchedEffect(Unit) {
+        delay(120)
+        markAlpha.animateTo(1f, tween(420))
+    }
+
+    Column(Modifier.fillMaxSize()) {
+        Spacer(Modifier.weight(30f))
+
         Box(
-            Modifier
-                .size(40.dp)
-                .clip(RoundedCornerShape(13.dp))
-                .background(MiuixTheme.colorScheme.surfaceContainer),
+            Modifier.fillMaxWidth().height(90.dp),
             contentAlignment = Alignment.Center,
         ) {
-            Icon(
-                imageVector = icon,
-                contentDescription = null,
-                modifier = Modifier.size(20.dp),
-                tint = MiuixTheme.colorScheme.primary,
-            )
+            Box(
+                Modifier
+                    .graphicsLayer {
+                        scaleX = logoScale.value
+                        scaleY = logoScale.value
+                        alpha = logoAlpha.value
+                    }
+                    .size(90.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                if (icon != null) {
+                    Image(
+                        bitmap = icon,
+                        contentDescription = null,
+                        modifier = Modifier.size(90.dp).clip(RoundedCornerShape(22.dp)),
+                        contentScale = ContentScale.Fit,
+                    )
+                } else {
+                    Icon(
+                        imageVector = MiuixIcons.Layers,
+                        contentDescription = null,
+                        modifier = Modifier.size(64.dp),
+                        tint = OnInk,
+                    )
+                }
+            }
         }
-        Spacer(Modifier.width(14.dp))
-        Column(Modifier.weight(1f)) {
-            Text(title, style = MiuixTheme.textStyles.main)
-            Spacer(Modifier.height(2.dp))
+
+        Box(Modifier.weight(40f).fillMaxWidth()) {
             Text(
-                desc,
-                style = MiuixTheme.textStyles.subtitle,
-                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                "HyperMount",
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .padding(top = 20.dp)
+                    .graphicsLayer { alpha = markAlpha.value },
+                fontSize = 32.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = OnInk,
             )
+
+            Box(Modifier.align(Alignment.BottomCenter).padding(bottom = 4.5.dp)) {
+                WelcomeNextButton(onClick = onNext)
+            }
         }
+
+        Spacer(Modifier.weight(20f))
     }
 }
 
@@ -532,16 +688,7 @@ private fun FeatureRow(
 
 @Composable
 private fun NoticeStep() {
-    Column(
-        Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .padding(horizontal = 24.dp),
-    ) {
-        Spacer(Modifier.height(30.dp))
-        Text(t("使用之前", "Before you start"), style = MiuixTheme.textStyles.title1, fontWeight = FontWeight.SemiBold)
-        Spacer(Modifier.height(22.dp))
-
+    StepScaffold(title = t("使用之前", "Before you start")) {
         NoticeItem(
             t("需要 ROOT 与模块", "ROOT and the module are required"),
             t(
@@ -565,16 +712,39 @@ private fun NoticeStep() {
                 "Swapping the SystemUI carries risks — consequences of flashing or module conflicts are on you ",
             ),
         )
+    }
+}
 
-        Spacer(Modifier.height(12.dp))
+/** 浅色页的统一骨架：大标题 + 大留白正文 */
+@Composable
+private fun StepScaffold(title: String, content: @Composable () -> Unit) {
+    Column(
+        Modifier
+            .fillMaxSize()
+            .stableStatusBarsPadding()
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 28.dp)
+            .padding(bottom = 130.dp),
+    ) {
+        Spacer(Modifier.height(26.dp))
+        // 原作标题 32sp，颜色是 miui 的 on_surface（浅色下接近纯黑）
+        Text(
+            title,
+            fontSize = 32.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = MiuixTheme.colorScheme.onSurface,
+        )
+        Spacer(Modifier.height(26.dp))
+        content()
+        Spacer(Modifier.height(20.dp))
     }
 }
 
 @Composable
 private fun NoticeItem(title: String, desc: String) {
-    Column(Modifier.padding(vertical = 9.dp)) {
+    Column(Modifier.padding(bottom = 24.dp)) {
         Text(title, style = MiuixTheme.textStyles.main, fontWeight = FontWeight.Medium)
-        Spacer(Modifier.height(3.dp))
+        Spacer(Modifier.height(6.dp))
         Text(
             desc,
             style = MiuixTheme.textStyles.subtitle,
@@ -626,60 +796,49 @@ private fun EnvStep(
     onRetry: () -> Unit,
     onOpenAutostart: () -> Unit,
 ) {
-    Column(
-        Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .padding(horizontal = 24.dp),
-    ) {
-        Spacer(Modifier.height(30.dp))
-        Text(t("环境检查", "Environment check"), style = MiuixTheme.textStyles.title1, fontWeight = FontWeight.SemiBold)
-        Spacer(Modifier.height(22.dp))
+    StepScaffold(title = t("环境检查", "Environment check")) {
+        StatusRow(
+            label = t("ROOT 权限", "ROOT access"),
+            value = when {
+                checking -> t("检测中…", "Checking…")
+                env.root -> t("已授权", "Granted")
+                else -> t("未授权", "Not granted")
+            },
+            ok = env.root,
+            checking = checking,
+        )
+        Divider()
+        StatusRow(
+            label = t("救砖模块", "Rescue module"),
+            value = when {
+                checking -> t("检测中…", "Checking…")
+                env.moduleVersion.isBlank() -> t("未安装", "Not installed")
+                !env.moduleOk -> t("不是 XKspeed 版", "Not an XKspeed build")
+                else -> "v${env.moduleVersion} · XKspeed"
+            },
+            ok = env.moduleOk,
+            checking = checking,
+        )
 
-        Card(Modifier.fillMaxWidth()) {
-            EnvRow(t("ROOT 权限", "ROOT access"), if (checking) t("检测中…", "Checking…") else if (env.root) t("已授权", "Granted") else t("未授权", "Not granted"), env.root, checking)
-            EnvRow(
-                t("救砖模块", "Rescue module"),
-                when {
-                    checking -> t("检测中…", "Checking…")
-                    env.moduleVersion.isBlank() -> t("未安装", "Not installed")
-                    !env.moduleOk -> t("不是 XKspeed 版", "Not an XKspeed build")
-                    else -> "v${env.moduleVersion} · XKspeed"
-                },
-                env.moduleOk,
-                checking,
-            )
-        }
-
-        Spacer(Modifier.height(14.dp))
-        Box(
-            Modifier
-                .clip(RoundedCornerShape(50))
-                .clickable(enabled = !checking) { onRetry() }
-                .padding(horizontal = 12.dp, vertical = 8.dp)
-        ) {
-            Text(
-                if (checking) t("正在检测…", "Checking…") else t("重新检测", "Check again"),
-                style = MiuixTheme.textStyles.subtitle,
-                color = MiuixTheme.colorScheme.primary,
-            )
+        Spacer(Modifier.height(10.dp))
+        TextAction(if (checking) t("正在检测…", "Checking…") else t("重新检测", "Check again")) {
+            if (!checking) onRetry()
         }
 
         // 自启动：守护要在后台常驻 光有前台服务不够 系统照样清
-        Spacer(Modifier.height(10.dp))
+        Spacer(Modifier.height(18.dp))
         Card(Modifier.fillMaxWidth()) {
             ArrowPreference(title = t("自启动", "Autostart"), onClick = onOpenAutostart)
         }
 
-        Spacer(Modifier.height(8.dp))
         if (!checking && !(env.root && env.moduleOk)) {
-            Spacer(Modifier.height(6.dp))
+            Spacer(Modifier.height(14.dp))
             Column(
                 Modifier
                     .fillMaxWidth()
-                    .clip(RoundedCornerShape(14.dp))
+                    .clip(RoundedCornerShape(16.dp))
                     .background(MiuixTheme.colorScheme.error.copy(alpha = 0.08f))
-                    .padding(horizontal = 14.dp, vertical = 12.dp),
+                    .padding(horizontal = 16.dp, vertical = 14.dp),
             ) {
                 Text(
                     t("两项都通过才能继续", "Both checks must pass to continue"),
@@ -687,7 +846,7 @@ private fun EnvStep(
                     fontWeight = FontWeight.Medium,
                     color = MiuixTheme.colorScheme.error,
                 )
-                Spacer(Modifier.height(4.dp))
+                Spacer(Modifier.height(5.dp))
                 Text(
                     when {
                         !env.root -> t("先在 ROOT 管理器里给 HyperMount 授权 然后点上面的「重新检测」 ", "Grant HyperMount in your ROOT manager first, then tap \"Check again\" above ")
@@ -700,7 +859,7 @@ private fun EnvStep(
             }
         }
 
-        Spacer(Modifier.height(12.dp))
+        Spacer(Modifier.height(16.dp))
         Text(
             t("模块作者必须是 XKspeed 用的才是这套脚本 别家挂载的调不了 sh ", "The module author must be XKspeed — only that one carries these scripts; modules mounted by others can't be driven "),
             style = MiuixTheme.textStyles.subtitle,
@@ -710,9 +869,19 @@ private fun EnvStep(
 }
 
 @Composable
-private fun EnvRow(label: String, value: String, ok: Boolean, checking: Boolean) {
+private fun Divider() {
+    Box(
+        Modifier
+            .fillMaxWidth()
+            .height(1.dp)
+            .background(MiuixTheme.colorScheme.onSurface.copy(alpha = 0.08f))
+    )
+}
+
+@Composable
+private fun StatusRow(label: String, value: String, ok: Boolean, checking: Boolean) {
     Row(
-        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 14.dp),
+        Modifier.fillMaxWidth().padding(vertical = 18.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(label, style = MiuixTheme.textStyles.main, modifier = Modifier.weight(1f))
@@ -735,29 +904,19 @@ private fun VolumeStep(
     up: KeyState,
     down: KeyState,
     hint: String,
-    canSkip: Boolean,
+    canRetry: Boolean,
     onRetry: () -> Unit,
 ) {
-    Column(
-        Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .padding(horizontal = 24.dp),
-    ) {
-        Spacer(Modifier.height(30.dp))
-        Text(t("音量键校验", "Volume key check"), style = MiuixTheme.textStyles.title1, fontWeight = FontWeight.SemiBold)
+    StepScaffold(title = t("音量键校验", "Volume key check")) {
+        KeyRow(t("音量 +", "Volume +"), up)
+        Divider()
+        KeyRow(t("音量 −", "Volume −"), down)
+
         Spacer(Modifier.height(22.dp))
-
-        Card(Modifier.fillMaxWidth()) {
-            KeyRow(t("音量 +", "Volume +"), up)
-            KeyRow(t("音量 −", "Volume −"), down)
-        }
-
-        Spacer(Modifier.height(16.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
             if (up is KeyState.Waiting || down is KeyState.Waiting) {
                 PulsingDot()
-                Spacer(Modifier.width(8.dp))
+                Spacer(Modifier.width(9.dp))
             }
             Text(
                 hint.ifBlank { t("准备中…", "Getting ready…") },
@@ -772,30 +931,17 @@ private fun VolumeStep(
             )
         }
 
-        if (canSkip && up !is KeyState.Waiting && down !is KeyState.Waiting) {
-            Spacer(Modifier.height(12.dp))
-            Box(
-                Modifier
-                    .clip(RoundedCornerShape(50))
-                    .clickable { onRetry() }
-                    .padding(horizontal = 12.dp, vertical = 8.dp)
-            ) {
-                Text(
-                    t("重新校验", "Check again"),
-                    style = MiuixTheme.textStyles.subtitle,
-                    color = MiuixTheme.colorScheme.primary,
-                )
-            }
+        if (canRetry && up !is KeyState.Waiting && down !is KeyState.Waiting) {
+            Spacer(Modifier.height(8.dp))
+            TextAction(t("重新校验", "Check again"), onRetry)
         }
-
-        Spacer(Modifier.height(16.dp))
     }
 }
 
 @Composable
 private fun KeyRow(label: String, state: KeyState) {
     Row(
-        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 14.dp),
+        Modifier.fillMaxWidth().padding(vertical = 18.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(label, style = MiuixTheme.textStyles.main, modifier = Modifier.weight(1f))
@@ -841,31 +987,38 @@ private fun DoneStep() {
     val context = LocalContext.current
     var autoCheck by remember { mutableStateOf(UiConfigState.autoCheckUpdate) }
 
+    val enter = remember { Animatable(0f) }
+    LaunchedEffect(Unit) {
+        enter.animateTo(1f, tween(1050, easing = FastOutSlowInEasing))
+    }
+
     Column(
         Modifier
             .fillMaxSize()
+            .stableStatusBarsPadding()
             .verticalScroll(rememberScrollState())
-            .padding(horizontal = 24.dp),
+            .padding(horizontal = 28.dp)
+            .padding(bottom = 130.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Spacer(Modifier.height(56.dp))
+        Spacer(Modifier.height(64.dp))
         Box(
             Modifier
-                .size(84.dp)
+                .graphicsLayer {
+                    translationY = (1f - enter.value) * 24.dp.toPx()
+                    alpha = enter.value
+                }
+                .size(88.dp)
                 .clip(CircleShape)
                 .background(MiuixTheme.colorScheme.primary.copy(alpha = 0.12f)),
             contentAlignment = Alignment.Center,
         ) {
             val checkColor = MiuixTheme.colorScheme.primary
-            Canvas(Modifier.size(40.dp)) {
+            Canvas(Modifier.size(42.dp)) {
                 val w = size.width
                 val h = size.height
-                val stroke = Stroke(
-                    width = w * 0.12f,
-                    cap = StrokeCap.Round,
-                    join = StrokeJoin.Round,
-                )
-                val path = androidx.compose.ui.graphics.Path().apply {
+                val stroke = Stroke(width = w * 0.12f, cap = StrokeCap.Round, join = StrokeJoin.Round)
+                val path = Path().apply {
                     moveTo(w * 0.18f, h * 0.52f)
                     lineTo(w * 0.42f, h * 0.75f)
                     lineTo(w * 0.84f, h * 0.27f)
@@ -873,10 +1026,15 @@ private fun DoneStep() {
                 drawPath(path, color = checkColor, style = stroke)
             }
         }
-        Spacer(Modifier.height(24.dp))
-        Text(t("设置完毕", "All set"), style = MiuixTheme.textStyles.title1, fontWeight = FontWeight.SemiBold)
-        Spacer(Modifier.height(34.dp))
+        Spacer(Modifier.height(26.dp))
+        Text(
+            t("设置完毕", "All set"),
+            fontSize = 32.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = MiuixTheme.colorScheme.onSurface,
+        )
 
+        Spacer(Modifier.height(40.dp))
         Card(Modifier.fillMaxWidth()) {
             SwitchPreference(
                 checked = autoCheck,
@@ -889,6 +1047,6 @@ private fun DoneStep() {
                 summary = t("启动时看一眼 GitHub 上有没有新版本", "Look for new releases on GitHub at launch"),
             )
         }
-        Spacer(Modifier.height(20.dp))
+        Spacer(Modifier.height(24.dp))
     }
 }

@@ -21,6 +21,7 @@ import top.yukonga.miuix.kmp.preference.ArrowPreference
  *
  * 移植来源不在这里，单独放在「移植参考」页（见 PortingReferencePage）
  * 说明：玻璃组件（顶栏/底栏液态玻璃）移植自 Sonify，实际源自 NexioSchedule 的 AGPL-3.0 实现
+ * 引导页的光晕着色器原文取自 HyperCeiler（AGPL-3.0），故两条都列在末尾
  * 故本应用整体以 AGPL-3.0 发布（见仓库根目录 LICENSE）
  */
 private data class OssLibrary(
@@ -96,6 +97,12 @@ fun ThirdPartyLicensesPage(
             version = "6.0.0",
             license = "Apache-2.0",
             website = "https://github.com/topjohnwu/libsu",
+        ),
+        OssLibrary(
+            name = "HyperCeiler",
+            version = t("2.10.166（引导页着色器）", "2.10.166 (onboarding shader)"),
+            license = "AGPL-3.0",
+            website = "https://github.com/ReChronoRain/HyperCeiler",
         ),
     )
 
