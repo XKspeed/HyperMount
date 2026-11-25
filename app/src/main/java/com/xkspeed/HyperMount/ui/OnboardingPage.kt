@@ -111,8 +111,9 @@ private const val ONBOARD_STEPS = 5
  * 普通发版不会平白把老用户拉回引导页，只有真的改了引导才打扰一次。
  * 1 = 环境页加自启动权限引导这一版。
  * 2 = 整套界面换成 OOBE 风格（深色欢迎页 + 圆形下一步）。
+ * 3 = 按 HyperCeiler 版式重做（光晕着色器、欢迎页只留 logo 与圆钮）。
  */
-const val ONBOARD_VERSION = 2
+const val ONBOARD_VERSION = 3
 
 /** 音量键单步状态 */
 private sealed interface KeyState {
@@ -153,7 +154,9 @@ private val CubicOut = CubicBezierEasing(0f, 0f, 0.58f, 1f)
  * 按钮延迟 1.2 秒才淡入、光斑 9 秒一个来回。
  *
  * 流程本身没动：环境检查、音量键校验、3 秒倒计时、返回拦截全部保留。
- * 全程不写任何配置，只有音量键校验通过才落盘 VOLUME_CHECK_ASSESS=1。
+ * 过程中唯一落盘的是音量键校验结果（VOLUME_CHECK_ASSESS=1）；
+ * 引导完成状态（onboarded + ONBOARD_VERSION）只在最后一页点「完成」时由
+ * [onDone] 统一下发，中途退出不会被记成走完。
  */
 @Composable
 fun OnboardingPage(
@@ -307,13 +310,7 @@ fun OnboardingPage(
     fun next() {
         // 环境没过 后面几步都不该放行
         if (step == 2 && (!envReady || envChecking)) return
-        when (step) {
-            3 -> if (!volDone) volSkip = true
-            4 -> {
-                onDone()
-                return
-            }
-        }
+        if (step == 3 && !volDone) volSkip = true
         if (step < ONBOARD_STEPS - 1) step++
     }
 
@@ -462,7 +459,11 @@ fun OnboardingPage(
                             else -> t("继续", "Continue")
                         },
                         enabled = canNext,
-                        onClick = { next() },
+                        // 最后一步的「完成」直接落盘引导完成状态（含 ONBOARD_VERSION），
+                        // 中途任何一步退出去都不会被记成「走完了」
+                        onClick = {
+                            if (step == ONBOARD_STEPS - 1) onDone() else next()
+                        },
                     )
 
                     // 音量页跳过：次要动作给文字入口
