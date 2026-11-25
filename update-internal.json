@@ -1,14 +1,14 @@
 {
-  "versionCode": 25,
+  "versionCode": 26,
   "versionName": "1.4.9-debug",
-  "buildTime": 1795530197557,
-  "buildId": "28",
+  "buildTime": 1795581970582,
+  "buildId": "29",
   "url": "https://github.com/XKspeed/HyperMount/releases/download/internal/HyperMount-arm64-internal.apk",
-  "changelog": "新增界面设置二级页\n新增配置二级页\n新增全局常驻救砖\n新增守护状态常驻通知\n新增音量键校验拦截\n新增记住上次停留页面\n新增 MCP 服务\n新增移植参考页\n新增捐赠入口\n新增守护触发条件调节\n新增中英文界面切换\n更换应用页底栏图标\n调整底栏图标默认大小\n优化玻璃组件视觉细节\n优化设置布局\n优化引导页内容\n优化部分页面布局\n优化更新逻辑\n优化底部操作条样式\n合并开始与停止按钮\n更改底栏为系统界面 应用 设置\n移除仅日志模式的等待超时\n移除运行输出中的崩溃日志\n缓存上限支持无级调节\n守护时长支持无级调节\n修复换包后界面不再自动重启\n修复切换多任务时页面跳动",
+  "changelog": "新增界面设置二级页\n新增配置二级页\n新增全局常驻救砖\n新增守护状态常驻通知\n新增音量键校验拦截\n新增记住上次停留页面\n新增 MCP 服务\n新增移植参考页\n新增捐赠入口\n新增守护触发条件调节\n新增中英文界面切换\n新增开机日志与自启开关\n更换应用页底栏图标\n调整底栏图标默认大小\n优化玻璃组件视觉细节\n优化设置布局\n优化引导页内容\n优化部分页面布局\n优化更新逻辑\n优化底部操作条样式\n合并开始与停止按钮\n调整底栏顺序与名称\n移除仅日志模式的等待超时\n移除运行输出中的崩溃日志\n支持缓存上限无级调节\n支持守护时长无级调节\n优化长时间守护功耗\n修复换包后界面不再自动重启\n修复切换多任务时页面跳动",
   "moduleVersionCode": 16,
-  "moduleVersionName": "1.5.7-debug.27",
+  "moduleVersionName": "1.5.7-debug.29",
   "moduleUrl": "https://github.com/XKspeed/HyperMount/releases/download/internal/module-internal.zip",
-  "moduleChangelog": "新增模块更新检测\n新增全局常驻救砖守护\n新增升级保留自定义系统属性\n未放界面时拒绝安装\n替换界面不再计入崩溃次数\n移除模块网页界面\n优化全局守护运行占用\n优化救砖判定时的资源占用\n修复换包后界面不再自动重启\n修复安装时不显示更新说明\n修复升级后救砖包丢失\n修复更新说明打印整份历史",
-  "sha256": "c64b91f75c26f40277ad758460c4e8e6973c096343197a0237ae2cff08eae634",
-  "moduleSha256": "25f1fd0df12dc0956a1f696d9698a8eac811c2b6075ecf34baddb1cbb09066ab"
+  "moduleChangelog": "新增模块更新检测\n新增全局常驻救砖守护\n新增升级保留自定义系统属性\n新增未放界面拒绝安装\n新增开机日志与开机自启\n替换界面不再计入崩溃次数\n移除模块 WebUI 入口\n优化模块运行性能\n修复换包后界面不再自动重启\n修复安装时不显示更新说明\n修复升级后救砖包丢失\n修复更新说明打印整份历史",
+  "sha256": "5e003685ff7074ce6e6ff7961e73c83284db653509261af5271ae84205b548c1",
+  "moduleSha256": "e555ba45dc602507eb4e7282d82a5d5b4cfdd84790d4241c8cbca75a7b294d6c"
 }
