@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  桌面图标底色：跟随系统壁纸取色（Material You 动态色）。
+  accent1_300 是浅色主题下的容器色，深色主题见 values-night/colors.xml。
+
+  minSdk 35，system_accent1_* 一定存在，不需要 v31 限定符。
+-->
+<resources>
+    <color name="ic_launcher_background">@android:color/system_accent1_300</color>
+</resources>

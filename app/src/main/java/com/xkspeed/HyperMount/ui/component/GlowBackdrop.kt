@@ -1,15 +1,23 @@
 package com.xkspeed.HyperMount.ui.component
 
-import android.graphics.RenderEffect
 import android.graphics.RuntimeShader
-import android.view.View
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ShaderBrush
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.viewinterop.AndroidView
+import top.yukonga.miuix.kmp.blur.LayerBackdrop
+import top.yukonga.miuix.kmp.blur.layerBackdrop
 
 /**
  * 引导页欢迎屏的发光底
@@ -23,54 +31,57 @@ import androidx.compose.ui.viewinterop.AndroidView
  *    其余 uniform 全部沿用原作默认值
  *  - 时间不再无限增长，在 2～120 秒之间来回走（原作如此，防止浮点精度衰减）
  *
- * 每帧重建 RenderEffect 是原作的做法，只在欢迎屏出现时跑；切走即停。
+ * 用 Compose 的 drawBehind 直接画，不走 AndroidView：
+ * 只有绘制发生在 Compose 的图层里，[backdrop] 才录得到这层光晕，
+ * 字标才能像关于页那样用 textureBlur 从里面采样。
+ *
+ * 传 [backdrop] 时这层会同时被录进 backdrop（layerBackdrop），不传就只画。
  */
 @Composable
-fun GlowBackdrop(modifier: Modifier = Modifier) {
+fun GlowBackdrop(
+    modifier: Modifier = Modifier,
+    backdrop: LayerBackdrop? = null,
+) {
     val context = LocalContext.current
     val shader = remember(context) {
         val src = context.assets.open("glow.glsl").bufferedReader().use { it.readText() }
         RuntimeShader(src).apply { applyBrandUniforms() }
     }
-    val view = remember(context) {
-        // 背景铺黑：shader 的 alpha 恒为 1，这里只是防首帧闪白
-        View(context).apply { setBackgroundColor(android.graphics.Color.BLACK) }
-    }
 
-    AndroidView(factory = { view }, modifier = modifier.fillMaxSize())
+    // 每帧推进一次；只能在 draw 里读，读得到才会触发重绘
+    var time by remember { mutableFloatStateOf(2f) }
 
-    DisposableEffect(view) {
-        var running = true
-        var last = System.nanoTime()
-        var time = 0f
+    LaunchedEffect(Unit) {
+        var last = 0L
         var dir = 1f
-
-        val tick = object : Runnable {
-            override fun run() {
-                if (!running) return
-                val now = System.nanoTime()
-                time += (now - last) * 1.0e-9f * dir
+        while (true) {
+            withFrameNanos { now ->
+                if (last != 0L) {
+                    time = (time + (now - last) * 1.0e-9f * dir).let { t ->
+                        when {
+                            dir > 0f && t >= 120f -> { dir = -1f; 120f }
+                            dir < 0f && t <= 2f -> { dir = 1f; 2f }
+                            else -> t
+                        }
+                    }
+                }
                 last = now
-                if (dir > 0f && time >= 120f) dir = -1f
-                if (dir < 0f && time <= 2f) dir = 1f
-
-                val w = view.width.coerceAtLeast(1).toFloat()
-                val h = view.height.coerceAtLeast(1).toFloat()
-                shader.setFloatUniform("uTime", time)
-                shader.setFloatUniform("uResolution", w, h)
-                view.setRenderEffect(RenderEffect.createShaderEffect(shader))
-
-                view.postDelayed(this, 16L)
             }
         }
-        view.post(tick)
-
-        onDispose {
-            running = false
-            view.removeCallbacks(tick)
-            view.setRenderEffect(null)
-        }
     }
+
+    Box(
+        modifier
+            .fillMaxSize()
+            .then(if (backdrop != null) Modifier.layerBackdrop(backdrop) else Modifier)
+            // 底色先铺黑：shader 的 alpha 恒为 1，这里只是防首帧闪白
+            .background(Color.Black)
+            .drawBehind {
+                shader.setFloatUniform("uResolution", size.width, size.height)
+                shader.setFloatUniform("uTime", time)
+                drawRect(brush = ShaderBrush(shader))
+            },
+    )
 }
 
 /**

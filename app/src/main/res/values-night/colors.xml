@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  深色主题下的图标底色：比浅色档再浅一级（accent1_200），
+  深色壁纸上图标才不会糊成一团暗色。
+-->
+<resources>
+    <color name="ic_launcher_background">@android:color/system_accent1_200</color>
+</resources>
