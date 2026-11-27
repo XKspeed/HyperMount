@@ -14,6 +14,8 @@
 #include <string.h>
 #include <strings.h>
 #include <unistd.h>
+
+#include "i18n.h"
 #include <fcntl.h>
 #include <dirent.h>
 #include <errno.h>
@@ -529,13 +531,13 @@ static void dev_name(const char *ev, char *out, size_t cap) {
     base = base ? base + 1 : ev;
     snprintf(path, sizeof path, "/sys/class/input/%s/device/name", base);
     int fd = open(path, O_RDONLY);
-    if (fd < 0) { snprintf(out, cap, "未知"); return; }
+    if (fd < 0) { snprintf(out, cap, "%s", L("common_unknown")); return; }
     ssize_t n = read(fd, buf, sizeof buf - 1);
     close(fd);
-    if (n <= 0) { snprintf(out, cap, "未知"); return; }
+    if (n <= 0) { snprintf(out, cap, "%s", L("common_unknown")); return; }
     buf[n] = 0;
     char *s = trim(buf);
-    snprintf(out, cap, "%s", *s ? s : "未知");
+    snprintf(out, cap, "%s", *s ? s : L("common_unknown"));
 }
 
 /*
@@ -724,17 +726,17 @@ static void diag_limit(void) {
                  "activity_manager", "process_crash_count_limit", NULL};
     if (run_capture(a, buf, sizeof buf) == 0) {
         char *s = trim(buf);
-        printf("  diag dc-get=%s\n", *s ? s : "(空)");
+        printf("  diag dc-get=%s\n", *s ? s : L("common_empty"));
     } else {
-        printf("  diag dc-get=命令失败\n");
+        printf("%s", L("diag_dc_fail"));
     }
     char *b[] = {"/system/bin/settings", "get", "global",
                  "activity_manager_constants", NULL};
     if (run_capture(b, buf, sizeof buf) == 0) {
         char *s = trim(buf);
-        printf("  diag global-get=%s\n", *s ? s : "(空)");
+        printf("  diag global-get=%s\n", *s ? s : L("common_empty"));
     } else {
-        printf("  diag global-get=命令失败\n");
+        printf("%s", L("diag_global_fail"));
     }
     printf("  diag dumpsys=%d\n", read_limit_dumpsys());
     char line[256];
@@ -811,13 +813,13 @@ static int apk_ok(const char *p) {
 
 static int cmd_ls(const char *dir) {
     if (!is_dir(dir)) {
-        printf("FAIL 目录不存在\n");
+        printf("%s", L("fail_dir_missing"));
         return 1;
     }
     struct dirent **list = NULL;
     int n = scandir(dir, &list, NULL, alphasort);
     if (n < 0) {
-        printf("FAIL 目录不可读\n");
+        printf("%s", L("fail_dir_unreadable"));
         return 1;
     }
     for (int i = 0; i < n; i++) {
@@ -841,47 +843,47 @@ static int cmd_ls(const char *dir) {
 }
 
 static int cmd_prepare(const char *src) {
-    if (!src || !*src) { printf("FAIL 缺少 APK 路径\n"); return 1; }
-    if (!is_file(src)) { printf("FAIL 文件不存在: %s\n", src); return 1; }
-    if (!is_apk(src)) { printf("FAIL 不是 APK: %s\n", src); return 1; }
-    if (!apk_ok(src)) { printf("FAIL APK 已损坏\n"); return 1; }
+    if (!src || !*src) { printf("%s", L("fail_no_apk_path")); return 1; }
+    if (!is_file(src)) { printf(L("fail_file_missing"), src); return 1; }
+    if (!is_apk(src)) { printf(L("fail_not_apk"), src); return 1; }
+    if (!apk_ok(src)) { printf("%s", L("fail_apk_corrupt")); return 1; }
     long long sz = file_size(src);
-    if (copy_file(src, p_rescue) != 0) { printf("FAIL 复制失败\n"); return 1; }
+    if (copy_file(src, p_rescue) != 0) { printf("%s", L("fail_copy")); return 1; }
     chmod(p_rescue, 0644);
     printf("OK\n");
     const char *base = strrchr(src, '/');
     base = base ? base + 1 : src;
-    printf("救砖文件已就绪: %s (%lld 字节)\n", base, sz);
+    printf(L("prepare_ok"), base, i18n_num(sz));
     return 0;
 }
 
 static int cmd_test_run(const char *rescue, const char *target) {
-    if (!rescue || !*rescue) { printf("FAIL 缺少救砖文件\n"); return 1; }
-    if (!target || !*target) { printf("FAIL 缺少待测文件\n"); return 1; }
+    if (!rescue || !*rescue) { printf("%s", L("fail_no_rescue")); return 1; }
+    if (!target || !*target) { printf("%s", L("fail_no_target")); return 1; }
     const char *files[2] = {rescue, target};
     for (int i = 0; i < 2; i++) {
-        if (!is_file(files[i])) { printf("FAIL 文件不存在: %s\n", files[i]); return 1; }
-        if (!is_apk(files[i])) { printf("FAIL 不是 APK: %s\n", files[i]); return 1; }
+        if (!is_file(files[i])) { printf(L("fail_file_missing"), files[i]); return 1; }
+        if (!is_apk(files[i])) { printf(L("fail_not_apk"), files[i]); return 1; }
     }
 
     mkdirs(workdir);
     long ap = read_pidfile(p_action_pid);
     if (ap > 0 && proc_alive(ap)) {
-        printf("FAIL 已有救砖守护在运行 (PID %ld)\n", ap);
-        printf("如需重来请先执行 stop\n");
+        printf(L("fail_watch_running"), i18n_num(ap));
+        printf("%s", L("fail_watch_running_hint"));
         return 1;
     }
     unlink(p_action_pid);
 
     if (!is_file(p_rescue)) {
         if (copy_file(rescue, p_rescue) != 0) {
-            printf("FAIL 救砖文件未就绪且复制失败\n");
+            printf("%s", L("fail_rescue_copy"));
             return 1;
         }
         chmod(p_rescue, 0644);
-        printf("STEP 1/2 救砖文件已复制\n");
+        printf("%s", L("step1_copied"));
     } else {
-        printf("STEP 1/2 救砖文件已就绪\n");
+        printf("%s", L("step1_ready"));
     }
 
     /* 日志清空：actiond 与 App 都靠它区分「这一轮的输出」 */
@@ -902,7 +904,7 @@ static int cmd_test_run(const char *rescue, const char *target) {
             /* 立刻消失且没留下「交给全局守护」= exec 没成功（架构不符 / SELinux） */
             if (!proc_alive(pid)) {
                 char *log = slurp(p_action_out);
-                int handed = log && strstr(log, "交给全局守护");
+                int handed = log && strstr(log, "##HANDOFF");
                 free(log);
                 if (!handed) pid = -1;
             }
@@ -914,11 +916,11 @@ static int cmd_test_run(const char *rescue, const char *target) {
     /* 和脚本版一样留一手：actiond 起不来就让 shell 版接着上 */
     if (pid < 0) {
         FILE *lf2 = fopen(p_action_out, "a");
-        if (lf2) { fprintf(lf2, "actiond 起不来，改用 shell 版\n"); fclose(lf2); }
+        if (lf2) { fprintf(lf2, "%s", L("fallback_shell")); fclose(lf2); }
         char *argvs[] = {"sh", ash, "--test", (char *)target, NULL};
         pid = spawn_daemon(argvs, p_action_out);
         if (pid <= 0) {
-            printf("FAIL 救砖进程启动失败\n");
+            printf("%s", L("fail_actiond_start"));
             return 1;
         }
         FILE *pf = fopen(p_action_pid, "w");
@@ -929,20 +931,20 @@ static int cmd_test_run(const char *rescue, const char *target) {
     if (!proc_alive(pid)) {
         /* 守护在跑时只做替换就退出 这是正常收尾 不是启动失败 */
         char *log = slurp(p_action_out);
-        int handed = log && strstr(log, "交给全局守护");
+        int handed = log && strstr(log, "##HANDOFF");
         free(log);
         if (handed) {
-            printf("STEP 2/2 界面已替换 交给全局守护\n");
-            printf("OK 测试已启动\n");
+            printf("%s", L("step2_replaced_handoff"));
+            printf("%s", L("ok_test_started"));
             return 0;
         }
-        printf("FAIL 救砖进程启动失败\n");
+        printf("%s", L("fail_actiond_start"));
         tail_file(p_action_out, 10);
         unlink(p_action_pid);
         return 1;
     }
-    printf("STEP 2/2 救砖进程已启动 (PID %d)\n", (int)pid);
-    printf("OK 测试已启动\n");
+    printf(L("step2_started"), i18n_num(pid));
+    printf("%s", L("ok_test_started"));
     return 0;
 }
 
@@ -1017,7 +1019,7 @@ static int cmd_stop(void) {
     join(ready, sizeof ready, workdir, "action.ready");
     unlink(ready);
 
-    printf("%s\n", st ? "已停止" : "未在运行");
+    printf("%s\n", st ? L("state_stopped") : L("state_not_running"));
     return 0;
 }
 
@@ -1032,13 +1034,13 @@ static int cmd_rescue(const char *action, const char *arg) {
         int now = ams_apply_limit(999999);
         if (now > 100) {
             limit_store(now);
-            printf("OK 已屏蔽系统救援 limit=%d\n", now);
+            printf(L("ok_rescue_on"), i18n_num(now));
             return 0;
         }
         /* 没写进去就别骗缓存：留下真实值，开关会如实弹回并由 App 提示 */
         if (now > 0) limit_store(now);
-        if (now > 0) printf("FAIL 系统没接受屏蔽值（当前上限 %d）\n", now);
-        else printf("FAIL 系统没接受屏蔽值（读不到当前上限）\n");
+        if (now > 0) printf(L("fail_rescue_on_limit"), i18n_num(now));
+        else printf("%s", L("fail_rescue_on_noread"));
         diag_limit();
         return 1;
     }
@@ -1060,16 +1062,16 @@ static int cmd_rescue(const char *action, const char *arg) {
         int now = ams_apply_limit(limit);
         if (now > 0 && now <= 100) {
             limit_store(now);
-            printf("OK 已恢复系统救援 limit=%d\n", now);
+            printf(L("ok_rescue_off"), i18n_num(now));
             return 0;
         }
         if (now > 0) limit_store(now);
-        if (now > 0) printf("FAIL 恢复失败（当前上限 %d）\n", now);
-        else printf("FAIL 恢复失败（读不到当前上限）\n");
+        if (now > 0) printf(L("fail_rescue_off_limit"), i18n_num(now));
+        else printf("%s", L("fail_rescue_off_noread"));
         diag_limit();
         return 1;
     }
-    printf("FAIL 未知操作: %s\n", action);
+    printf(L("fail_unknown_action"), action);
     return 1;
 }
 
@@ -1113,7 +1115,7 @@ static int cmd_watch(const char *action, const char *arg) {
         if (sec < 0) sec = 0;
         long wp = read_pidfile(p_watch_pid);
         if (wp > 0 && proc_alive(wp)) {
-            printf("OK 常驻救砖已在运行 (PID %ld)\n", wp);
+            printf(L("ok_watch_running"), i18n_num(wp));
             return 0;
         }
         unlink(p_watch_pid);
@@ -1125,9 +1127,9 @@ static int cmd_watch(const char *action, const char *arg) {
 
         if (access(p_watchd, X_OK) != 0) {
             FILE *w = fopen(p_watch_out, "a");
-            if (w) fprintf(w, "bin/watchd 不存在或不可执行（架构不是 arm64？）\n");
+            if (w) fprintf(w, "%s", L("fail_watchd_missing"));
             if (w) fclose(w);
-            printf("FAIL 常驻救砖没能启动\n");
+            printf("%s", L("fail_watch_start"));
             tail_file(p_watch_out, 5);
             return 1;
         }
@@ -1143,10 +1145,10 @@ static int cmd_watch(const char *action, const char *arg) {
             }
         }
         if (wp > 0 && proc_alive(wp)) {
-            printf("OK 常驻救砖已启动 (PID %ld)\n", wp);
+            printf(L("ok_watch_started"), i18n_num(wp));
             return 0;
         }
-        printf("FAIL 常驻救砖没能启动\n");
+        printf("%s", L("fail_watch_start"));
         tail_file(p_watch_out, 5);
         return 1;
     }
@@ -1187,11 +1189,11 @@ static int cmd_watch(const char *action, const char *arg) {
         FILE *sf = fopen(p_watch_state, "w");
         if (sf) { fprintf(sf, "running=0\n"); fclose(sf); }
         usleep(200000);
-        printf("OK 已停止\n");
+        printf("%s", L("ok_stopped"));
         return 0;
     }
 
-    printf("FAIL 未知操作: %s\n", action);
+    printf(L("fail_unknown_action"), action);
     return 1;
 }
 
@@ -1200,7 +1202,7 @@ static int cmd_watch(const char *action, const char *arg) {
 /* settings.conf 的 TIME_FORMAT 是给 date 用的（带 + 前缀），strftime 直接吃后半截 */
 static void get_time_str(char *out, size_t cap) {
     char fmt[64];
-    conf_get("TIME_FORMAT", fmt, sizeof fmt, "+%Y-%m-%d %H:%M:%S");
+    conf_get("TIME_FORMAT", fmt, sizeof fmt, "+%Y-%m-%d|%H:%M:%S");
     const char *f = fmt[0] == '+' ? fmt + 1 : fmt;
     time_t now = time(NULL);
     struct tm tmv;
@@ -1215,9 +1217,9 @@ static void set_desc(const char *state, const char *extra) {
     char when[96], line[512];
     get_time_str(when, sizeof when);
     if (extra && *extra)
-        snprintf(line, sizeof line, "%s | 状态: %s | %s", when, state, extra);
+        snprintf(line, sizeof line, L("desc_ts_state_extra"), when, state, extra);
     else
-        snprintf(line, sizeof line, "%s | 状态: %s", when, state);
+        snprintf(line, sizeof line, L("desc_ts_state"), when, state);
 
     size_t need = strlen(src) + strlen(line) + 64;
     char *out = malloc(need);
@@ -1343,7 +1345,7 @@ static void cmd_log_run(void) {
     conf_get("LOG_DIR", logdir, sizeof logdir, "");
     /* 目录留空就当不记日志：不改描述的话，「等待开机完成」会一直挂在卡片上 */
     if (!logdir[0]) {
-        set_desc("未设置日志目录 请先在 App 里选一个", NULL);
+        set_desc(L("boot_no_logdir"), NULL);
         return;
     }
 
@@ -1365,7 +1367,7 @@ static void cmd_log_run(void) {
     char *clearcmd[] = {"logcat", "-c", "-b", "crash", NULL};
     run_quiet(clearcmd);
 
-    set_desc("日志记录中", NULL);
+    set_desc(L("boot_logging"), NULL);
 
     char when[128], file[PATH_MAX];
     get_time_str(when, sizeof when);
@@ -1381,8 +1383,8 @@ static void cmd_log_run(void) {
 
     /* 开机自启的守护这会儿可能已经在跑了，别把卡片写成「日志已停止」 */
     long wp = read_pidfile(p_watch_pid);
-    if (wp > 0 && proc_alive(wp)) set_desc("全局守护中", NULL);
-    else set_desc("日志已停止", NULL);
+    if (wp > 0 && proc_alive(wp)) set_desc(L("boot_guarding"), NULL);
+    else set_desc(L("boot_log_stopped"), NULL);
 }
 
 /*
@@ -1401,7 +1403,7 @@ static void cmd_log_run(void) {
 
     /* 运行模式禁用、或没选日志目录都不起（cmd_log_run 里还会再判一次） */
     if (bootlog && mode != 0 && logdir[0]) {
-        set_desc("等待开机完成", NULL);
+        set_desc(L("boot_waiting"), NULL);
         pid_t lp = fork();
         if (lp == 0) {
             detach_self();
@@ -1409,7 +1411,7 @@ static void cmd_log_run(void) {
             _exit(0);
         }
     } else {
-        set_desc("未记录开机日志", NULL);
+        set_desc(L("boot_no_log"), NULL);
     }
 
     /* 开机启动全局救砖：运行模式不到「日志 + 救砖」时 watchd 起来也会退，先拦一道 */
@@ -1574,7 +1576,7 @@ static int cmd_check(const char *sub, const char *a2, const char *a3) {
             scan_devices(up, sizeof up, down, sizeof down, all, sizeof all);
             devs = all;
         }
-        if (!devs[0]) { printf("ERR 没有可用设备\n"); return 1; }
+        if (!devs[0]) { printf("%s", L("err_no_device")); return 1; }
 
         char hit[PATH_MAX];
         int sec = 10;
@@ -1590,7 +1592,7 @@ static int cmd_check(const char *sub, const char *a2, const char *a3) {
                 return 0;
             }
         }
-        printf("ERR 未检测到音量%s\n", is_up ? "+" : "-");
+        printf(L("err_vol_missing"), is_up ? "+" : "-");
         return 1;
     }
     if (strcmp(sub, "save") == 0) {
@@ -1620,7 +1622,7 @@ static int cmd_check(const char *sub, const char *a2, const char *a3) {
         conf_set("CHECK_TIME", tm);
         if (a2 && *a2) conf_set("VOL_UP_DEV", a2);
         if (a3 && *a3) conf_set("VOL_DOWN_DEV", a3);
-        printf("OK 已保存\n");
+        printf("%s", L("ok_saved"));
         return 0;
     }
     if (strcmp(sub, "verify") == 0) {
@@ -1636,35 +1638,35 @@ static int cmd_check(const char *sub, const char *a2, const char *a3) {
         prop("ro.product.device", dev, sizeof dev);
         prop("ro.product.model", model, sizeof model);
 
-        printf("INFO 安卓 %s (SDK %s)\n", android_ver, android_sdk);
-        printf("INFO 系统 %s\n", os);
-        printf("INFO 机型 %s (%s)\n\n", model, dev);
+        printf(L("info_android"), android_ver, android_sdk);
+        printf(L("info_system"), os);
+        printf(L("info_device"), model, dev);
 
         char saved[PATH_MAX];
         conf_get("CHECK_OS_NAME", saved, sizeof saved, NULL);
-        if (saved[0] && strcmp(saved, os) != 0) printf("WARN 系统版本已变化：%s -> %s\n", saved, os);
+        if (saved[0] && strcmp(saved, os) != 0) printf(L("warn_os_changed"), saved, os);
         conf_get("CHECK_ANDROID_VER", saved, sizeof saved, NULL);
         if (saved[0] && strcmp(saved, android_ver) != 0)
-            printf("WARN 安卓版本已变化：%s -> %s\n", saved, android_ver);
+            printf(L("warn_android_changed"), saved, android_ver);
 
         char up[PATH_MAX], down[PATH_MAX];
         detect_keys(up, sizeof up, down, sizeof down);
         int fail = 0;
-        if (!up[0]) { printf("FAIL 未识别到音量+设备\n"); fail = 1; }
-        if (!down[0]) { printf("FAIL 未识别到音量-设备\n"); fail = 1; }
+        if (!up[0]) { printf("%s", L("fail_no_vol_up")); fail = 1; }
+        if (!down[0]) { printf("%s", L("fail_no_vol_down")); fail = 1; }
 
         char hit[PATH_MAX];
         if (up[0]) {
-            printf("WAIT 请按一次【音量上】\n");
-            if (probe_key(up, "KEY_VOLUMEUP", 10, hit, sizeof hit)) printf("PASS 音量+ 校验成功\n");
-            else { printf("FAIL 音量+ 未检测到\n"); fail = 1; }
+            printf("%s", L("wait_vol_up"));
+            if (probe_key(up, "KEY_VOLUMEUP", 10, hit, sizeof hit)) printf("%s", L("pass_vol_up"));
+            else { printf("%s", L("fail_vol_up")); fail = 1; }
         }
         if (down[0]) {
-            printf("WAIT 请按一次【音量下】\n");
-            if (probe_key(down, "KEY_VOLUMEDOWN", 10, hit, sizeof hit)) printf("PASS 音量- 校验成功\n");
-            else { printf("FAIL 音量- 未检测到\n"); fail = 1; }
+            printf("%s", L("wait_vol_down"));
+            if (probe_key(down, "KEY_VOLUMEDOWN", 10, hit, sizeof hit)) printf("%s", L("pass_vol_down"));
+            else { printf("%s", L("fail_vol_down")); fail = 1; }
         }
-        if (fail) { printf("RESULT 校验失败\n"); return 1; }
+        if (fail) { printf("%s", L("result_verify_fail")); return 1; }
 
         char tm[64];
         time_t t = time(NULL);
@@ -1677,10 +1679,10 @@ static int cmd_check(const char *sub, const char *a2, const char *a3) {
         conf_set("CHECK_OS_NAME", os);
         conf_set("CHECK_DEVICE", dev);
         conf_set("CHECK_TIME", tm);
-        printf("RESULT 校验通过\n");
+        printf("%s", L("result_verify_ok"));
         return 0;
     }
-    printf("用法: ctl check env|keys|scan|up|down|save|verify\n");
+    printf("%s", L("ctl_check_usage"));
     return 1;
 }
 
@@ -1688,10 +1690,10 @@ static int cmd_check(const char *sub, const char *a2, const char *a3) {
 
 static void usage(void) {
     printf("ctl %s\n", VER);
-    printf("用法: ctl [--dir <模块根>] <命令> [参数]\n");
-    printf("  ls <dir> | prepare <apk> | test-run <救砖> <待测>\n");
-    printf("  status | output [行数] | stop\n");
-    printf("  rescue get|on [上限]|off | watch start <秒>|stop|status | boot | boot-start\n");
+    printf("%s", L("ctl_usage"));
+    printf("%s", L("ctl_usage_ls"));
+    printf("%s", L("ctl_usage_status"));
+    printf("%s", L("ctl_usage_rescue"));
     printf("  check env|keys|scan|up|down|save [up] [down]|verify\n");
 }
 
@@ -1699,10 +1701,11 @@ int main(int argc, char **argv) {
     setvbuf(stdout, NULL, _IOLBF, 0);
 
     char dirarg[PATH_MAX] = "";
+    int want_help = 0;
     int i = 1;
     for (; i < argc; i++) {
         if (strcmp(argv[i], "--version") == 0) { printf("ctl %s\n", VER); return 0; }
-        if (strcmp(argv[i], "--help") == 0 || strcmp(argv[i], "-h") == 0) { usage(); return 0; }
+        if (strcmp(argv[i], "--help") == 0 || strcmp(argv[i], "-h") == 0) { want_help = 1; break; }
         if (strcmp(argv[i], "--dir") == 0 && i + 1 < argc) {
             snprintf(dirarg, sizeof dirarg, "%s", argv[++i]);
             continue;
@@ -1724,6 +1727,10 @@ int main(int argc, char **argv) {
         if (slash) *slash = 0;
         snprintf(moddir, sizeof moddir, "%s", self);
     }
+
+    // 文案表要在任何输出之前就绪
+    i18n_init(moddir);
+    if (want_help) { usage(); return 0; }
 
     join(cfgdir, sizeof cfgdir, moddir, "config");
     join(workdir, sizeof workdir, moddir, "scripts/.work");

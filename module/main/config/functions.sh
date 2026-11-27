@@ -11,19 +11,38 @@
 # 旧版 settings.conf 里残留着同名旧函数，后加载的这份才会覆盖掉它。
 # ========================================
 
+# 文案表（t / tl）：函数库依赖它，先装好
+. "${MODDIR}/config/i18n.sh"
+
 get_time() {
     date "${TIME_FORMAT}"
 }
 
 update_desc() {
     [ -f "${MODDIR}/module.prop" ] || return 0
-    sed -i "s/^description=.*/description=$1/" "${MODDIR}/module.prop" 2>/dev/null
+    # 分隔符用 #：描述里的时间格式带 -（2026-11-27），拿 - 当分隔符会直接坏掉
+    # 值里的 # 与 & 先转义，免得 sed 认成语法
+    _ud_v=$(printf '%s' "$1" | sed 's/[#&]/\\&/g')
+    sed -i "s#^description=.*#description=${_ud_v}#" "${MODDIR}/module.prop" 2>/dev/null
 }
 
-# 描述唯一出口：时间 | 状态: xxx | 日志: NKB（$2 日志KB、$3 附加段可省）
+# 描述唯一出口：时间 | 状态: xxx | 日志: NKB
+#   $1 文案 key（不是中文原文，见 language/*.json）
+#   $2 日志 KB，可省
+#   $3 附加段（已翻好的串），可省
 set_desc() {
-    _sd="$(get_time) | 状态: $1"
-    [ -n "${3:-}" ] && _sd="${_sd} | $3"
-    [ -n "${2:-}" ] && _sd="${_sd} | 日志: ${2}KB"
+    _sd_ts=$(get_time)
+    _sd_st=$(t "$1")
+    if [ -n "${3:-}" ]; then
+        if [ -n "${2:-}" ]; then
+            _sd=$(printf "$(t desc_ts_state_extra_kb)" "${_sd_ts}" "${_sd_st}" "$3" "$2")
+        else
+            _sd=$(printf "$(t desc_ts_state_extra)" "${_sd_ts}" "${_sd_st}" "$3")
+        fi
+    elif [ -n "${2:-}" ]; then
+        _sd=$(printf "$(t desc_ts_state_kb)" "${_sd_ts}" "${_sd_st}" "$2")
+    else
+        _sd=$(printf "$(t desc_ts_state)" "${_sd_ts}" "${_sd_st}")
+    fi
     update_desc "${_sd}"
 }

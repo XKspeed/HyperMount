@@ -33,7 +33,7 @@ data class WatchStatus(
 /**
  * 守护通知要用的轻量状态
  *
- * 通知每秒都要刷时长，走 [Module.readState] 那套（boot + 两次 cat）太贵；
+ * 守护通知要反复取值，走 [Module.readState] 那套（boot + 两次 cat）太贵；
  * 这里一条命令只取几个数：全局守护在不在跑、它从哪秒开始、设了多长、
  * 测试进程在不在跑、累计救砖几次。
  */
@@ -136,6 +136,10 @@ data class ModuleState(
         else -> this
     }
 
+    /** 用一份 settings.conf 回读结果更新状态：只动它认识的键 其余保持原样 */
+    fun mergeConf(conf: Map<String, String>): ModuleState =
+        conf.entries.fold(this) { acc, (k, v) -> acc.withConf(k, v) }
+
     /** 回读校验用：取这一项在状态里的当前值 */
     fun confValue(key: String): String = when (key) {
         "LOG_MODE" -> logMode
@@ -166,6 +170,16 @@ object Module {
     /** 上一次记过日志的 LOG_DIR：值没变就不再写 防止守护每 2 秒刷新时刷屏 */
     @Volatile
     private var lastLogDirLogged: String? = null
+
+    /**
+     * 只回读 settings.conf
+     *
+     * 写配置后的校验用：值全在这一个文件里 没必要再跑 webctl boot 和 cat module.prop
+     * （那两样一次要多拉好几个进程）。结果交给 [ModuleState.mergeConf] 并进现有状态。
+     */
+    suspend fun readConf(): Map<String, String> = withContext(Dispatchers.IO) {
+        parseConf(Root.exec("cat ${Root.q(Root.CONF)} 2>/dev/null"))
+    }
 
     /**
      * 读取完整状态：boot + 配置 + module.prop
@@ -365,8 +379,10 @@ object Module {
     /**
      * 守护通知用的轻量查询
      *
-     * 通知每秒都要刷时长，走 [readState] 那套（boot + 两次 cat）太贵，
-     * 这里一条命令只取四个数：watch / action 在不在跑、各自从哪秒开始、累计救砖几次。
+     * 走 [readState] 那套（boot + 两次 cat）太贵，这里一条命令只取四个数：
+     * watch / action 在不在跑、各自从哪秒开始、累计救砖几次。
+     * 全程只用 shell 内建（read 读文件、[ -s ] 判存在、kill -0 探活），
+     * 外部命令只剩取 mtime 的那一个 stat —— 原来 cat/tr/grep 一趟要起九个进程。
      */
     suspend fun daemonStatus(): DaemonStatus = withContext(Dispatchers.IO) {
         val work = Root.workDir()
@@ -375,14 +391,18 @@ object Module {
         val wl = Root.q("$work/watch.limit")
         val ap = Root.q("$work/action.pid")
         val cmd = buildString {
-            append("W=\$(cat $wp 2>/dev/null | tr -d ' \\r\\n'); ")
-            append("if [ -n \"\$W\" ] && kill -0 \$W 2>/dev/null; then echo watching=1; else echo watching=0; fi; ")
-            append("grep '^since=' $ws 2>/dev/null; ")
-            append("L=\$(cat $wl 2>/dev/null | tr -d ' \\r\\n'); echo limit=\${L:-0}; ")
-            append("A=\$(cat $ap 2>/dev/null | tr -d ' \\r\\n'); ")
-            append("if [ -n \"\$A\" ] && kill -0 \$A 2>/dev/null; then echo testing=1; ")
-            append("echo atest=\$(stat -c%Y $ap 2>/dev/null); else echo testing=0; fi; ")
-            append("grep '^PROTECT_COUNT=' ${Root.q(Root.CONF)} 2>/dev/null")
+            append("W=; A=; L=0; S=; P=; ")
+            append("[ -s $wp ] && { IFS= read -r W < $wp || :; }; ")
+            append("[ -s $wl ] && { IFS= read -r L < $wl || :; }; ")
+            append("[ -s $ap ] && { IFS= read -r A < $ap || :; }; ")
+            append("while IFS='=' read -r k v; do [ \"\$k\" = since ] && S=\$v; done 2>/dev/null < $ws; ")
+            append("while IFS='=' read -r k v; do [ \"\$k\" = PROTECT_COUNT ] && P=\$v; done 2>/dev/null < ${Root.q(Root.CONF)}; ")
+            append("if [ -n \"\$W\" ] && kill -0 \"\$W\" 2>/dev/null; then echo watching=1; else echo watching=0; fi; ")
+            append("[ -n \"\$S\" ] && echo \"since=\$S\"; ")
+            append("echo \"limit=\${L:-0}\"; ")
+            append("if [ -n \"\$A\" ] && kill -0 \"\$A\" 2>/dev/null; then echo testing=1; ")
+            append("echo \"atest=\$(stat -c%Y $ap 2>/dev/null)\"; else echo testing=0; fi; ")
+            append("[ -n \"\$P\" ] && echo \"PROTECT_COUNT=\$P\"; true")
         }
         var st = DaemonStatus()
         Root.exec(cmd).lineSequence().forEach { line ->

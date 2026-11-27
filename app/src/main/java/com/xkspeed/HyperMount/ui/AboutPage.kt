@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBars
@@ -36,6 +37,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
@@ -50,6 +52,7 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.core.graphics.drawable.toBitmap
+import com.xkspeed.HyperMount.ui.component.oobe.OobeTuning
 import com.xkspeed.HyperMount.R
 import com.xkspeed.HyperMount.core.AppVersion
 import com.xkspeed.HyperMount.core.Update
@@ -559,31 +562,9 @@ private fun AboutLogo(
     backdrop: top.yukonga.miuix.kmp.blur.LayerBackdrop?,
 ) {
     val isInDark = isInDarkTheme()
-    // 应用名的流光染色配色 照抄 apkeditor 的 logoBlend
-    val logoBlend = remember(isInDark) {
-        if (isInDark) {
-            listOf(
-                BlendColorEntry(Color(0xe6a1a1a1), BlurBlendMode.ColorDodge),
-                BlendColorEntry(Color(0x4de6e6e6), BlurBlendMode.LinearLight),
-                BlendColorEntry(Color(0xff1af500), BlurBlendMode.Lab),
-            )
-        } else {
-            listOf(
-                BlendColorEntry(Color(0xcc4a4a4a), BlurBlendMode.ColorBurn),
-                BlendColorEntry(Color(0xff4f4f4f), BlurBlendMode.LinearLight),
-                BlendColorEntry(Color(0xff1af200), BlurBlendMode.Lab),
-            )
-        }
-    }
-
-    val density = LocalDensity.current
-    val ctx = LocalContext.current
-    // 直接读取应用启动图标 保证与桌面图标始终一致
-    val appIcon = remember(ctx, density) {
-        val iconSizePx = with(density) { 100.dp.roundToPx() }
-        ctx.packageManager.getApplicationIcon(ctx.applicationInfo)
-            .toBitmap(iconSizePx, iconSizePx)
-            .asImageBitmap()
+    // 应用名的流光染色 和引导首页共用同一份（brandNameBlend）
+    val logoBlend = remember(isInDark, OobeTuning.colors(isInDark).toList()) {
+        brandNameBlend(onDark = isInDark)
     }
 
     Column(
@@ -593,24 +574,46 @@ private fun AboutLogo(
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         val iconProgress = ((scrollProgressProvider() - 0.35f) / 0.15f).coerceIn(0f, 1f)
+        // colorScheme 是 @Composable 属性，不能在 draw lambda 里读，先取出来
+        val iconColor = colorScheme.onBackground
+        // 图标和引导首页同一套：白块采样背景流光，环是镂空。
+        // 采样不可用（老设备没有 backdrop）时才退回实色
+        val iconOnDark = isInDarkTheme()
+        // 和引导首页图标同一套混色：直接用应用名那组（brandNameBlend），
+        // 深底那组是提亮的，采出来是带彩边的亮块，所以深底也照常采样
+        val sampleMark = backdrop != null
+        val iconBlend = remember(iconOnDark, OobeTuning.colors(iconOnDark).toList()) {
+            brandNameBlend(onDark = iconOnDark)
+        }
         Box(
             contentAlignment = Alignment.Center,
             modifier = Modifier
                 .size(100.dp)
                 .graphicsLayer {
-                    clip = true
                     alpha = 1 - iconProgress
                     scaleX = 1 - (iconProgress * 0.05f)
                     scaleY = 1 - (iconProgress * 0.05f)
                 }
-                .squircleClip(cornerRadius = 28.dp),
-        ) {
-            Image(
-                modifier = Modifier.size(100.dp),
-                bitmap = appIcon,
-                contentDescription = null,
-            )
-        }
+                .then(
+                    if (sampleMark) {
+                        Modifier.textureBlur(
+                            backdrop = backdrop,
+                            shape = RoundedCornerShape(28.dp),
+                            blurRadius = 150f,
+                            noiseCoefficient = BlurDefaults.NoiseCoefficient,
+                            colors = BlurDefaults.blurColors(blendColors = iconBlend),
+                            contentBlendMode = BlendMode.DstIn,
+                        )
+                    } else {
+                        Modifier
+                    },
+                )
+                .drawWithCache {
+                    // DstIn 只认 alpha：白块是遮罩，环必须挖空才透得出背景
+                    val color = if (sampleMark || iconOnDark) Color.White else iconColor
+                    onDrawBehind { drawPath(brandMarkPath(size, 28.dp.toPx()), color) }
+                },
+        ) { }
         MiuixText(
             modifier = Modifier
                 .padding(top = 12.dp, bottom = 5.dp)

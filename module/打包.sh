@@ -298,9 +298,9 @@ set_prop_in "${PACK}/module.prop" versionCode "${VERCODE}"
 
 PKG_TIME_FMT=$(grep '^TIME_FORMAT=' "${PACK}/config/settings.conf" 2>/dev/null \
     | head -1 | cut -d= -f2- | tr -d '"' | tr -d '\r')
-[ -z "${PKG_TIME_FMT}" ] && PKG_TIME_FMT="+%Y年%m月%d日%H:%M:%S"
+[ -z "${PKG_TIME_FMT}" ] && PKG_TIME_FMT="+%Y-%m-%d|%H:%M:%S"
 PKG_TIME=$(date "${PKG_TIME_FMT}" 2>/dev/null)
-[ -z "${PKG_TIME}" ] && PKG_TIME=$(date "+%Y年%m月%d日%H:%M:%S")
+[ -z "${PKG_TIME}" ] && PKG_TIME=$(date "+%Y-%m-%d|%H:%M:%S")
 # 内测包描述直接写 App 版本号：Magisk 里一眼看出这份模块是给哪版 App 打的
 # 正式包照旧写发布日期与状态
 if [ -n "${APP_VER}" ]; then

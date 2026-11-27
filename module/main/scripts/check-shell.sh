@@ -60,7 +60,7 @@ _hasbit() {
 }
 _devname() {
     _dn=$(cat "/sys/class/input/${1##*/}/device/name" 2>/dev/null)
-    echo "${_dn:-未知}"
+    printf '%s\n' "${_dn:-$(t common_unknown)}"
 }
 scan_devices() {
     SCAN_UP=""
@@ -220,7 +220,7 @@ case "${1:-}" in
     up)
         detect_keys
         [ -z "$UP_DEV" ] && UP_DEV="$SCAN_ALL"
-        [ -z "$UP_DEV" ] && { echo "ERR 没有可用设备"; exit 1; }
+        [ -z "$UP_DEV" ] && { t err_no_device; exit 1; }
         _hit=$(probe_key "$UP_DEV" "KEY_VOLUMEUP" "$WAIT_SEC")
         if [ -n "$_hit" ]; then
             echo "OK $_hit"
@@ -234,13 +234,13 @@ case "${1:-}" in
                 exit 0
             fi
         fi
-        echo "ERR 未检测到音量+"
+        printf "$(t err_vol_missing)\n" "+"
         exit 1
         ;;
     down)
         detect_keys
         [ -z "$DOWN_DEV" ] && DOWN_DEV="$SCAN_ALL"
-        [ -z "$DOWN_DEV" ] && { echo "ERR 没有可用设备"; exit 1; }
+        [ -z "$DOWN_DEV" ] && { t err_no_device; exit 1; }
         _hit=$(probe_key "$DOWN_DEV" "KEY_VOLUMEDOWN" "$WAIT_SEC")
         if [ -n "$_hit" ]; then
             echo "OK $_hit"
@@ -254,7 +254,7 @@ case "${1:-}" in
                 exit 0
             fi
         fi
-        echo "ERR 未检测到音量-"
+        printf "$(t err_vol_missing)\n" "-"
         exit 1
         ;;
     save)
@@ -267,46 +267,46 @@ case "${1:-}" in
         set_conf "CHECK_TIME" "$(date "+%Y-%m-%d %H:%M")"
         [ -n "${2:-}" ] && set_conf "VOL_UP_DEV" "$2"
         [ -n "${3:-}" ] && set_conf "VOL_DOWN_DEV" "$3"
-        echo "OK 已保存"
+        t ok_saved
         ;;
     verify)
         read_env
         detect_keys
         FAIL=0
-        echo "INFO 安卓 $ANDROID_VER (SDK $ANDROID_SDK)"
-        echo "INFO 系统 $OS_NAME"
-        echo "INFO 机型 $MODEL ($DEVICE)"
+        printf "$(t info_android)\n" "$ANDROID_VER" "$ANDROID_SDK"
+        printf "$(t info_system)\n" "$OS_NAME"
+        printf "$(t info_device)\n" "$MODEL" "$DEVICE"
         echo ""
         if [ -n "${CHECK_OS_NAME}" ] && [ "${CHECK_OS_NAME}" != "$OS_NAME" ]; then
-            echo "WARN 系统版本已变化：${CHECK_OS_NAME} -> $OS_NAME"
+            printf "$(t warn_os_changed)\n" "${CHECK_OS_NAME}" "$OS_NAME"
         fi
         if [ -n "${CHECK_ANDROID_VER}" ] && [ "${CHECK_ANDROID_VER}" != "$ANDROID_VER" ]; then
-            echo "WARN 安卓版本已变化：${CHECK_ANDROID_VER} -> $ANDROID_VER"
+            printf "$(t warn_android_changed)\n" "${CHECK_ANDROID_VER}" "$ANDROID_VER"
         fi
-        [ -z "$UP_DEV" ] && { echo "FAIL 未识别到音量+设备"; FAIL=1; }
-        [ -z "$DOWN_DEV" ] && { echo "FAIL 未识别到音量-设备"; FAIL=1; }
+        [ -z "$UP_DEV" ] && { t fail_no_vol_up; FAIL=1; }
+        [ -z "$DOWN_DEV" ] && { t fail_no_vol_down; FAIL=1; }
         if [ -n "$UP_DEV" ]; then
-            echo "WAIT 请按一次【音量上】"
+            t wait_vol_up
             _h=$(probe_key "$UP_DEV" "KEY_VOLUMEUP" "$WAIT_SEC")
-            if [ -n "$_h" ]; then echo "PASS 音量+ 校验成功"; else echo "FAIL 音量+ 未检测到"; FAIL=1; fi
+            if [ -n "$_h" ]; then t pass_vol_up; else t fail_vol_up; FAIL=1; fi
         fi
         if [ -n "$DOWN_DEV" ]; then
-            echo "WAIT 请按一次【音量下】"
+            t wait_vol_down
             _h=$(probe_key "$DOWN_DEV" "KEY_VOLUMEDOWN" "$WAIT_SEC")
-            if [ -n "$_h" ]; then echo "PASS 音量- 校验成功"; else echo "FAIL 音量- 未检测到"; FAIL=1; fi
+            if [ -n "$_h" ]; then t pass_vol_down; else t fail_vol_down; FAIL=1; fi
         fi
-        if [ "$FAIL" = "1" ]; then echo "RESULT 校验失败"; exit 1; fi
+        if [ "$FAIL" = "1" ]; then t result_verify_fail; exit 1; fi
         set_conf "VOLUME_CHECK_ASSESS" "1"
         set_conf "CHECK_ANDROID_VER" "$ANDROID_VER"
         set_conf "CHECK_ANDROID_SDK" "$ANDROID_SDK"
         set_conf "CHECK_OS_NAME" "$OS_NAME"
         set_conf "CHECK_DEVICE" "$DEVICE"
         set_conf "CHECK_TIME" "$(date "+%Y-%m-%d %H:%M")"
-        echo "RESULT 校验通过"
+        t result_verify_ok
         exit 0
         ;;
     *)
-        echo "用法: check.sh env|keys|scan|up|down|save|verify"
+        t ctl_check_usage
         exit 1
         ;;
 esac

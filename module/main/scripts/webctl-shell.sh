@@ -22,7 +22,7 @@ ensure_work() {
 case "${1:-}" in
     ls)
         DIR="${2:-/storage/emulated/0}"
-        [ -d "$DIR" ] || { echo "FAIL 目录不存在"; exit 1; }
+        [ -d "$DIR" ] || { t fail_dir_missing; exit 1; }
         ls -1 "$DIR" 2>/dev/null | while IFS= read -r n; do
             [ -z "$n" ] && continue
             fp="$DIR/$n"
@@ -40,51 +40,51 @@ case "${1:-}" in
         ;;
     prepare)
         SRC="${2:-}"
-        [ -z "$SRC" ] && { echo "FAIL 缺少 APK 路径"; exit 1; }
-        [ ! -f "$SRC" ] && { echo "FAIL 文件不存在: $SRC"; exit 1; }
+        [ -z "$SRC" ] && { t fail_no_apk_path; exit 1; }
+        [ ! -f "$SRC" ] && { printf "$(t fail_file_missing)\n" "$SRC"; exit 1; }
         case "$SRC" in
             *.apk|*.APK) ;;
-            *) echo "FAIL 不是 APK: $SRC"; exit 1 ;;
+            *) printf "$(t fail_not_apk)\n" "$SRC"; exit 1 ;;
         esac
         if ! unzip -l "$SRC" >/dev/null 2>&1; then
-            echo "FAIL APK 已损坏"
+            t fail_apk_corrupt
             exit 1
         fi
         SZ=$(stat -c%s "$SRC" 2>/dev/null || echo 0)
-        cp -f "$SRC" "$RESCUE_APK" || { echo "FAIL 复制失败"; exit 1; }
+        cp -f "$SRC" "$RESCUE_APK" || { t fail_copy; exit 1; }
         chmod 644 "$RESCUE_APK" 2>/dev/null
         echo "OK"
-        echo "救砖文件已就绪: $(basename "$SRC") ($SZ 字节)"
+        printf "$(t prepare_ok)\n" "$(basename "$SRC")" "$SZ"
         ;;
     test-run)
         RESCUE="${2:-}"
         TARGET="${3:-}"
-        [ -z "$RESCUE" ] && { echo "FAIL 缺少救砖文件"; exit 1; }
-        [ -z "$TARGET" ] && { echo "FAIL 缺少待测文件"; exit 1; }
+        [ -z "$RESCUE" ] && { t fail_no_rescue; exit 1; }
+        [ -z "$TARGET" ] && { t fail_no_target; exit 1; }
         for f in "$RESCUE" "$TARGET"; do
-            [ ! -f "$f" ] && { echo "FAIL 文件不存在: $f"; exit 1; }
+            [ ! -f "$f" ] && { printf "$(t fail_file_missing)\n" "$f"; exit 1; }
             case "$f" in
                 *.apk|*.APK) ;;
-                *) echo "FAIL 不是 APK: $f"; exit 1 ;;
+                *) printf "$(t fail_not_apk)\n" "$f"; exit 1 ;;
             esac
         done
         ensure_work
         _ap=$(cat "$ACTION_PID" 2>/dev/null)
         if [ -n "$_ap" ] && kill -0 "$_ap" 2>/dev/null; then
-            echo "FAIL 已有救砖守护在运行 (PID $_ap)"
-            echo "如需重来请先执行 stop"
+            printf "$(t fail_watch_running)\n" "$_ap"
+            t fail_watch_running_hint
             exit 1
         fi
         rm -f "$ACTION_PID"
         if [ ! -f "$RESCUE_APK" ]; then
             cp -f "$RESCUE" "$RESCUE_APK" 2>/dev/null || {
-                echo "FAIL 救砖文件未就绪且复制失败"
+                t fail_rescue_copy
                 exit 1
             }
             chmod 644 "$RESCUE_APK" 2>/dev/null
-            echo "STEP 1/2 救砖文件已复制"
+            t step1_copied
         else
-            echo "STEP 1/2 救砖文件已就绪"
+            t step1_ready
         fi
         SYS_SH=/system/bin/sh
         [ -x "$SYS_SH" ] || SYS_SH=sh
@@ -100,12 +100,12 @@ case "${1:-}" in
             echo "$APID" > "$ACTION_PID"
             sleep 1
             if ! kill -0 "$APID" 2>/dev/null \
-               && ! grep -q "交给全局守护" "$ACTION_LOG" 2>/dev/null; then
+               && ! grep -q "##HANDOFF" "$ACTION_LOG" 2>/dev/null; then
                 APID=0
             fi
         fi
         if [ "$APID" = "0" ]; then
-            echo "actiond 起不来，改用 shell 版" >> "$ACTION_LOG"
+            t fallback_shell >> "$ACTION_LOG"
             nohup "$SYS_SH" "${MODDIR}/action-shell.sh" --test "$TARGET" \
                 >> "$ACTION_LOG" 2>&1 < /dev/null &
             APID=$!
@@ -114,18 +114,18 @@ case "${1:-}" in
         fi
         if ! kill -0 "$APID" 2>/dev/null; then
             # 守护在跑时只做替换就退出 这是正常收尾 不是启动失败
-            if grep -q "交给全局守护" "$ACTION_LOG" 2>/dev/null; then
-                echo "STEP 2/2 界面已替换 交给全局守护"
-                echo "OK 测试已启动"
+            if grep -q "##HANDOFF" "$ACTION_LOG" 2>/dev/null; then
+                t step2_replaced_handoff
+                t ok_test_started
                 exit 0
             fi
-            echo "FAIL 救砖进程启动失败"
+            t fail_actiond_start
             tail -10 "$ACTION_LOG" 2>/dev/null
             rm -f "$ACTION_PID"
             exit 1
         fi
-        echo "STEP 2/2 救砖进程已启动 (PID $APID)"
-        echo "OK 测试已启动"
+        printf "$(t step2_started)\n" "$APID"
+        t ok_test_started
         ;;
     status)
         if [ -f "$ACTION_PID" ]; then
@@ -182,7 +182,7 @@ case "${1:-}" in
         fi
         pkill -f "logcat -b crash" 2>/dev/null
         rm -f "${WORK_DIR}/action.ready" 2>/dev/null
-        [ "$ST" = "1" ] && echo "已停止" || echo "未在运行"
+        [ "$ST" = "1" ] && tl state_stopped || tl state_not_running
         ;;
     rescue)
         ACTION="${2:-get}"
@@ -229,9 +229,9 @@ case "${1:-}" in
             off)
                 V=$(_apply 999999)
                 if [ "${V:-0}" -gt 100 ] 2>/dev/null; then
-                    echo "OK 已屏蔽系统救援 limit=$V"
+                    printf "$(t ok_rescue_on)\n" "$V"
                 else
-                    echo "FAIL 系统没接受屏蔽值（当前 ${V:-unknown}）"
+                    printf "$(t fail_rescue_on_limit)\n" "${V:-0}"
                     exit 1
                 fi
                 ;;
@@ -246,14 +246,14 @@ case "${1:-}" in
                 fi
                 V=$(_apply "$L")
                 if [ -n "$V" ] && [ "$V" -le 100 ] 2>/dev/null; then
-                    echo "OK 已恢复系统救援 limit=$V"
+                    printf "$(t ok_rescue_off)\n" "$V"
                 else
-                    echo "FAIL 恢复失败（当前 ${V:-unknown}）"
+                    printf "$(t fail_rescue_off_limit)\n" "${V:-0}"
                     exit 1
                 fi
                 ;;
             *)
-                echo "FAIL 未知操作: $ACTION"
+                printf "$(t fail_unknown_action)\n" "$ACTION"
                 exit 1
                 ;;
         esac
@@ -282,7 +282,7 @@ case "${1:-}" in
                 case "$SEC" in ''|*[!0-9]*) SEC=0 ;; esac
                 _wp=$(read_pid "$WATCH_PID")
                 if [ -n "$_wp" ] && kill -0 "$_wp" 2>/dev/null; then
-                    echo "OK 常驻救砖已在运行 (PID $_wp)"
+                    printf "$(t ok_watch_running)\n" "$_wp"
                     exit 0
                 fi
                 # 新一轮：清掉上一轮的停止标记与状态 已运行时长从 0 开始
@@ -307,13 +307,13 @@ case "${1:-}" in
                         _i=$((_i + 1))
                     done
                 else
-                    echo "bin/watchd 不存在或不可执行（架构不是 arm64？）" >> "$WATCH_OUT"
+                    t fail_watchd_missing >> "$WATCH_OUT"
                 fi
 
                 if [ -n "$_wp" ] && kill -0 "$_wp" 2>/dev/null; then
-                    echo "OK 常驻救砖已启动 (PID $_wp)"
+                    printf "$(t ok_watch_started)\n" "$_wp"
                 else
-                    echo "FAIL 常驻救砖没能启动"
+                    t fail_watch_start
                     tail -n 5 "$WATCH_OUT" 2>/dev/null
                     exit 1
                 fi
@@ -335,7 +335,7 @@ case "${1:-}" in
                 pkill -f "am_proc_start -T 1" 2>/dev/null
                 echo "running=0" > "$WATCH_STATE"
                 sleep 0.2
-                echo "OK 已停止"
+                t ok_stopped
                 ;;
             status)
                 _wp=$(read_pid "$WATCH_PID")
@@ -369,7 +369,7 @@ case "${1:-}" in
                 echo "count=$_count"
                 ;;
             *)
-                echo "FAIL 未知操作: $WACTION"
+                printf "$(t fail_unknown_action)\n" "$WACTION"
                 exit 1
                 ;;
         esac
@@ -479,7 +479,7 @@ case "${1:-}" in
         fi
         ;;
     *)
-        echo "用法: sh webctl.sh ls|keys|test|check|prepare|test-run|status|output|stop|rescue|boot"
+        t webctl_usage
         exit 1
         ;;
 esac

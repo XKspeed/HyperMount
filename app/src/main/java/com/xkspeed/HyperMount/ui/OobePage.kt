@@ -15,6 +15,7 @@ import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.Easing
+import androidx.compose.animation.core.FastOutLinearInEasing
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -55,6 +56,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
@@ -68,16 +70,21 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.geometry.RoundRect
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.BlendMode
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.PathOperation
+import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
+import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.graphics.graphicsLayer
@@ -98,6 +105,8 @@ import com.xkspeed.HyperMount.core.Module
 import com.xkspeed.HyperMount.core.ModuleState
 import com.xkspeed.HyperMount.core.Root
 import com.xkspeed.HyperMount.i18n.t
+import com.xkspeed.HyperMount.ui.component.effect.BgEffectBackground
+import com.xkspeed.HyperMount.ui.util.isInDarkTheme
 import com.xkspeed.HyperMount.ui.util.rememberBlurBackdrop
 import com.xkspeed.HyperMount.ui.util.stableNavigationBarsPadding
 import com.xkspeed.HyperMount.ui.util.stableStatusBarsPadding
@@ -107,6 +116,7 @@ import kotlin.math.PI
 import kotlin.math.cos
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import com.xkspeed.HyperMount.ui.component.oobe.OobeTuning
 import top.yukonga.miuix.kmp.blur.BlendColorEntry
 import top.yukonga.miuix.kmp.blur.LayerBackdrop
 import top.yukonga.miuix.kmp.blur.BlurBlendMode
@@ -186,7 +196,7 @@ private val SinOut = Easing { sin(it * PI / 2).toFloat() }
  * [onDone] 统一下发，中途退出不会被记成走完。
  */
 @Composable
-fun OnboardingPage(
+fun OobePage(
     onDone: () -> Unit,
     /** 直接从音量键这一步开始（系统版本变了要重验时用） */
     startAtVolume: Boolean = false,
@@ -315,23 +325,23 @@ fun OnboardingPage(
 
     // 首页光晕要能被字标采样：这层录进 backdrop，字标再用 textureBlur 取
     val backdrop = rememberBlurBackdrop()
-    // 字标/图标的玻璃染色，取自 HyperCeiler 引导首页（provision StartupFragment）：
-    // 它给文字图和图标各设了三条 blender 色 #CC4A4A4A / #FF4F4F4F / #FF1AF200，权重 19/100/106。
-    // 第三条是它家的品牌绿，我们的 logo 是蓝的，跟进去会串成青色，所以只留两条中性灰：
-    // 浅底上把字压成深灰、同时留一点背景的粉紫，观感和截图里那行深紫字一致。
-    val markBlend = remember {
-        listOf(
-            BlendColorEntry(Color(0x334a4a4a), BlurBlendMode.AlphaBlend),
-            BlendColorEntry(Color(0xd94f4f4f), BlurBlendMode.AlphaBlend),
-        )
+    // 首页锁成反色：系统深色时铺浅色流光，系统浅色时铺深色流光
+    // 点圆钮展开第二页时颜色正好翻回来，转场不用另做一套
+    val homeDark = !isInDarkTheme()
+    // 图标 / 字标 / 圆钮共用同一份流光染色（关于页 HyperMount 那套）。
+    // 首页底子是反色的，深底选提亮的一组，浅底选压暗的一组。
+    // 色值实时取 OobeTuning，调参页改完进 OOBE 就是新的；
+    // key 用当前三条色的快照，色没变就不重建 BlurColors（否则每帧都重建着色器）
+    val nameBlend = remember(homeDark, OobeTuning.colors(homeDark).toList()) {
+        brandNameBlend(onDark = homeDark)
     }
 
     // 深色页 / 浅色页切换：状态栏图标得跟着反色
-    // 欢迎页现在是浅粉底，不再算深色页
+    // 首页是反色流光：系统深色时首页反而偏浅，这时状态栏要放深色图标
     val surface = MiuixTheme.colorScheme.surface
-    val darkPage = surface.luminance() < 0.5f
+    val darkPage = if (step == 0) homeDark else surface.luminance() < 0.5f
     val view = LocalView.current
-    DisposableEffect(darkPage, view) {
+    DisposableEffect(darkPage, view, step) {
         val window = (view.context as? android.app.Activity)?.window
         val controller = window?.let { WindowCompat.getInsetsController(it, view) }
         controller?.isAppearanceLightStatusBars = !darkPage
@@ -343,19 +353,54 @@ fun OnboardingPage(
     var reveal by remember { mutableStateOf<RevealSpec?>(null) }
     val revealProgress = remember { Animatable(0f) }
     val scope = rememberCoroutineScope()
+    // 圆钮在窗口里的位置：返回时要从同一点缩回去
+    var buttonSpec by remember { mutableStateOf<RevealSpec?>(null) }
+    // 首页的入场动画只在第一次进来时放；从第二页退回来时直接停在终态，不再重播
+    var introDone by remember { mutableStateOf(false) }
+    // 圆形转场进行中：这半秒里别让第二次点击/返回插进来
+    var transitionBusy by remember { mutableStateOf(false) }
 
     fun startReveal(c: Offset, r: Float) {
-        if (reveal != null) return
+        if (transitionBusy) return
+        transitionBusy = true
         scope.launch {
             revealProgress.snapTo(0f)
-            reveal = RevealSpec(c, r)
+            val spec = RevealSpec(c, r)
+            buttonSpec = spec
+            introDone = true
+            reveal = spec
             revealProgress.animateTo(1f, tween(520, easing = FastOutSlowInEasing))
             step = 1
             // 等这一帧真的把第二页画出来再撤遮罩：
             // 同帧撤的话，只要 AnimatedContent 慢半帧，就会露出一次欢迎页
             withFrameNanos { }
             reveal = null
+            transitionBusy = false
         }
+    }
+
+    /**
+     * 第二页退回第一页：进入动画的反向播放
+     *
+     * 圆圈里装的还是第二页，半径从整屏缩回圆钮，露出底下已经摆好的欢迎页。
+     * 不这么做的话返回走的是 AnimatedContent 的横向滑动，和进场的圆形展开对不上。
+     */
+    fun startCollapse(): Boolean {
+        val spec = buttonSpec ?: return false
+        if (transitionBusy) return false
+        transitionBusy = true
+        scope.launch {
+            revealProgress.snapTo(1f)
+            // 先把底下的欢迎页换出来（这个方向的 AnimatedContent 是 None，不滑动），
+            // 同一帧里撑起整屏的圆把它盖住，所以看不到切换
+            step = 0
+            reveal = spec
+            withFrameNanos { }
+            revealProgress.animateTo(0f, tween(420, easing = FastOutLinearInEasing))
+            reveal = null
+            transitionBusy = false
+        }
+        return true
     }
 
     fun next() {
@@ -368,10 +413,12 @@ fun OnboardingPage(
     // 只能一步步往回退 退到第一步就不再拦 由系统退出 App
     BackHandler(enabled = step > 0 || onCancel != null) {
         // 转场的半秒里别让返回把页面拽回去
-        if (reveal != null) return@BackHandler
+        if (transitionBusy) return@BackHandler
         if (step == 0) {
             // 只剩回看入口这一种情况会走到这里：直接退回调试页
             onCancel?.invoke()
+        } else if (step == 1 && startCollapse()) {
+            // 1 → 0 走圆形收缩，和进场的圆形展开对称
         } else {
             if (step == 3 && !volDone) volSkip = true
             step--
@@ -379,7 +426,13 @@ fun OnboardingPage(
     }
 
     val bg by animateColorAsState(
-        targetValue = if (step == 0) WelcomePaper else MiuixTheme.colorScheme.surface,
+        // 首页底色要跟反色流光同调：系统浅色时首页是深流光，垫色不能再是浅粉，
+        // 不然背景层淡出/退场的那一下会闪一层粉
+        targetValue = if (step == 0) {
+            if (homeDark) Color(0xFF121216) else WelcomePaper
+        } else {
+            MiuixTheme.colorScheme.surface
+        },
         animationSpec = tween(500),
         label = "onboardBg",
     )
@@ -389,7 +442,9 @@ fun OnboardingPage(
         // 最后看到的就是那张浅粉紫渐变，所以这里直接铺图，光晕不往上叠。
         AnimatedVisibility(
             visible = step == 0,
-            enter = fadeIn(tween(700)),
+            // 从第二页退回来时，整块底图要让圆形收缩的第一帧就到位：
+            // 那会儿圆还盖满全屏，看不出来；一旦开始淡入，缩小时就会露出半透明的底
+            enter = EnterTransition.None,
             exit = fadeOut(tween(400)),
             modifier = Modifier.fillMaxSize(),
         ) {
@@ -399,9 +454,11 @@ fun OnboardingPage(
         AnimatedContent(
             targetState = step,
             transitionSpec = {
-                // 0 → 1 是圆形放大自己走完的，这里必须"立刻"换页：
-                // 用 tween(0) 仍会经过一帧动画系统，遮罩撤掉时那一帧露出来的还是欢迎页
-                if (initialState == 0 && targetState == 1) {
+                // 0 ↔ 1 是圆形放大/收缩自己走完的，这里必须"立刻"换页：
+                // 用 tween(0) 仍会经过一帧动画系统，遮罩撤掉时那一帧露出来的还是原来那页
+                if ((initialState == 0 && targetState == 1) ||
+                    (initialState == 1 && targetState == 0)
+                ) {
                     EnterTransition.None togetherWith ExitTransition.None
                 } else {
                     val dir = if (targetState > initialState) 1 else -1
@@ -414,7 +471,9 @@ fun OnboardingPage(
             label = "onboarding",
         ) { index ->
             when (index) {
-                0 -> WelcomeStep(backdrop, markBlend) { c, r -> startReveal(c, r) }
+                0 -> WelcomeStep(backdrop, nameBlend, homeDark, animateIn = !introDone) { c, r ->
+                    startReveal(c, r)
+                }
                 1 -> NoticeStep()
                 2 -> EnvStep(
                     env = env,
@@ -570,16 +629,18 @@ fun OnboardingPage(
 @Composable
 private fun WelcomeNextButton(
     backdrop: LayerBackdrop?,
+    onDark: Boolean,
+    // 从第二页退回来时按钮已经在位，不再重播「延迟 1.34 秒淡入」
+    animateIn: Boolean,
     onClick: (Offset, Float) -> Unit,
 ) {
-    // 原作的圆钮是单独一组色：底色用 #2E2E2E 而不是图标那组 #4A4A4A，
-    // 压得更暗，白色箭头才立得起来
-    val btnBlend = remember {
-        listOf(
-            BlendColorEntry(Color(0xd92e2e2e), BlurBlendMode.AlphaBlend),
-            BlendColorEntry(Color(0x1f1af200), BlurBlendMode.Lab),
-        )
+    // 圆钮的混色和字标同一条：用关于页 HyperMount 那套（ColorDodge/ColorBurn + 品牌色），
+    // 采样出来是一颗带彩边的圆，跟着背景流光变，不再固定一颗灰圆。
+    // 深底那组是提亮的，圆会是浅色，箭头必须翻成深色才看得见。
+    val btnBlend = remember(onDark, OobeTuning.colors(onDark).toList()) {
+        brandNameBlend(onDark = onDark)
     }
+    val darkArrow = onDark
 
     val interaction = remember { MutableInteractionSource() }
     val pressed by interaction.collectIsPressedAsState()
@@ -589,8 +650,9 @@ private fun WelcomeNextButton(
         label = "nextPress",
     )
 
-    val appear = remember { Animatable(0f) }
+    val appear = remember { Animatable(if (animateIn) 0f else 1f) }
     LaunchedEffect(Unit) {
+        if (!animateIn) return@LaunchedEffect
         delay(1340)
         appear.animateTo(1f, tween(450, easing = CubicOut))
     }
@@ -613,22 +675,6 @@ private fun WelcomeNextButton(
             }
             .size(70.dp)
             .clip(CircleShape)
-            // 原作是白色实心圆，靠 blur 采样把它染成和背景同调的深色
-            .background(if (backdrop != null) Color.White else OnPaper)
-            .then(
-                if (backdrop != null) {
-                    Modifier.textureBlur(
-                        backdrop = backdrop,
-                        shape = CircleShape,
-                        blurRadius = 150f,
-                        noiseCoefficient = BlurDefaults.NoiseCoefficient,
-                        colors = BlurDefaults.blurColors(blendColors = btnBlend),
-                        contentBlendMode = BlendMode.DstIn,
-                    )
-                } else {
-                    Modifier
-                },
-            )
             .clickable(
                 interactionSource = interaction,
                 indication = null,
@@ -636,10 +682,32 @@ private fun WelcomeNextButton(
             ),
         contentAlignment = Alignment.Center,
     ) {
-        // 原作的箭头是独立图层、不参与采样，纯白实心（描边版会显得太粗太圆）
+        // 模糊必须单独一层：DstIn 只把「内容」当遮罩、内容本身不再绘制，
+        // 白圆放这层里当遮罩；箭头必须留在外层当兄弟节点，否则会被一起吃掉
+        Box(
+            Modifier
+                .matchParentSize()
+                .then(
+                    if (backdrop != null) {
+                        Modifier.textureBlur(
+                            backdrop = backdrop,
+                            shape = CircleShape,
+                            blurRadius = 150f,
+                            noiseCoefficient = BlurDefaults.NoiseCoefficient,
+                            colors = BlurDefaults.blurColors(blendColors = btnBlend),
+                            contentBlendMode = BlendMode.DstIn,
+                        )
+                    } else {
+                        Modifier
+                    },
+                )
+                .background(if (backdrop != null) Color.White else OnPaper),
+        )
+        // 原作的箭头是独立图层、不参与采样（描边版会显得太粗太圆）
         Image(
             painter = painterResource(R.drawable.ic_welcome_arrow),
             contentDescription = null,
+            colorFilter = if (darkArrow) ColorFilter.tint(OnPaper) else null,
             modifier = Modifier.size(29.dp, 20.dp),
         )
     }
@@ -713,26 +781,36 @@ private fun TextAction(label: String, onClick: () -> Unit) {
 // ---------------- 第 1 页：欢迎 ----------------
 
 /**
- * 欢迎页的柔光底
+ * 欢迎页的流光底
  *
- * 原作是「黑底 + 光晕 + 半透明壁纸」，那张壁纸的不透明度几乎全满，
- * 最后看到的就是它本身，所以这里直接铺图、不再叠一层 shader。
- * 图要录进 [backdrop]，字标和图标才有东西可以采。
+ * 换成关于页同款 [BgEffectBackground]（AGSL 流光），并**锁成反色**：
+ * 系统深色时铺浅色流光、系统浅色时铺深色流光。
+ * 点圆钮展开第二页时颜色正好翻回来，转场本身就是一次「反色复原」。
+ * 这层要录进 [backdrop]，字标、图标、圆钮才有东西可以采。
  */
 @Composable
 private fun WelcomeBackdrop(backdrop: LayerBackdrop?) {
-    Box(
-        Modifier
-            .fillMaxSize()
-            .then(if (backdrop != null) Modifier.layerBackdrop(backdrop) else Modifier),
-    ) {
-        Image(
-            painter = painterResource(R.drawable.welcome_bg),
-            contentDescription = null,
-            contentScale = ContentScale.Crop,
-            modifier = Modifier.fillMaxSize(),
-        )
+    // 没有 backdrop 说明这台设备跑不了 AGSL（API < 33 或 shader 不支持），
+    // 退回原来那张静态柔光图，不至于只剩一块纯色
+    if (backdrop == null) {
+        Box(Modifier.fillMaxSize()) {
+            Image(
+                painter = painterResource(R.drawable.welcome_bg),
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize(),
+            )
+        }
+        return
     }
+    BgEffectBackground(
+        dynamicBackground = true,
+        modifier = Modifier.fillMaxSize(),
+        isFullSize = true,
+        invertTheme = true,
+        bgModifier = Modifier.layerBackdrop(backdrop),
+        alpha = { 1f },
+    ) { }
 }
 
 /**
@@ -746,26 +824,39 @@ private fun WelcomeBackdrop(backdrop: LayerBackdrop?) {
 @Composable
 private fun WelcomeLogo(
     backdrop: LayerBackdrop?,
-    markBlend: List<BlendColorEntry>,
+    nameBlend: List<BlendColorEntry>,
+    onDark: Boolean,
     logoScale: Float,
     logoAlpha: Float,
+    // 图标中心的窗口坐标：光晕要从这里散出去
+    onCenter: (Offset) -> Unit,
 ) {
+    // 和字标、圆钮同一套混色（关于页 HyperMount 那组）：
+    // 深底那组是提亮的，采出来是一块带彩边的亮块，不会像中性灰那样糊进背景，
+    // 所以深底也照常采样，只有拿不到 backdrop 时才退回实色
+    val sampleMark = backdrop != null
     Box(
         Modifier
             .size(90.dp)
+            .onGloballyPositioned { coords ->
+                onCenter(
+                    coords.positionInRoot() +
+                        Offset(coords.size.width / 2f, coords.size.height / 2f),
+                )
+            }
             .graphicsLayer {
                 scaleX = logoScale
                 scaleY = logoScale
                 alpha = logoAlpha
             }
             .then(
-                if (backdrop != null) {
+                if (sampleMark) {
                     Modifier.textureBlur(
                         backdrop = backdrop,
                         shape = RoundedCornerShape(25.dp),
                         blurRadius = 150f,
                         noiseCoefficient = BlurDefaults.NoiseCoefficient,
-                        colors = BlurDefaults.blurColors(blendColors = markBlend),
+                        colors = BlurDefaults.blurColors(blendColors = nameBlend),
                         contentBlendMode = BlendMode.DstIn,
                     )
                 } else {
@@ -773,50 +864,216 @@ private fun WelcomeLogo(
                 },
             )
             .drawWithCache {
-                val k = size.width / 90f
-                val cx = size.width / 2f
-                val cy = size.height / 2f
-                val ro = 25f * k
-                val ri = 17f * k
-
-                // 缺口在右上：外弧从 0°（右）顺时针走 270° 到 270°（上），再沿内弧折回来
-                val ring = Path().apply {
-                    arcTo(Rect(cx - ro, cy - ro, cx + ro, cy + ro), 0f, 270f, true)
-                    lineTo(cx, cy - ri)
-                    arcTo(Rect(cx - ri, cy - ri, cx + ri, cy + ri), 270f, -270f, false)
-                    close()
-                }
-                // 缺口正中那个点也挖掉
-                val ang = -PI / 4
-                val arm = (ro + ri) / 2f
-                val dot = Path().apply {
-                    addOval(
-                        Rect(
-                            Offset(
-                                cx + cos(ang).toFloat() * arm,
-                                cy + sin(ang).toFloat() * arm,
-                            ),
-                            5f * k,
-                        ),
-                    )
-                }
-                val cut = Path().apply { op(ring, dot, PathOperation.Union) }
-                val body = Path().apply {
-                    addRoundRect(
-                        RoundRect(0f, 0f, size.width, size.height, CornerRadius(25f * k)),
-                    )
-                }
-                val mark = Path().apply { op(body, cut, PathOperation.Difference) }
-                // 采样不可用时退回固定深色，不然白块在浅色背景上糊成一片
-                val color = if (backdrop != null) Color.White else OnPaper
-
-                onDrawBehind { drawPath(mark, color) }
+                // 采样时白块只是 DstIn 的遮罩；没有采样时深底画白、浅底画深色
+                val color = if (sampleMark || onDark) Color.White else OnPaper
+                onDrawBehind { drawPath(brandMarkPath(size, 25.dp.toPx()), color) }
             },
     )
 }
 
+/**
+ * 应用名的流光染色，照抄 apkeditor 的 logoBlend：
+ * 先用 ColorDodge / ColorBurn 把底色压亮或压深，再叠一条品牌色，
+ * 字面就会随背景流光滚出彩边。关于页、OOBE 首页、光晕共用这一份。
+ *
+ * 色值实时取 [OobeTuning]：调试页里改完，这几处一起变，方便对着背景调。
+ *
+ * @param onDark 字底是深的还是浅的（深底用提亮的一组，浅底用压暗的一组）
+ */
+internal fun brandNameBlend(onDark: Boolean): List<BlendColorEntry> = OobeTuning.blend(onDark)
+
+/**
+ * 品牌环的几何：圆角方块挖掉 270° 的环，缺口开在右上，环的两个端头各是一个半圆。
+ *
+ * 之前端头是用 `lineTo` 直接沿径向切过去的，断口是两条直边，和圆弧接不上；
+ * 这里改成「外弧 → 端头半圆 → 内弧 → 端头半圆」绕一圈，缺口两侧自然收圆。
+ *
+ * 引导首页 90dp / 25dp 圆角，关于页 100dp / 28dp 圆角，都用同一份几何按比例缩放，
+ * 保证两个页面看到的环是同一个形状。
+ *
+ * @param size 绘制区域（正方形边长）
+ * @param corner 方块圆角半径（px）
+ */
+internal fun brandMarkPath(size: Size, corner: Float): Path {
+    val k = size.width / 90f
+    val cx = size.width / 2f
+    val cy = size.height / 2f
+    val ro = 25f * k              // 外半径
+    val ri = 17f * k              // 内半径
+    val rm = (ro + ri) / 2f       // 环中线
+    val rr = (ro - ri) / 2f       // 端头半径 = 环宽的一半
+
+    val ring = Path().apply {
+        // 外弧：0°（正右）顺时针走 270° 到 270°（正上）
+        arcTo(Rect(cx - ro, cy - ro, cx + ro, cy + ro), 0f, 270f, true)
+        // 上方端头：圆心 (cx, cy-rm)，从 270° 顺时针半圈到 90°，凸向右侧缺口
+        arcTo(Rect(cx - rr, cy - rm - rr, cx + rr, cy - rm + rr), 270f, 180f, false)
+        // 内弧：从正上逆时针 270° 回到正右
+        arcTo(Rect(cx - ri, cy - ri, cx + ri, cy + ri), 270f, -270f, false)
+        // 右端头：圆心 (cx+rm, cy)，从 180° 顺时针半圈到 0°，凸向上方缺口
+        arcTo(Rect(cx + rm - rr, cy - rr, cx + rm + rr, cy + rr), 180f, 180f, false)
+        close()
+    }
+    // 缺口正中那个点也挖掉
+    val ang = -PI / 4
+    val dot = Path().apply {
+        addOval(
+            Rect(
+                Offset(cx + cos(ang).toFloat() * rm, cy + sin(ang).toFloat() * rm),
+                5f * k,
+            ),
+        )
+    }
+    val cut = Path().apply { op(ring, dot, PathOperation.Union) }
+    val body = Path().apply {
+        addRoundRect(RoundRect(0f, 0f, size.width, size.height, CornerRadius(corner)))
+    }
+    return Path().apply { op(body, cut, PathOperation.Difference) }
+}
+
 /** 圆形转场的起点：圆钮的圆心与半径（窗口坐标） */
 private data class RevealSpec(val center: Offset, val radius: Float)
+
+// ---------------- 图标光晕 ----------------
+
+/**
+ * 光晕的扩张曲线
+ *
+ * 原作 glow.glsl 里 `animatedTime = t/(k - t*(k-1))`，k = 1.4：
+ * 起手慢、越扩越快，正好是"从图标里涌出来"的感觉。
+ * k 可以在调试页里调，越大起手越慢。
+ */
+private fun glowEase(k: Float): Easing = Easing { x ->
+    (x / (k - x * (k - 1f))).coerceIn(0f, 1f)
+}
+
+/**
+ * 光晕的颜色
+ *
+ * 原作 `pal(p, vec3(.5), vec3(.5), vec3(1.), vec3(0., .1, .2))`，
+ * 也就是三通道各错开一点相位的余弦调色板；`uCircleColorOffset` 是 0.25。
+ */
+private fun glowColor(g: Float): Color {
+    val t = g + 0.25f
+    fun ch(offset: Float): Float {
+        val v = 0.5f + 0.5f * cos(2f * PI.toFloat() * (t + offset))
+        return v.coerceIn(0f, 1f)
+    }
+    return Color(ch(0f), ch(0.1f), ch(0.2f))
+}
+
+/** 环带的亮度分布：两端为 0、正中为 1（原作 `parabola(x, 3)`） */
+private fun glowFalloff(g: Float): Float {
+    val v = (4f * g * (1f - g)).coerceIn(0f, 1f)
+    return v * v * v
+}
+
+/**
+ * 把一环光画出来：径向渐变两端透明、中间最亮，形状完全由 [colorAt] 给出的 alpha 决定。
+ *
+ * 走采样时这里就是一张遮罩（白色 + falloff 的 alpha），环上的像素由外面的模糊层填。
+ *
+ * 外径、环厚、淡出起点这三项实时读 [OobeTuning]，调试页拖滑条能直接看到变化。
+ */
+private fun DrawScope.drawGlowRing(
+    center: Offset,
+    t: Float,
+    peak: Float,
+    colorAt: (Float) -> Color,
+) {
+    if (t <= 0f || t >= 1f) return
+    val outer = size.height * OobeTuning.outerScale * t
+    if (outer <= 1f) return
+    val thickness = size.height * OobeTuning.thickness
+    val inner = (outer - thickness).coerceAtLeast(0f)
+    val innerNorm = (inner / outer).coerceIn(0f, 0.998f)
+    // 末尾淡出，别让环撞到屏幕边上硬生生消失
+    val fadeStart = OobeTuning.fadeStart.coerceIn(0f, 1f)
+    val fade = if (fadeStart >= 1f) 1f else 1f - ((t - fadeStart) / (1f - fadeStart)).coerceIn(0f, 1f)
+    val a = peak * fade
+
+    val stops = ArrayList<Pair<Float, Color>>(10)
+    stops += 0f to Color.Transparent
+    stops += innerNorm to Color.Transparent
+    for (i in 1 until 8) {
+        val g = i / 8f
+        stops += (innerNorm + (1f - innerNorm) * g) to colorAt(g).copy(alpha = glowFalloff(g) * a)
+    }
+    stops += 1f to Color.Transparent
+
+    drawCircle(
+        brush = Brush.radialGradient(
+            colorStops = stops.toTypedArray(),
+            center = center,
+            radius = outer,
+        ),
+        radius = outer,
+        center = center,
+    )
+}
+
+/**
+ * 图标入场后的光晕：一圈柔光从图标中心往外扩
+ *
+ * 照 HyperCeiler 引导首页的 glow.glsl：外径长到一屏高、环带厚度约 0.45 屏高，
+ * 颜色沿半径走它那条余弦调色板，亮度按抛物线分布，越靠环中间越亮。
+ * 原作从 t=0 就开始扩；这里跟着图标入场动画同一起点，[OobeTuning.delayMs] 只做微调。
+ *
+ * 环本身不自己定色：和图标 / 字标 / 圆钮走同一套 textureBlur + brandNameBlend，
+ * 环上的像素就是"背景流光被模糊、提亮之后"的颜色，跟着背景一起变色。
+ */
+@Composable
+private fun GlowBurst(
+    backdrop: LayerBackdrop?,
+    // 和图标 / 字标 / 圆钮同一份混色
+    nameBlend: List<BlendColorEntry>,
+    center: Offset,
+    animateIn: Boolean,
+) {
+    val progress = remember { Animatable(0f) }
+    LaunchedEffect(Unit) {
+        if (!animateIn) return@LaunchedEffect
+        // 和图标入场动画同时起：延迟按入场开始算，不再等 440 + 700 走完
+        delay(OobeTuning.delayMs.toLong())
+        progress.animateTo(
+            1f,
+            tween(
+                OobeTuning.durationMs.toInt().coerceAtLeast(1),
+                easing = glowEase(OobeTuning.easeK),
+            ),
+        )
+    }
+    // textureBlur 每帧都要跑一遍全屏模糊，环不在的那段时间不必挂着
+    val running by remember {
+        derivedStateOf { progress.value > 0f && progress.value < 1f }
+    }
+    if (!running) return
+
+    val fill = Modifier.fillMaxSize()
+    if (backdrop != null) {
+        Box(
+            fill.then(
+                Modifier.textureBlur(
+                    backdrop = backdrop,
+                    shape = RectangleShape,
+                    blurRadius = OobeTuning.blurRadius,
+                    noiseCoefficient = BlurDefaults.NoiseCoefficient,
+                    colors = BlurDefaults.blurColors(blendColors = nameBlend),
+                    contentBlendMode = BlendMode.DstIn,
+                ),
+            ),
+        ) {
+            // 白色只是 DstIn 的遮罩：环的像素整块换成背景模糊 + 混色
+            Canvas(fill) { drawGlowRing(center, progress.value, 1f) { Color.White } }
+            Canvas(fill) {
+                drawGlowRing(center, progress.value, OobeTuning.highlightAlpha) { Color.White }
+            }
+        }
+    } else {
+        // 老设备拿不到 backdrop：退回原作那条余弦调色板的实色环
+        Canvas(fill) { drawGlowRing(center, progress.value, 0.62f) { glowColor(it) } }
+    }
+}
 
 /**
  * 欢迎页：只有 logo 和圆钮，和原作一样不放任何说明文字
@@ -827,16 +1084,26 @@ private data class RevealSpec(val center: Offset, val radius: Float)
 @Composable
 private fun WelcomeStep(
     backdrop: LayerBackdrop?,
-    markBlend: List<BlendColorEntry>,
+    // 图标 / 字标 / 圆钮共用的流光染色（关于页 HyperMount 同款）
+    nameBlend: List<BlendColorEntry>,
+    // 首页底色是深的还是浅的（反色流光的实际亮度）
+    onDark: Boolean,
+    // 是否播放入场动画（从第二页退回来时不再重播，直接停在终态）
+    animateIn: Boolean,
     onNext: (Offset, Float) -> Unit,
 ) {
     // 照原作 AnimHelper.startPageLogoAnim：图标和字标共用同一套 ——
     // 缩放 0.5 → 0.95（sinOut 440ms）→ 1（cubicOut 700ms），透明度延后 60ms 淡入。
     // 两段是并行跑的，不是先淡入完再放大。
-    val logoScale = remember { Animatable(0.5f) }
-    val logoAlpha = remember { Animatable(0f) }
+    val logoScale = remember { Animatable(if (animateIn) 0.5f else 1f) }
+    val logoAlpha = remember { Animatable(if (animateIn) 0f else 1f) }
+    // 字标和图标不一样：它用的是关于页那套「提亮 + 品牌色」的混合，
+    // 深底上采出来是发亮的彩边字，不会像中性灰那样糊进背景，
+    // 所以深底也照常采样，只有拿不到 backdrop 时才退回实色
+    val sampleText = backdrop != null
 
     LaunchedEffect(Unit) {
+        if (!animateIn) return@LaunchedEffect
         launch {
             logoScale.animateTo(0.95f, tween(440, easing = SinOut))
             logoScale.animateTo(1f, tween(700, easing = CubicOut))
@@ -845,68 +1112,94 @@ private fun WelcomeStep(
         logoAlpha.animateTo(1f, tween(400))
     }
 
-    Column(Modifier.fillMaxSize()) {
-        Spacer(Modifier.weight(30f))
+    // 光晕要从图标中心散出去：记一下图标在窗口里的中心，再减掉自己这一层的位置
+    var layerOrigin by remember { mutableStateOf(Offset.Zero) }
+    var iconCenter by remember { mutableStateOf(Offset.Zero) }
 
-        Box(
-            Modifier.fillMaxWidth().height(90.dp),
-            contentAlignment = Alignment.Center,
-        ) {
-            WelcomeLogo(
-                backdrop = backdrop,
-                markBlend = markBlend,
-                logoScale = logoScale.value,
-                logoAlpha = logoAlpha.value,
-            )
-        }
+    Box(
+        Modifier
+            .fillMaxSize()
+            .onGloballyPositioned { layerOrigin = it.positionInRoot() },
+    ) {
+        // 光晕画在内容下面：它属于背景，不该盖住图标和字
+        GlowBurst(
+            backdrop = backdrop,
+            nameBlend = nameBlend,
+            center = iconCenter - layerOrigin,
+            animateIn = animateIn,
+        )
 
-        Box(Modifier.weight(40f).fillMaxWidth()) {
-            // 字标：原作是一张 500×71 的字形图，按 320×45.28dp 摆，几乎顶满 320dp 宽。
-            // 系统字体没有那个宽度，用 54sp 才把 "HyperMount" 撑到接近 320dp。
-            // 采样成功时底色会被背景模糊整个替换，写白色只是给遮罩一个不透明的底；
-            // 采样不可用（老设备）时退回固定深色。
+        Column(Modifier.fillMaxSize()) {
+            Spacer(Modifier.weight(30f))
+
             Box(
-                Modifier
-                    .align(Alignment.TopCenter)
-                    .padding(top = 20.dp)
-                    .fillMaxWidth()
-                    .graphicsLayer {
-                        scaleX = logoScale.value
-                        scaleY = logoScale.value
-                        alpha = logoAlpha.value
-                    },
+                Modifier.fillMaxWidth().height(90.dp),
                 contentAlignment = Alignment.Center,
             ) {
-                Text(
-                    "HyperMount",
-                    modifier = Modifier.then(
-                        if (backdrop != null) {
-                            Modifier.textureBlur(
-                                backdrop = backdrop,
-                                shape = RoundedCornerShape(16.dp),
-                                blurRadius = 150f,
-                                noiseCoefficient = BlurDefaults.NoiseCoefficient,
-                                colors = BlurDefaults.blurColors(blendColors = markBlend),
-                                contentBlendMode = BlendMode.DstIn,
-                            )
-                        } else {
-                            Modifier
-                        },
-                    ),
-                    fontSize = 54.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = if (backdrop != null) Color.White else OnPaper,
-                    maxLines = 1,
-                    softWrap = false,
+                WelcomeLogo(
+                    backdrop = backdrop,
+                    nameBlend = nameBlend,
+                    onDark = onDark,
+                    logoScale = logoScale.value,
+                    logoAlpha = logoAlpha.value,
+                    onCenter = { iconCenter = it },
                 )
             }
 
-            Box(Modifier.align(Alignment.BottomCenter).padding(bottom = 4.5.dp)) {
-                WelcomeNextButton(backdrop = backdrop, onClick = onNext)
-            }
-        }
+            Box(Modifier.weight(40f).fillMaxWidth()) {
+                // 字标：原作是一张 500×71 的字形图，按 320×45.28dp 摆，几乎顶满 320dp 宽。
+                // 系统字体没有那个宽度，用 54sp 才把 "HyperMount" 撑到接近 320dp。
+                // 采样成功时底色会被背景模糊整个替换，写白色只是给遮罩一个不透明的底；
+                // 采样不可用（老设备）时退回固定深色。
+                Box(
+                    Modifier
+                        .align(Alignment.TopCenter)
+                        .padding(top = 20.dp)
+                        .fillMaxWidth()
+                        .graphicsLayer {
+                            scaleX = logoScale.value
+                            scaleY = logoScale.value
+                            alpha = logoAlpha.value
+                        },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        "HyperMount",
+                        modifier = Modifier.then(
+                            if (sampleText) {
+                                Modifier.textureBlur(
+                                    backdrop = backdrop,
+                                    shape = RoundedCornerShape(16.dp),
+                                    blurRadius = 150f,
+                                    noiseCoefficient = BlurDefaults.NoiseCoefficient,
+                                    colors = BlurDefaults.blurColors(blendColors = nameBlend),
+                                    contentBlendMode = BlendMode.DstIn,
+                                )
+                            } else {
+                                Modifier
+                            },
+                        ),
+                        fontSize = 54.sp,
+                        fontWeight = FontWeight.Bold,
+                        // 采样时白色只是 DstIn 的遮罩底；深底直接白字，浅底没采样就退回深色
+                        color = if (sampleText || onDark) Color.White else OnPaper,
+                        maxLines = 1,
+                        softWrap = false,
+                    )
+                }
 
-        Spacer(Modifier.weight(20f))
+                Box(Modifier.align(Alignment.BottomCenter).padding(bottom = 4.5.dp)) {
+                    WelcomeNextButton(
+                        backdrop = backdrop,
+                        onDark = onDark,
+                        animateIn = animateIn,
+                        onClick = onNext,
+                    )
+                }
+            }
+
+            Spacer(Modifier.weight(20f))
+        }
     }
 }
 

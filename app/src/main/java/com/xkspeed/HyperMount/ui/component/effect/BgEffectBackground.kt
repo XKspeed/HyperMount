@@ -13,6 +13,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import com.xkspeed.HyperMount.ui.util.isInDarkTheme
 import com.xkspeed.HyperMount.ui.util.LocalIsWideScreen
 import kotlinx.coroutines.delay
@@ -29,6 +30,9 @@ fun BgEffectBackground(
     isFullSize: Boolean = false,
     effectBackground: Boolean = true,
     isOs3Effect: Boolean = true,
+    // 把这一页的配色锁成和系统相反：系统深色时铺浅色流光 系统浅色时铺深色流光
+    // 引导首页用它 点圆钮展开第二页时颜色正好翻回来 转场不用另做一套
+    invertTheme: Boolean = false,
     alpha: () -> Float = { 1f },
     content: @Composable (BoxScope.() -> Unit),
 ) {
@@ -40,9 +44,15 @@ fun BgEffectBackground(
     Box(
         modifier = modifier,
     ) {
-        val surface = MiuixTheme.colorScheme.surface
+        val systemDark = isInDarkTheme()
+        val isDarkTheme = systemDark != invertTheme
+        val surface = when {
+            !invertTheme -> MiuixTheme.colorScheme.surface
+            // 反色底：系统深色给近白 系统浅色给近黑 只当流光下面的垫色
+            systemDark -> Color(0xFFF5F5F7)
+            else -> Color(0xFF121216)
+        }
         val deviceType = if (LocalIsWideScreen.current) DeviceType.PAD else DeviceType.PHONE
-        val isDarkTheme = isInDarkTheme()
         val painter = remember(isOs3Effect) { BgEffectPainter(isOs3Effect) }
 
         val preset = remember(deviceType, isDarkTheme, isOs3Effect) {

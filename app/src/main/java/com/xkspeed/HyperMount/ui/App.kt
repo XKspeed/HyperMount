@@ -6,6 +6,9 @@ import android.widget.Toast
 import java.io.File
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.repeatOnLifecycle
 import androidx.navigationevent.NavigationEventInfo
 import androidx.navigationevent.compose.NavigationBackHandler
 import androidx.navigationevent.compose.rememberNavigationEventState
@@ -195,10 +198,10 @@ fun App() {
             UiConfigState.onboarded && !onboardFresh && UiConfigState.needsVolumeRecheck()
         )
     }
-    // 调试页的「重新查看引导」：只影响本轮显示 不改 onboarded 标记
+    // 调试页的「进入 OOBE」：只影响本轮显示 不改 onboarded 标记
     var showOnboarding by remember { mutableStateOf(false) }
     if (!onboarded || volumeStale || showOnboarding) {
-        OnboardingPage(
+        OobePage(
             startAtVolume = volumeStale,
             forceVolume = volumeStale,
             onCancel = if (showOnboarding) ({ showOnboarding = false }) else null,
@@ -558,10 +561,14 @@ fun App() {
             delay(1000)
             // 这一秒里又点过别的值：这次的回读作废 收尾交给最后一次
             if (confSeq[key] != seq) return@launch
-            val fresh = runCatching { Module.readState() }.getOrNull()
-            if (fresh != null) state = fresh
+            // 只回读 settings.conf：写的就是这一个文件 不必再拉一遍完整状态
+            // 读不出来（文件丢了 / root 掉了）才退回全量读
+            val conf = runCatching { Module.readConf() }.getOrNull()?.takeIf { it.isNotEmpty() }
+            val fresh = if (conf != null) state.mergeConf(conf) else null
+            val patched = fresh ?: runCatching { Module.readState() }.getOrNull()
+            if (patched != null) state = patched
             pendingConf = pendingConf - key
-            val base = fresh ?: state
+            val base = patched ?: state
             val expected = base.withConf(key, value).confValue(key)
             val actual = base.confValue(key)
             if (!ok || expected != actual) {
@@ -594,10 +601,16 @@ fun App() {
     }
 
     // 守护运行中定时刷新（PID / 救砖次数会变）
-    LaunchedEffect(state.daemonRunning) {
-        while (state.daemonRunning) {
-            delay(2000)
-            runCatching { refresh() }
+    // 只在界面可见时轮询：退到后台就停。通知那边有前台服务自己刷
+    // 这里一次 refresh 要拉好几个进程 挂在后台纯属白烧电
+    val appLifecycle = LocalLifecycleOwner.current.lifecycle
+    LaunchedEffect(state.daemonRunning, appLifecycle) {
+        if (!state.daemonRunning) return@LaunchedEffect
+        appLifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
+            while (true) {
+                delay(2000)
+                runCatching { refresh() }
+            }
         }
     }
 
@@ -799,17 +812,16 @@ fun App() {
             val out = confWriteLock.withLock { Module.setRescueOff(off) }
             delay(1000)
             if (confSeq["RESCUE_OFF"] != seq) return@launch
-            val fresh = runCatching { Module.readState() }.getOrNull()
-            if (fresh != null) state = fresh
             pendingConf = pendingConf - "RESCUE_OFF"
-            // 命令本身报错才提示；只是没生效的那种 界面已按回读值还原 记日志就够
-            if (!out.contains("OK")) {
+            // 这个值在 AMS 里 不在 settings.conf，ctl 自己会 dumpsys 复核才回 OK，
+            // 所以成功时不必再拉全量状态；只有失败才回读一次 把开关还原成真实值
+            if (out.contains("OK")) {
+                state = state.withConf("RESCUE_OFF", if (off) "1" else "0")
+            } else {
                 toast(context, firstLine(out))
-            } else if (fresh != null && fresh.rescueOff != off) {
-                AppLog.e(
-                    "配置",
-                    "写入失败 已按实际配置显示 RESCUE_OFF 期望=$off 实际=${fresh.rescueOff}",
-                )
+                val fresh = runCatching { Module.readState() }.getOrNull()
+                if (fresh != null) state = fresh
+                AppLog.e("配置", "写入失败 已按实际配置还原 RESCUE_OFF 期望=$off")
             }
         }
     }
@@ -820,17 +832,15 @@ fun App() {
             val out = confWriteLock.withLock { Module.setCrashLimit(limit) }
             delay(1000)
             if (confSeq["CRASH_LIMIT"] != seq) return@launch
-            val fresh = runCatching { Module.readState() }.getOrNull()
-            if (fresh != null) state = fresh
             pendingConf = pendingConf - "CRASH_LIMIT"
-            if (!out.contains("OK")) {
+            // 同上：setCrashLimit 内部已经用 dumpsys 回读确认过 成功就不再拉全量状态
+            if (out.contains("OK")) {
+                state = state.withConf("CRASH_LIMIT", limit.toString())
+            } else {
                 toast(context, firstLine(out))
-            } else if (fresh != null && fresh.crashLimit != limit.toString()) {
-                AppLog.e(
-                    "配置",
-                    "写入失败 已按实际配置显示 CRASH_LIMIT " +
-                        "期望=$limit 实际=${fresh.crashLimit}",
-                )
+                val fresh = runCatching { Module.readState() }.getOrNull()
+                if (fresh != null) state = fresh
+                AppLog.e("配置", "写入失败 已按实际配置还原 CRASH_LIMIT 期望=$limit")
             }
         }
     }
@@ -974,7 +984,7 @@ fun App() {
         entry<Route.Debug> {
             DebugPage(
                 onBack = { backStack.removeLastOrNull() },
-                onOpenOnboarding = { showOnboarding = true },
+                onOpenOobe = { showOnboarding = true },
             )
         }
 

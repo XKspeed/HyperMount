@@ -51,6 +51,8 @@
 #include <time.h>
 #include <unistd.h>
 
+#include "i18n.h"
+
 #define VERSION "1.0"
 #define STAMP_MAX 32
 
@@ -281,19 +283,19 @@ static void reap_children(void) {
 
 /* 够阈值：清计数，交给 actiond 的 --now（抓日志 + fatal 判定 + 音量键） */
 static void fire(int n) {
-    logmsg("%d 秒内界面重启 %d 次，开始抓日志判定", WINDOW, n);
+    logmsg(L("wd_restarts"), i18n_num(WINDOW), i18n_num(n));
     nstamps = 0;
     write_state(0);
 
     /* 上一轮救援还没收尾就不再叠加一个，等它结束 */
     if (action_pid > 0) {
-        logmsg("上一轮救援还在进行，本次不重复触发");
+        logmsg(L("wd_busy"));
         return;
     }
 
     pid_t p = fork();
     if (p < 0) {
-        logmsg("拉起救砖进程失败");
+        logmsg(L("wd_spawn_fail"));
         return;
     }
     if (p == 0) {
@@ -323,12 +325,12 @@ static void on_restart(time_t ts) {
     watched = -1;
 
     if (skip_self_restart(ts)) {
-        logmsg("模块自身替换引起重启 不计入崩溃次数");
+        logmsg(L("wd_self_restart"));
         return;
     }
     count_push(ts);
     write_state(nstamps);
-    logmsg("界面第 %d 次重启（%d 秒内）", nstamps, WINDOW);
+    logmsg(L("wd_restart_n"), i18n_num(nstamps), i18n_num(WINDOW));
     if (nstamps >= COUNT) fire(nstamps);
 }
 
@@ -376,10 +378,10 @@ static void guard_main(void) {
         else miss++;
         last = now;
         if (miss > 5) {
-            logmsg("主进程连续 %d 次没能起来，放弃守护", miss);
+            logmsg(L("wd_give_up"), i18n_num(miss));
             _exit(0);
         }
-        logmsg("主进程失联，第 %d 次拉起", miss);
+        logmsg(L("wd_respawn"), i18n_num(miss));
 
         pid_t c = fork();
         if (c == 0) {
@@ -426,7 +428,7 @@ static void keep_guard(void) {
     g_last = now;
     if (g_miss > 3) {
         g_dead = 1;
-        logmsg("保护进程起不来，暂停互保");
+        logmsg(L("wd_guard_fail"));
         return;
     }
     spawn_guard();
@@ -454,7 +456,7 @@ static void cleanup(void) {
     unlink(p_pid);
     unlink(p_guard);
     write_stopped();
-    logmsg("监测结束");
+    logmsg(L("wd_end"));
 }
 
 static void on_signal(int s) {
@@ -538,7 +540,7 @@ static int supervisor_main(void) {
     /* 防重入：同一时间只跑一个 */
     pid_t old = read_pid_file(p_pid);
     if (old > 0 && old != getpid() && kill(old, 0) == 0) {
-        logmsg("已有守护在跑（%d），本实例退出", (int)old);
+        logmsg(L("wd_already_running"), i18n_num(old));
         return 0;
     }
 
@@ -547,7 +549,7 @@ static int supervisor_main(void) {
 
     /* 已经过了设定时长 直接收摊（guard 重启时可能走到这儿） */
     if (limit_reached()) {
-        logmsg("已到设定时长，不再启动");
+        logmsg(L("wd_duration_reached"));
         write_stopped();
         return 0;
     }
@@ -563,18 +565,18 @@ static int supervisor_main(void) {
     signal(SIGPIPE, SIG_IGN);
 
     write_state(nstamps);
-    logmsg("开始监测 窗口=%ds 阈值=%d次 互保=%ds", WINDOW, COUNT, TICK);
+    logmsg(L("wd_start"), i18n_num(WINDOW), i18n_num(COUNT), i18n_num(TICK));
 
     /* 上一轮的 guard 还活着就接着用它，不要每次被拉起都再养一个 */
     pid_t g = read_pid_file(p_guard);
-    if (g > 0 && kill(g, 0) == 0) logmsg("沿用保护进程 %d", (int)g);
+    if (g > 0 && kill(g, 0) == 0) logmsg(L("wd_reuse_guard"), i18n_num(g));
     else spawn_guard();
 
     time_t last_verify = 0;
     while (!quit) {
         if (access(p_stop, F_OK) == 0) break;
         if (limit_reached()) {
-            logmsg("到达设定时长，结束监测");
+            logmsg(L("wd_timeout"));
             break;
         }
         keep_guard();
@@ -588,7 +590,7 @@ static int supervisor_main(void) {
                     static int warned = 0;
                     if (!warned) {
                         warned = 1;
-                        logmsg("内核不支持 pidfd，退回 PID 对账");
+                        logmsg(L("wd_no_pidfd"));
                     }
                 }
                 watched = p;
@@ -612,8 +614,9 @@ static int supervisor_main(void) {
         }
 
         time_t now = time(NULL);
-        /* 有 pidfd 就 4 秒对一次账；没有就每秒对，全靠它发现 */
-        if (now - last_verify >= (pidfd >= 0 ? 4 : 1)) {
+        /* 有 pidfd 时进程退出本身就是内核事件，这里只是对账（pid 复用、漏事件），
+         * 10 秒一次足够；没有 pidfd 才得每秒扫，全靠它发现 */
+        if (now - last_verify >= (pidfd >= 0 ? 10 : 1)) {
             verify();
             last_verify = now;
         }
@@ -625,6 +628,7 @@ static int supervisor_main(void) {
 
 int main(int argc, char **argv) {
     int is_guard = 0;
+    int want_help = 0;
     const char *opt_dir = NULL;
 
     for (int i = 1; i < argc; i++) {
@@ -638,12 +642,13 @@ int main(int argc, char **argv) {
             printf("watchd %s\n", VERSION);
             return 0;
         } else if (!strcmp(argv[i], "--help") || !strcmp(argv[i], "-h")) {
-            printf("用法: watchd [--dir <模块根目录>] [--guard]\n");
-            return 0;
+            want_help = 1;
         }
     }
 
     resolve_dirs(opt_dir, argv[0]);
+    i18n_init(moddir);
+    if (want_help) { printf("%s", L("wd_usage")); return 0; }
     load_config();
     mkdir(workdir, 0755);
 

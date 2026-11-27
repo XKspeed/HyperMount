@@ -13,11 +13,11 @@ BOOT_WATCH=${BOOT_WATCH:-0}
 
 # 开机日志：运行模式禁用或没选日志目录都不起（log.sh 里还会再判一次）
 if [ "${BOOT_LOG}" = "1" ] && [ "${LOG_MODE:-0}" != "0" ] && [ -n "${LOG_DIR}" ]; then
-    set_desc "等待开机完成"
+    set_desc boot_waiting
     chmod 755 "${CONFIG_DIR}/log.sh" "${MODDIR}/action.sh" 2>/dev/null
     nohup sh "${CONFIG_DIR}/log.sh" >/dev/null 2>&1 &
 else
-    set_desc "未记录开机日志"
+    set_desc boot_no_log
 fi
 
 # 开机启动全局救砖：等开机稳定再起，避开开机那几次正常重启

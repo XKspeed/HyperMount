@@ -41,8 +41,15 @@
 #include <time.h>
 #include <unistd.h>
 
+#include "i18n.h"
+
 #define VERSION "1.0"
-#define POLL_MS 100
+/* 主循环间隔：一次要 read 日志增量 + 读一遍 getevent 管道。
+ * 300ms 足够跟上崩溃判定（阈值是累计 3 条 fatal），音量键最多晚 0.3 秒响应，
+ * 原来 100ms 相当于每秒开 10 次日志文件，纯粹白耗 */
+#define POLL_MS 300
+/* LOG_FLOOD_BYTES 是按 100ms 一轮写的默认值，判定时按实际间隔折算回速率 */
+#define POLL_BASE_MS 100
 
 /* ---------------- 路径 ---------------- */
 
@@ -305,7 +312,7 @@ static pid_t scan_systemui(void) {
 /* ---------------- 时间 ---------------- */
 
 static void fmt_time(char *outbuf, size_t n) {
-    const char *f = cfg.time_fmt[0] ? cfg.time_fmt : "+%Y年%m月%d日%H:%M:%S";
+    const char *f = cfg.time_fmt[0] ? cfg.time_fmt : L("time_default_fmt");
     if (*f == '+') f++;
     time_t t = time(NULL);
     struct tm tm;
@@ -320,7 +327,7 @@ static long parse_long(const char *key, const char *val, int *ok) {
     errno = 0;
     long v = strtol(val, &end, 10);
     if (end == val || *end != 0 || v < 0 || errno != 0) {
-        out("错误：%s 必须为非负整数（当前: '%s'）", key, val);
+        out(L("cfg_bad_int"), key, val);
         *ok = 0;
         return 0;
     }
@@ -461,16 +468,20 @@ static void set_desc(const char *status, long kb, const char *extra) {
     char ts[256];
     fmt_time(ts, sizeof ts);
     char desc[1024];
+    // 格式串用 %s：shell 端的 set_desc 也要用同一条，而 POSIX printf 不认 %ld
+    char kbs[32];
+    kbs[0] = 0;
+    if (kb >= 0) snprintf(kbs, sizeof kbs, "%ld", kb);
     if (extra && *extra) {
         if (kb >= 0)
-            snprintf(desc, sizeof desc, "%s | 状态: %s | %s | 日志: %ldKB", ts, status, extra, kb);
+            snprintf(desc, sizeof desc, L("desc_ts_state_extra_kb"), ts, status, extra, kbs);
         else
-            snprintf(desc, sizeof desc, "%s | 状态: %s | %s", ts, status, extra);
+            snprintf(desc, sizeof desc, L("desc_ts_state_extra"), ts, status, extra);
     } else {
         if (kb >= 0)
-            snprintf(desc, sizeof desc, "%s | 状态: %s | 日志: %ldKB", ts, status, kb);
+            snprintf(desc, sizeof desc, L("desc_ts_state_kb"), ts, status, kbs);
         else
-            snprintf(desc, sizeof desc, "%s | 状态: %s", ts, status);
+            snprintf(desc, sizeof desc, L("desc_ts_state"), ts, status);
     }
     update_desc(desc);
 }
@@ -848,7 +859,7 @@ static int verify_key(const char *name, const char *want, const char *devs,
                 if (strstr(tmp, want)) found = 1;
                 if (!warned && other && strstr(tmp, other)) {
                     warned = 1;
-                    out("  按到的是另一个键，请按【%s】", name);
+                    out(L("vol_wrong_key"), name);
                 }
             }
         }
@@ -884,7 +895,7 @@ static int verify_key(const char *name, const char *want, const char *devs,
 /* ---------------- 覆盖待测 apk ---------------- */
 
 static int cover_test_apk(void) {
-    out("开始替换界面…");
+    out(L("replace_begin"));
     char tmp[PATH_MAX];
     snprintf(tmp, sizeof tmp, "/data/adb/tmp/_test_%d.apk", (int)getpid());
     mkdir_p("/data/adb/tmp");
@@ -896,42 +907,42 @@ static int cover_test_apk(void) {
     struct stat sm, sa;
     if (stat(aim_apk, &sa) == 0 && stat(src, &sm) == 0) {
         if (sm.st_ino != sa.st_ino) {
-            out("挂载已脱离（挂载点 %lu ≠ 源 %lu），重新绑定",
-                (unsigned long)sa.st_ino, (unsigned long)sm.st_ino);
+            out(L("replace_rebind"),
+                i18n_num((long long)sa.st_ino), i18n_num((long long)sm.st_ino));
             umount2(aim_apk, 0);
             if (mount(src, aim_apk, NULL, MS_BIND, NULL) == 0) {
-                out("重新绑定完成");
+                out(L("replace_rebind_done"));
             } else {
-                out("错误：重新绑定失败，界面无法替换");
+                out(L("replace_rebind_fail"));
                 return -1;
             }
         }
     }
 
     if (copy_into(test_apk, tmp) != 0) {
-        out("错误：复制到临时目录失败");
+        out(L("replace_copy_fail"));
         return -1;
     }
 
     long long nsz = file_size(tmp);
     long long osz = file_size(aim_apk);
-    out("大小: %lld -> %lld", osz, nsz);
+    out(L("replace_size"), i18n_num(osz), i18n_num(nsz));
 
     /* 一律走 truncate + 写：不换 inode，bind 挂载点才不会跟着失联。
      * sh 版分 dd / cat 两种，C 里 open(O_TRUNC) 两者等价。 */
     if (copy_into(tmp, aim_apk) != 0) {
         unlink(tmp);
-        out("错误：写入界面失败");
+        out(L("replace_write_fail"));
         return -1;
     }
     long long actual = file_size(aim_apk);
     unlink(tmp);
     if (actual != nsz) {
-        out("错误：覆盖后大小不符（期望 %lld，实际 %lld）", nsz, actual);
+        out(L("replace_size_mismatch"), i18n_num(nsz), i18n_num(actual));
         return -1;
     }
     chmod(aim_apk, 0644);
-    out("替换完成，等待界面重启");
+    out(L("replace_done_wait"));
     return 0;
 }
 
@@ -1089,7 +1100,7 @@ static void mark_self_restart(void) {
 
 static void usage(void) {
     printf("actiond %s\n", VERSION);
-    printf("用法: actiond [--dir <模块根>] [--test <apk>|--now]\n");
+    printf("%s", L("act_usage"));
     printf("      actiond --version\n");
 }
 
@@ -1113,6 +1124,7 @@ int main(int argc, char **argv) {
     setvbuf(stdout, NULL, _IOLBF, 0);
 
     char dirarg[PATH_MAX] = "";
+    int want_help = 0;
     for (int i = 1; i < argc; i++) {
         if (!strcmp(argv[i], "--version")) {
             printf("actiond %s\n", VERSION);
@@ -1126,8 +1138,7 @@ int main(int argc, char **argv) {
         } else if (!strcmp(argv[i], "--now")) {
             now_mode = 1;
         } else if (!strcmp(argv[i], "-h") || !strcmp(argv[i], "--help")) {
-            usage();
-            return 0;
+            want_help = 1;
         }
     }
 
@@ -1148,8 +1159,14 @@ int main(int argc, char **argv) {
     join(aim_apk, sizeof aim_apk, moddir, "system_ext/priv-app/MiuiSystemUI/MiuiSystemUI.apk");
     join(p_pidfile, sizeof p_pidfile, cfgdir, now_mode ? "action-now.pid" : "action.pid");
 
+    // 文案表要在任何 out() 之前就绪：后面的输出全走 L()
+    i18n_init(moddir);
+
+    // --help 的文案在语言表里，得等 init 之后才能打
+    if (want_help) { usage(); return 0; }
+
     if (test_apk[0] && access(test_apk, R_OK) != 0) {
-        out("错误：待测文件不存在: %s", test_apk);
+        out(L("err_test_missing"), test_apk);
         return 1;
     }
 
@@ -1157,7 +1174,7 @@ int main(int argc, char **argv) {
     if (!now_mode) {
         long old = read_num(p_pidfile);
         if (old > 0 && old != (long)getpid() && kill((pid_t)old, 0) == 0) {
-            out("检测到已有救砖进程 (PID %ld)，正在终止...", old);
+            out(L("kill_old"), i18n_num(old));
             kill((pid_t)old, SIGTERM);
             usleep(500000);
             kill((pid_t)old, SIGKILL);
@@ -1194,10 +1211,10 @@ int main(int argc, char **argv) {
             }
         }
         if (missing[0]) {
-            out("错误：模块文件不完整，缺少以下项：");
+            out(L("err_incomplete"));
             usleep(1000000); /* 部分 root 管理器不延迟看不到输出 */
-            out("  配置项:%s", missing);
-            out("  → 补全 %s 后重新运行", p_conf);
+            out(L("err_incomplete_items"), missing);
+            out(L("err_incomplete_hint"), p_conf);
             cleanup();
             return 1;
         }
@@ -1210,49 +1227,49 @@ int main(int argc, char **argv) {
     /* 首次运行先校验音量键设备（和 sh 版一样在校验 LOG_MODE 之前） */
     if (!cfg.assess) {
         out("%s", cfg.line);
-        out("首次运行，校验音量键设备");
+        out(L("vol_first_run"));
         out("%s", cfg.line);
 
         char up[1024], down[1024];
         parse_input_devs(up, sizeof up, down, sizeof down);
-        out("音量+ 识别设备: %s", up[0] ? up : "未找到");
-        out("音量- 识别设备: %s", down[0] ? down : "未找到");
+        out(L("vol_up_dev"), up[0] ? up : L("common_not_found"));
+        out(L("vol_down_dev"), down[0] ? down : L("common_not_found"));
         out("%s", cfg.line);
 
         int fail = 0;
         if (up[0]) {
-            out("请按一次【音量上】");
-            if (verify_key("音量上", "KEY_VOLUMEUP", up, "KEY_VOLUMEDOWN"))
-                out("音量+ 校验成功");
-            else { out("音量+ 未检测到"); fail = 1; }
+            out(L("vol_press_up"));
+            if (verify_key(L("key_vol_up_name"), "KEY_VOLUMEUP", up, "KEY_VOLUMEDOWN"))
+                out(L("vol_up_ok"));
+            else { out(L("vol_up_miss")); fail = 1; }
         } else {
-            out("未识别到音量+设备");
+            out(L("vol_up_nodev"));
             fail = 1;
         }
         if (down[0]) {
-            out("请按一次【音量下】");
-            if (verify_key("音量下", "KEY_VOLUMEDOWN", down, "KEY_VOLUMEUP"))
-                out("音量- 校验成功");
-            else { out("音量- 未检测到"); fail = 1; }
+            out(L("vol_press_down"));
+            if (verify_key(L("key_vol_down_name"), "KEY_VOLUMEDOWN", down, "KEY_VOLUMEUP"))
+                out(L("vol_down_ok"));
+            else { out(L("vol_down_miss")); fail = 1; }
         } else {
-            out("未识别到音量-设备");
+            out(L("vol_down_nodev"));
             fail = 1;
         }
 
         if (fail) {
             out("%s", cfg.line);
-            out("音量键设备不可用，降级为仅日志模式");
+            out(L("vol_degrade"));
             out("%s", cfg.line);
             cfg.log_mode = 1;
         } else {
             set_conf("VOLUME_CHECK_ASSESS", "1", p_conf);
-            out("音量键校验完成");
+            out(L("vol_done"));
             usleep(1000000);
         }
     }
 
     if (cfg.log_mode == 0) {
-        out("日志已禁用");
+        out(L("log_disabled"));
         usleep(1000000);
         cleanup();
         return 0;
@@ -1260,8 +1277,8 @@ int main(int argc, char **argv) {
 
     if (!cfg.log_dir[0]) {
         out("%s", cfg.line);
-        out("未设置日志目录，无法运行");
-        out("请先在 App 的「设置 → 日志目录」里选一个目录，再重新运行");
+        out(L("err_no_logdir"));
+        out(L("err_no_logdir_hint"));
         out("%s", cfg.line);
         usleep(3000000);
         cleanup();
@@ -1276,30 +1293,30 @@ int main(int argc, char **argv) {
     }
 
     out("%s", cfg.line);
-    out("救砖模块启动");
+    out(L("start_banner"));
     out("%s", cfg.line);
     usleep(1000000);
 
     switch (cfg.log_mode) {
-        case 1: out("模式: 仅记录日志"); break;
-        case 2: out("模式: 日志 + 救砖"); break;
+        case 1: out(L("mode_log_only")); break;
+        case 2: out(L("mode_log_rescue")); break;
         default:
-            if (cfg.log_mode >= 3) out("模式: 日志 + 自动救砖");
+            if (cfg.log_mode >= 3) out(L("mode_log_auto"));
             break;
     }
     out("%s", cfg.line);
-    debug("救砖模块启动");
+    debug(L("start_banner"));
 
     if (access(rescue_apk, R_OK) != 0) {
-        out("未找到 MiuiSystemUI.apk");
-        out("请将救砖文件放入模块根目录");
-        debug("救砖文件不存在");
+        out(L("err_no_apk"));
+        out(L("err_no_apk_hint"));
+        debug(L("dbg_apk_missing"));
         cleanup();
         return 1;
     }
-    debug("救砖文件存在");
-    out("累计救砖: %ld次", cfg.protect);
-    debug("救砖: %ld", cfg.protect);
+    debug(L("dbg_apk_ok"));
+    out(L("protect_count"), i18n_num(cfg.protect));
+    debug(L("dbg_protect"), i18n_num(cfg.protect));
 
     /* 清过期日志 */
     {
@@ -1321,43 +1338,46 @@ int main(int argc, char **argv) {
             }
             closedir(d);
         }
-        if (cnt > 0) out("清理 %ld 个 %ld 天前的日志", cnt, cfg.retention);
+        if (cnt > 0) out(L("clean_logs"), i18n_num(cnt), i18n_num(cfg.retention));
     }
 
     pid_t old_pid = scan_systemui();
-    if (old_pid > 0) debug("基线 PID: %d", (int)old_pid);
-    else debug("基线 PID: 未运行");
+    if (old_pid > 0) debug(L("dbg_base_pid"), i18n_num(old_pid));
+    else debug(L("dbg_base_pid_none"));
 
     int anr_mode = 0;
 
     if (now_mode) {
         out("%s", cfg.line);
-        out("常驻救砖：检测到界面重启，开始判定");
+        out(L("watch_restart_detect"));
         out("%s", cfg.line);
     } else {
         /* 全局守护在跑：这一轮只负责把界面换进去，判定交给它 */
         if (test_apk[0] && watch_running()) {
             out("%s", cfg.line);
-            out("常驻救砖已开启：本轮只替换界面");
+            out(L("watch_on_replace_only"));
             out("%s", cfg.line);
             if (cover_test_apk() == 0) {
                 mark_self_restart();
                 out("%s", cfg.line);
-                out("替换完成，后续交给全局守护");
-                out("界面重启后由守护继续观察，达到阈值自动救砖");
-                debug("测试：仅替换，交给守护");
+                out(L("watch_done_handoff"));
+                // 交接标记：ctl / webctl.sh 靠它判断「这一轮是交给守护了」，
+                // 不能用文案做判定 —— 文案会跟着语言变
+                out("##HANDOFF");
+                out(L("watch_done_hint"));
+                debug(L("dbg_test_replace_only"));
                 cleanup();
                 return 0;
             }
-            out("替换失败，本轮未交给守护");
-            debug("测试：替换失败");
+            out(L("watch_replace_fail"));
+            debug(L("dbg_test_replace_fail"));
             cleanup();
             return 1;
         }
 
         out("%s", cfg.line);
-        if (test_apk[0]) out("测试模式：立即替换界面...");
-        else out("等待替换界面（%ld秒超时）...", cfg.key_timeout);
+        if (test_apk[0]) out(L("test_mode_replace"));
+        else out(L("wait_replace"), i18n_num(cfg.key_timeout));
         out("%s", cfg.line);
 
         pid_t cover_pid = 0;
@@ -1381,21 +1401,21 @@ int main(int argc, char **argv) {
             sleep(1);
             pid_t np = scan_systemui();
             if (np > 0 && np != old_pid) {
-                debug("PID变化: %d -> %d | %ld秒", old_pid > 0 ? (int)old_pid : 0, (int)np, w + 1);
+                debug(L("dbg_pid_change"), i18n_num(old_pid > 0 ? old_pid : 0), i18n_num(np), i18n_num(w + 1));
                 changed = 1;
                 break;
             }
             if (anr_seen(since)) {
-                debug("检测到 ANR（%ld秒），界面判定为已崩", w + 1);
+                debug(L("anr_detected"), i18n_num(w + 1));
                 anr_mode = 1;
                 changed = 1;
                 break;
             }
         }
         if (!changed) {
-            debug("等待替换超时（%ld秒），退出", cfg.key_timeout);
-            out("等待替换界面超时（%ld秒），未检测到 SystemUI 重启", cfg.key_timeout);
-            out("FAIL 界面没有重启：排查日志目录，或手动结束一次系统界面进程后重试");
+            debug(L("dbg_wait_timeout"), i18n_num(cfg.key_timeout));
+            out(L("wait_timeout"), i18n_num(cfg.key_timeout));
+            out(L("wait_timeout_fail"));
             if (cover_pid > 0) { kill(cover_pid, SIGTERM); reap(cover_pid); }
             cleanup();
             return 1;
@@ -1409,19 +1429,19 @@ int main(int argc, char **argv) {
         if (fd >= 0) close(fd);
     }
     if (now_mode || anr_mode) {
-        debug("保留现有 crash 缓冲");
+        debug(L("dbg_keep_crash"));
     } else {
         clear_crash();
     }
     log_pid = start_logcat();
-    debug("logcat启动 PID: %d", (int)log_pid);
+    debug(L("dbg_logcat_pid"), i18n_num(log_pid));
 
     if (cfg.log_mode == 1) {
         sleep((unsigned)cfg.key_timeout);
         long kb = (long)(file_size(logfile) / 1024);
         stop_logcat();
-        set_desc("仅日志", kb, NULL);
-        debug("仅日志退出");
+        set_desc(L("state_log_only"), kb, NULL);
+        debug(L("dbg_log_only_exit"));
         cleanup();
         return 0;
     }
@@ -1430,13 +1450,13 @@ int main(int argc, char **argv) {
     time_t deadline = 0;
     if (now_mode) {
         deadline = time(NULL) + cfg.key_timeout;
-        debug("常驻救砖：观察窗口 %lds，阈值 %ld", cfg.key_timeout, cfg.threshold);
+        debug(L("dbg_watch_window"), i18n_num(cfg.key_timeout), i18n_num(cfg.threshold));
     }
 
     char up[1024], down[1024];
     parse_input_devs(up, sizeof up, down, sizeof down);
-    debug("音量+设备: %s", up[0] ? up : "未找到");
-    debug("音量-设备: %s", down[0] ? down : "未找到");
+    debug(L("dbg_vol_up_dev"), up[0] ? up : L("common_not_found"));
+    debug(L("dbg_vol_down_dev"), down[0] ? down : L("common_not_found"));
 
     {
         char list[1024];
@@ -1444,14 +1464,14 @@ int main(int argc, char **argv) {
         char *tok = strtok(list, " ");
         while (tok) {
             ge_add(tok, 1);
-            debug("音量+监听: %s", tok);
+            debug(L("dbg_vol_up_listen"), tok);
             tok = strtok(NULL, " ");
         }
         snprintf(list, sizeof list, "%s", down);
         tok = strtok(list, " ");
         while (tok) {
             ge_add(tok, 2);
-            debug("音量-监听: %s", tok);
+            debug(L("dbg_vol_down_listen"), tok);
             tok = strtok(NULL, " ");
         }
     }
@@ -1461,32 +1481,34 @@ int main(int argc, char **argv) {
 
     while (!want_exit) {
         if (deadline > 0 && time(NULL) >= deadline) {
-            debug("常驻观察窗口 %ld 秒结束，未判定到崩溃", cfg.key_timeout);
+            debug(L("dbg_watch_end"), i18n_num(cfg.key_timeout));
             stop_logcat();
-            finish("常驻窗口结束", 0);
+            finish(L("state_watch_end"), 0);
         }
 
         long long now_size = scan_log();
 
         if (cfg.log_mode >= 3) {
             if (fatal_cnt > 0 && fatal_cnt != last_cnt) {
-                debug("崩溃计数: %ld/%ld", fatal_cnt, cfg.threshold);
+                debug(L("dbg_crash_count"), i18n_num(fatal_cnt), i18n_num(cfg.threshold));
                 last_cnt = fatal_cnt;
             }
             if (fatal_cnt >= cfg.threshold) {
                 key_result = "AUTO_CRASH";
-                debug("累计 fatal %ld 次，自动触发救砖", fatal_cnt);
+                debug(L("dbg_auto_rescue"), i18n_num(fatal_cnt));
                 break;
             }
 
             /* 黑屏卡死：PID 不变但日志疯长 */
             long long growth = now_size - last_size;
-            if (growth > cfg.flood) {
+            /* 阈值按 100ms 一轮定义 轮询变慢后每轮覆盖的时间更长 折回来才不会误判 */
+            long long flood_limit = cfg.flood * POLL_MS / POLL_BASE_MS;
+            if (growth > flood_limit) {
                 flood_hits++;
-                debug("日志疯长第 %ld 次: +%lld 字节", flood_hits, growth);
+                debug(L("dbg_flood"), i18n_num(flood_hits), i18n_num(growth));
                 if (flood_hits >= 2) {
                     key_result = "LOG_FLOOD";
-                    debug("判定黑屏卡死（日志疯长），触发救砖");
+                    debug(L("dbg_flood_rescue"));
                     break;
                 }
             } else {
@@ -1498,14 +1520,14 @@ int main(int argc, char **argv) {
             if (now_size > 1048576 && total_lines > 0 && stack_lines > 5000) {
                 if (stack_lines * 100 / total_lines > 80) {
                     key_result = "STACK_OVERFLOW";
-                    debug("判定 StackOverflow（堆栈 %ld/%ld 行），触发救砖", stack_lines, total_lines);
+                    debug(L("dbg_stack_rescue"), i18n_num(stack_lines), i18n_num(total_lines));
                     break;
                 }
             }
 
             /* 日志超上限：重启 logcat，防止写爆存储 */
             if (now_size > cfg.max_bytes) {
-                debug("日志超过上限 %lld，重启 logcat", cfg.max_bytes);
+                debug(L("dbg_log_rotate"), i18n_num(cfg.max_bytes));
                 stop_logcat();
                 int fd = open(logfile, O_WRONLY | O_CREAT | O_TRUNC, 0644);
                 if (fd >= 0) close(fd);
@@ -1541,22 +1563,22 @@ int main(int argc, char **argv) {
         do_rescue = 1;
         usleep(300000);
     } else if (!strcmp(key_result, "LOG_FLOOD")) {
-        out("检测到界面卡死（日志疯长）");
-        debug("日志疯长救砖");
+        out(L("hit_flood"));
+        debug(L("dbg_flood_do"));
         do_rescue = 1;
         usleep(300000);
     } else if (!strcmp(key_result, "STACK_OVERFLOW")) {
-        out("检测到堆栈溢出（界面卡死）");
-        debug("堆栈溢出救砖");
+        out(L("hit_stack"));
+        debug(L("dbg_stack_do"));
         do_rescue = 1;
         usleep(300000);
     } else if (!strcmp(key_result, "KEY_VOLUMEDOWN")) {
-        out("已取消");
-        debug("音量-");
+        out(L("state_cancelled"));
+        debug(L("dbg_vol_down_key"));
         do_rescue = 0;
         usleep(300000);
     } else if (!strcmp(key_result, "KEY_VOLUMEUP")) {
-        debug("音量+");
+        debug(L("dbg_vol_up_key"));
         do_rescue = 1;
         usleep(300000);
     }
@@ -1564,14 +1586,14 @@ int main(int argc, char **argv) {
     stop_logcat();
 
     if (!do_rescue) {
-        debug("取消退出");
-        finish("已取消", 0);
+        debug(L("dbg_cancel_exit"));
+        finish(L("state_cancelled"), 0);
     }
 
-    debug("执行替换");
+    debug(L("dbg_do_replace"));
     if (access(rescue_apk, R_OK) != 0) {
-        debug("文件丢失");
-        finish("文件丢失", 1);
+        debug(L("state_file_lost"));
+        finish(L("state_file_lost"), 1);
     }
 
     {
@@ -1590,37 +1612,38 @@ int main(int argc, char **argv) {
     if (copy_into(rescue_apk, aim_apk) == 0) {
         chmod(aim_apk, 0644);
         unlink(bak);
-        out("替换成功");
-        debug("替换完成");
+        out(L("state_ok"));
+        debug(L("dbg_replace_done"));
         if (watch_running()) mark_self_restart();
         long nb = cfg.protect + 1;
         char val[32];
         snprintf(val, sizeof val, "%ld", nb);
         set_conf("PROTECT_COUNT", val, p_conf);
-        out("累计救砖: %ld次", nb);
-        debug("救砖次数: %ld", nb);
+        out(L("protect_count"), i18n_num(nb));
+        debug(L("dbg_rescue_times"), i18n_num(nb));
         {
-            char extra[64];
-            snprintf(extra, sizeof extra, "次数: %ld", nb);
+            char extra[64], nbs[32];
+            snprintf(nbs, sizeof nbs, "%ld", nb);
+            snprintf(extra, sizeof extra, L("desc_extra_count"), nbs);
             long kb = (long)(file_size(logfile) / 1024);
-            set_desc("已救砖", kb, extra);
+            set_desc(L("state_rescued"), kb, extra);
         }
     } else {
         if (access(bak, F_OK) == 0) {
             copy_into(bak, aim_apk);
             chmod(aim_apk, 0644);
-            debug("已回滚备份");
+            debug(L("dbg_rollback"));
         }
         unlink(bak);
-        out("替换失败");
-        debug("替换失败");
+        out(L("state_fail"));
+        debug(L("state_fail"));
         {
             long kb = (long)(file_size(logfile) / 1024);
-            set_desc("替换失败", kb, NULL);
+            set_desc(L("state_fail"), kb, NULL);
         }
     }
 
-    debug("脚本结束");
+    debug(L("dbg_end"));
     cleanup();
     return 0;
 }

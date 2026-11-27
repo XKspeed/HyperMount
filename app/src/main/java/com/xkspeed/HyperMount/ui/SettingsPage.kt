@@ -27,6 +27,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.rememberVectorPainter
@@ -35,6 +36,7 @@ import androidx.compose.ui.unit.dp
 import com.xkspeed.HyperMount.core.AppLog
 import com.xkspeed.HyperMount.core.BuildVariant
 import com.xkspeed.HyperMount.core.LogLevel
+import com.xkspeed.HyperMount.core.Module
 import com.xkspeed.HyperMount.core.ModuleState
 import com.xkspeed.HyperMount.core.UpdateChannel
 import com.xkspeed.HyperMount.i18n.AppLang
@@ -55,6 +57,7 @@ import top.yukonga.miuix.kmp.preference.SwitchPreference
 import com.xkspeed.HyperMount.ui.components.LiquidSelectHost
 import com.xkspeed.HyperMount.ui.components.LiquidSelectPreference
 import com.xkspeed.HyperMount.ui.components.rememberLiquidSelectState
+import kotlinx.coroutines.launch
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.window.WindowDialog
 
@@ -118,6 +121,7 @@ fun SettingsPage(
     }
 
     val select = rememberLiquidSelectState()
+    val scope = rememberCoroutineScope()
 
     // 拦截提示把用户带到这里时：滚到「日志目录」再点亮
     // large-title(0) + 「运行」标题 + 日志目录卡
@@ -158,7 +162,15 @@ fun SettingsPage(
                                 "English",
                             ),
                             selectedIndex = AppLang.pref,
-                            onSelectedIndexChange = { AppLang.setPref(it, context) },
+                            onSelectedIndexChange = { idx ->
+                                AppLang.setPref(idx, context)
+                                // 模块端（安装提示 / 操作台 / module.prop 描述）也按这个值判断中英文：
+                                // 0 跟随系统 1 简体中文 2 English。没 root 写不进去，
+                                // 模块会退回系统语言，不影响 App 自己
+                                scope.launch {
+                                    runCatching { Module.setConf("UI_LANG", idx.toString()) }
+                                }
+                            },
                             state = select,
                         )
                     }
