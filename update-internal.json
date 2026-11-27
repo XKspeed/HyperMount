@@ -1,14 +1,14 @@
 {
-  "versionCode": 32,
-  "versionName": "1.5.0-hotfix1-debug",
-  "buildTime": 1795752845907,
-  "buildId": "34",
+  "versionCode": 33,
+  "versionName": "1.5.1-debug",
+  "buildTime": 1795797040709,
+  "buildId": "35",
   "url": "https://github.com/XKspeed/HyperMount/releases/download/internal/HyperMount-arm64-internal.apk",
-  "changelog": "新增模块文案跟随语言切换\n改进应用UI\n降低守护运行时的后台耗电",
+  "changelog": "新增模块文案跟随语言切换\n新增引导页权限与基础设置\n改进应用UI\n降低守护运行时的后台耗电\n统一更新包与发布资产命名",
   "moduleVersionCode": 18,
-  "moduleVersionName": "1.6.0-hotfix1-debug.34",
+  "moduleVersionName": "1.6.1-debug.35",
   "moduleUrl": "https://github.com/XKspeed/HyperMount/releases/download/internal/module-internal.zip",
-  "moduleChangelog": "新增模块中英文切换\n优化模块卡片时间格式\n减少常驻守护的资源占用",
-  "sha256": "37a46c2b1ea8b62ee6404af806f4a44169bd6d2a2633f0a6c401e6ac866adba0",
-  "moduleSha256": "01cbe0cb4f9e5a4f4022f7bb9c77f91ba98c063a2772867a53acfe95c28bf464"
+  "moduleChangelog": "新增模块中英文切换\n修复升级后模块文案变成字段名\n优化模块卡片时间格式\n减少常驻守护的资源占用",
+  "sha256": "5356ebe8b1beec0e253030582d27e8dbc89bab047e2d21eb85aa83c476c8a4c6",
+  "moduleSha256": "e9b7f63812b77cbf5cd90377beb5a09120c7bc4a17a1541e6e7968b6be2e96a1"
 }
