@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  引导页权限项的「已通过」标记。
+
+  形状取自 HyperCeiler provision 的 provision_picker_btn_radio（64×64 视口，
+  一笔勾完的圆头对勾），这里只留勾本身、去掉它自带的蓝色，
+  上色交给调用方 tint —— 深浅主题下都要跟着主色走。
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="64.0"
+    android:viewportHeight="64.0">
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:fillType="evenOdd"
+        android:pathData="M50.8171,22.1514C52.0496,20.6624 51.8417,18.4561 50.3527,17.2235C48.8636,15.991 46.6573,16.1989 45.4247,17.6879L26.9535,40.0031L17.4007,30.4502C16.0338,29.0833 13.8177,29.0833 12.4509,30.4502C11.0841,31.817 11.0841,34.0331 12.4509,35.3999L24.7077,47.6567C25.7244,48.6734 27.2109,48.9338 28.4683,48.4381C29.016,48.2302 29.519,47.8817 29.9192,47.3982L50.8171,22.1514Z" />
+</vector>

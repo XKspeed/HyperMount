@@ -1,14 +1,10 @@
 package com.xkspeed.HyperMount
 
-import android.Manifest
-import android.content.pm.PackageManager
 import android.content.Intent
-import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.imePadding
@@ -29,9 +25,6 @@ import kotlinx.coroutines.flow.SharedFlow
 
 class MainActivity : ComponentActivity() {
 
-    private val notifPermission =
-        registerForActivityResult(ActivityResultContracts.RequestPermission()) { /* 拒绝也不影响守护 */ }
-
     /** 通知点进来要看日志：Activity 已经在跑时不重建 走这里把请求递进去 */
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
@@ -46,13 +39,8 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
 
-        // 前台服务通知需要权限（Android 13+）；不给也能跑 只是通知看不到
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
-            checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) !=
-            PackageManager.PERMISSION_GRANTED
-        ) {
-            notifPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
-        }
+        // 通知权限不在这里要了：搬到引导页的「权限设置」里，
+        // 那边有状态可看、被拒了还能再点一次进系统设置
 
         // 先恢复设置 再进 setContent 否则重启永远回到"跟随系统"
         ThemeState.load(this)

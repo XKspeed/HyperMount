@@ -183,7 +183,7 @@ fun App() {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
-    // 首次启动先走引导：欢迎 / 须知 / 环境 / 音量键 / 完成
+    // 首次启动先走引导：欢迎 / 权限 / 协议 / 基础设置 / 音量键 / 完毕
     // 校验收在这里做 装完模块第一次打开就能确认按键读得到
     // 引导页自己带版本号（ONBOARD_VERSION）：内容改了就把版本 +1 老用户重开也会进来
     val onboardFresh = UiConfigState.onboardVersion != ONBOARD_VERSION
