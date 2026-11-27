@@ -18,6 +18,7 @@ import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.Easing
@@ -45,6 +46,7 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
@@ -53,12 +55,15 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -89,6 +94,7 @@ import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.PathOperation
 import androidx.compose.ui.graphics.StrokeCap
@@ -108,6 +114,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.state.ToggleableState
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.app.NotificationManagerCompat
@@ -119,7 +126,11 @@ import com.xkspeed.HyperMount.core.Root
 import com.xkspeed.HyperMount.i18n.AppLang
 import com.xkspeed.HyperMount.i18n.t
 import com.xkspeed.HyperMount.ui.component.effect.BgEffectBackground
-import com.xkspeed.HyperMount.ui.components.BackIcon
+import com.xkspeed.HyperMount.ui.component.glass.LiquidTopBarButton
+// 二级界面那颗玻璃返回键用的是 kyant backdrop（和 miuix 的 LayerBackdrop 不是一套），
+// 两边的 layerBackdrop 同名，这里起别名免得跟上面的 miuix 版本撞
+import com.kyant.backdrop.backdrops.layerBackdrop as kyantLayerBackdrop
+import com.kyant.backdrop.backdrops.rememberLayerBackdrop as kyantRememberLayerBackdrop
 import com.xkspeed.HyperMount.ui.components.LiquidSelectHost
 import com.xkspeed.HyperMount.ui.components.LiquidSelectPreference
 import com.xkspeed.HyperMount.ui.components.rememberLiquidSelectState
@@ -204,6 +215,9 @@ private val CubicOut = CubicBezierEasing(0f, 0f, 0.58f, 1f)
 
 /** sinOut：原作 Folme 的 FolmeEase.sinOut，sin(t · π/2) */
 private val SinOut = Easing { sin(it * PI / 2).toFloat() }
+
+/** quartOut：原作 Folme 的 FolmeEase.quartOut，1 − (1 − t)⁴ */
+private val QuartOut = Easing { x -> 1f - (1f - x) * (1f - x) * (1f - x) * (1f - x) }
 
 /**
  * 首次启动引导
@@ -412,6 +426,8 @@ fun OobePage(
     var introDone by remember { mutableStateOf(false) }
     // 圆形转场进行中：这半秒里别让第二次点击/返回插进来
     var transitionBusy by remember { mutableStateOf(false) }
+    // 这一次圆形转场是「完成页 → 主页」：遮罩里不画下一页，只留底色
+    var finishing by remember { mutableStateOf(false) }
 
     fun startReveal(c: Offset, r: Float) {
         if (transitionBusy) return
@@ -454,6 +470,26 @@ fun OobePage(
             transitionBusy = false
         }
         return true
+    }
+
+    /**
+     * 完成页点圆钮：和首页同一条圆形放大，圆长满整屏再把画面交给主页
+     *
+     * 圆里不画下一页 —— 主页在引导外面，画不进这一层，所以只铺底色。
+     * 底色用的就是主页那张 surface，圆扩到满屏时两边颜色一致，接得上。
+     */
+    fun startFinish(c: Offset, r: Float) {
+        if (transitionBusy) return
+        transitionBusy = true
+        scope.launch {
+            revealProgress.snapTo(0f)
+            finishing = true
+            reveal = RevealSpec(c, r)
+            revealProgress.animateTo(1f, tween(520, easing = FastOutSlowInEasing))
+            // 等圆真的画满一帧再交棒：同一帧切的话，主页可能先出来，看到一次闪
+            withFrameNanos { }
+            onDone()
+        }
     }
 
     fun next() {
@@ -607,12 +643,19 @@ fun OobePage(
                     },
                     onBack = ::goBack,
                 )
-                else -> DoneStep(backdrop, nameBlend, homeDark, onDone = onDone)
+                STEP_DONE -> DoneStep(
+                    backdrop = backdrop,
+                    nameBlend = nameBlend,
+                    onDark = homeDark,
+                    onNext = ::startFinish,
+                )
+                else -> Unit
             }
         }
 
-        // 圆形放大层：从圆钮长成整屏，把欢迎页盖住、露出权限页
-        // 半径在 draw 阶段读，只重绘不重组 —— 否则这 520ms 里第二页会被反复重组
+        // 圆形放大层：从圆钮长成整屏。首页出发时盖住欢迎页、露出权限页；
+        // 完成页出发时一直扩到满屏，把画面交给主页
+        // 半径在 draw 阶段读，只重绘不重组 —— 否则这 520ms 里下一页会被反复重组
         reveal?.let { spec ->
             Box(
                 Modifier
@@ -626,17 +669,20 @@ fun OobePage(
                         }
                     },
             ) {
-                // 遮罩层里画的还是权限页：参数要跟正式渲染的一致，不然揭开时状态会跳
-                PermissionStep(
-                    env = env,
-                    checking = envChecking,
-                    notifOn = notifOn,
-                    autostartOn = autostartOn,
-                    onRequestNotif = {},
-                    onRetry = {},
-                    onOpenAutostart = {},
-                    onBack = {},
-                )
+                // 遮罩层里画的还是权限页：参数要跟正式渲染的一致，不然揭开时状态会跳。
+                // 完成页是朝主页长，那一页画不进这一层，圆内只留底色
+                if (!finishing) {
+                    PermissionStep(
+                        env = env,
+                        checking = envChecking,
+                        notifOn = notifOn,
+                        autostartOn = autostartOn,
+                        onRequestNotif = {},
+                        onRetry = {},
+                        onOpenAutostart = {},
+                        onBack = {},
+                    )
+                }
             }
         }
 
@@ -700,14 +746,14 @@ fun OobePage(
 /**
  * 欢迎页的圆钮
  *
- * 原作 startup 的标准配置：70dp 纯白圆、深色箭头，容器底部留 4.5dp。
- * 入场比 logo 晚 1.34 秒，从 0.9 缩到 1（cubicOut 450ms）。
+ * 原作 startup 的标准配置：96dp 纯白圆、深色箭头，容器底部留 4.5dp。
+ * 入场比 logo 晚 700ms（BUTTON_ENTER_DELAY_MS），从 0.8 弹到 1（spring 0.9 / 0.78）。
  */
 @Composable
 private fun WelcomeNextButton(
     backdrop: LayerBackdrop?,
     onDark: Boolean,
-    // 从第二页退回来时按钮已经在位，不再重播「延迟 1.34 秒淡入」
+    // 从第二页退回来时按钮已经在位，不再重播「延迟 700ms 弹入」
     animateIn: Boolean,
     onClick: (Offset, Float) -> Unit,
 ) {
@@ -730,8 +776,11 @@ private fun WelcomeNextButton(
     val appear = remember { Animatable(if (animateIn) 0f else 1f) }
     LaunchedEffect(Unit) {
         if (!animateIn) return@LaunchedEffect
-        delay(1340)
-        appear.animateTo(1f, tween(450, easing = CubicOut))
+        // 原作 BUTTON_ENTER_DELAY_MS = 700：logo 起手 0.7 秒后按钮才出来
+        delay(700)
+        // 原作 AnimHelper.startPageBtnAnim：alpha 0→1、scale 0.8→1，
+        // 用 FolmeEase.spring(damping 0.9, response 0.78)，不是固定时长的缓动
+        appear.animateTo(1f, spring(dampingRatio = 0.9f, stiffness = 65f))
     }
 
     // 转场要从这个圆长出去，记一下它在窗口里的圆心和半径
@@ -745,12 +794,13 @@ private fun WelcomeNextButton(
                 radius = coords.size.width / 2f
             }
             .graphicsLayer {
-                val s = pressScale * (0.9f + 0.1f * appear.value)
+                // 入场的缩放起点也是 0.8（原作 AnimState start）
+                val s = pressScale * (0.8f + 0.2f * appear.value)
                 scaleX = s
                 scaleY = s
                 alpha = appear.value
             }
-            .size(70.dp)
+            .size(96.dp)
             .clip(CircleShape)
             .clickable(
                 interactionSource = interaction,
@@ -785,7 +835,7 @@ private fun WelcomeNextButton(
             painter = painterResource(R.drawable.ic_welcome_arrow),
             contentDescription = null,
             colorFilter = if (darkArrow) ColorFilter.tint(OnPaper) else null,
-            modifier = Modifier.size(29.dp, 20.dp),
+            modifier = Modifier.size(40.dp, 27.dp),
         )
     }
 }
@@ -1159,15 +1209,10 @@ private fun WelcomeStep(
     onNext: (Offset, Float) -> Unit,
 ) {
     // 照原作 AnimHelper.startPageLogoAnim：图标和字标共用同一套 ——
-    // 缩放 0.5 → 0.95（sinOut 440ms）→ 1（cubicOut 700ms），透明度延后 60ms 淡入。
-    // 两段是并行跑的，不是先淡入完再放大。
-    val logoScale = remember { Animatable(if (animateIn) 0.5f else 1f) }
+    // 缩放 0.8 → 0.95（sinOut 440ms）→ 1（cubicOut 700ms），透明度延后 60ms 淡入。
+    // 两段是顺序跑的，不是先淡入完再放大。
+    val logoScale = remember { Animatable(if (animateIn) 0.8f else 1f) }
     val logoAlpha = remember { Animatable(if (animateIn) 0f else 1f) }
-    // 字标和图标不一样：它用的是关于页那套「提亮 + 品牌色」的混合，
-    // 深底上采出来是发亮的彩边字，不会像中性灰那样糊进背景，
-    // 所以深底也照常采样，只有拿不到 backdrop 时才退回实色
-    val sampleText = backdrop != null
-
     LaunchedEffect(Unit) {
         if (!animateIn) return@LaunchedEffect
         launch {
@@ -1182,7 +1227,7 @@ private fun WelcomeStep(
     var layerOrigin by remember { mutableStateOf(Offset.Zero) }
     var iconCenter by remember { mutableStateOf(Offset.Zero) }
 
-    Box(
+    BoxWithConstraints(
         Modifier
             .fillMaxSize()
             .onGloballyPositioned { layerOrigin = it.positionInRoot() },
@@ -1193,77 +1238,124 @@ private fun WelcomeStep(
             animateIn = animateIn,
         )
 
-        Column(Modifier.fillMaxSize()) {
-            Spacer(Modifier.weight(30f))
+        // 照原版 startup_layout_new：
+        // 品牌图中心落在屏高 41%（guideline 0.41）；下半区按 40 / 39 / 21 三段权重，
+        // 中间那段是圆钮、底对齐，所以圆钮底边离屏底正好 21%。
+        // 我们这里是「环 + 字标」两行，高度按 90 + 20 + 约 66 折成 176dp。
+        val brandHeight = 176.dp
+        val brandTop = maxHeight * 0.41f - brandHeight / 2
 
-            Box(
-                Modifier.fillMaxWidth().height(90.dp),
-                contentAlignment = Alignment.Center,
-            ) {
-                WelcomeLogo(
-                    backdrop = backdrop,
-                    nameBlend = nameBlend,
-                    onDark = onDark,
-                    logoScale = logoScale.value,
-                    logoAlpha = logoAlpha.value,
-                    onCenter = { iconCenter = it },
-                )
-            }
-
-            Box(Modifier.weight(40f).fillMaxWidth()) {
-                // 字标：原作是一张 500×71 的字形图，按 320×45.28dp 摆，几乎顶满 320dp 宽。
-                // 系统字体没有那个宽度，用 54sp 才把 "HyperMount" 撑到接近 320dp。
-                // 采样成功时底色会被背景模糊整个替换，写白色只是给遮罩一个不透明的底；
-                // 采样不可用（老设备）时退回固定深色。
-                Column(
-                    Modifier
-                        .align(Alignment.TopCenter)
-                        .padding(top = 20.dp)
-                        .fillMaxWidth()
-                        .graphicsLayer {
-                            scaleX = logoScale.value
-                            scaleY = logoScale.value
-                            alpha = logoAlpha.value
-                        },
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                ) {
-                    Text(
-                        wordmark,
-                        modifier = Modifier.then(
-                            if (sampleText) {
-                                Modifier.textureBlur(
-                                    backdrop = backdrop,
-                                    shape = RoundedCornerShape(16.dp),
-                                    blurRadius = 150f,
-                                    noiseCoefficient = BlurDefaults.NoiseCoefficient,
-                                    colors = BlurDefaults.blurColors(blendColors = nameBlend),
-                                    contentBlendMode = BlendMode.DstIn,
-                                )
-                            } else {
-                                Modifier
-                            },
-                        ),
-                        fontSize = 54.sp,
-                        fontWeight = FontWeight.Bold,
-                        // 采样时白色只是 DstIn 的遮罩底；深底直接白字，浅底没采样就退回深色
-                        color = if (sampleText || onDark) Color.White else OnPaper,
-                        maxLines = 1,
-                        softWrap = false,
-                    )
-                }
-
-                Box(Modifier.align(Alignment.BottomCenter).padding(bottom = 4.5.dp)) {
-                    WelcomeNextButton(
-                        backdrop = backdrop,
-                        onDark = onDark,
-                        animateIn = animateIn,
-                        onClick = onNext,
-                    )
-                }
-            }
-
-            Spacer(Modifier.weight(20f))
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .offset(y = brandTop)
+                .height(brandHeight),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            WelcomeBrand(
+                backdrop = backdrop,
+                nameBlend = nameBlend,
+                onDark = onDark,
+                wordmark = wordmark,
+                scale = logoScale.value,
+                alpha = logoAlpha.value,
+                onCenter = { iconCenter = it },
+            )
         }
+
+        // 原版第 2 段（39%）的圆钮底对齐，距屏底 21%
+        Box(
+            Modifier
+                .align(Alignment.BottomCenter)
+                .padding(bottom = maxHeight * 0.21f),
+        ) {
+            WelcomeNextButton(
+                backdrop = backdrop,
+                onDark = onDark,
+                animateIn = animateIn,
+                onClick = onNext,
+            )
+        }
+    }
+}
+
+/**
+ * 品牌块：90dp 采样图标 + 20dp 间距 + 54sp 流光字标
+ *
+ * 首页和完成页共用这一块，字标字号只在这里定义一处 —— 两页的图标大小、
+ * 字重、字距、染色方式才不会各走一套。缩放 / 透明度由调用方给，
+ * 因为两页的入场节奏不一样（首页缩放淡入，完成页上浮淡入）。
+ */
+@Composable
+private fun WelcomeBrand(
+    backdrop: LayerBackdrop?,
+    nameBlend: List<BlendColorEntry>,
+    onDark: Boolean,
+    wordmark: String,
+    scale: Float,
+    alpha: Float,
+    onCenter: (Offset) -> Unit,
+) {
+    // 字标和图标不一样：它用的是关于页那套「提亮 + 品牌色」的混合，
+    // 深底上采出来是发亮的彩边字，不会像中性灰那样糊进背景，
+    // 所以深底也照常采样，只有拿不到 backdrop 时才退回实色
+    val sampleText = backdrop != null
+
+    Column(
+        Modifier.fillMaxWidth(),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Box(
+            Modifier.fillMaxWidth().height(90.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            WelcomeLogo(
+                backdrop = backdrop,
+                nameBlend = nameBlend,
+                onDark = onDark,
+                logoScale = scale,
+                logoAlpha = alpha,
+                onCenter = onCenter,
+            )
+        }
+
+        Spacer(Modifier.height(20.dp))
+
+        // 字标：原作是一张 500×71 的字形图，按 320×45.28dp 摆，几乎顶满 320dp 宽。
+        // 系统字体没有那个宽度，用 54sp 才把 "HyperMount" 撑到接近 320dp。
+        // 采样成功时底色会被背景模糊整个替换，写白色只是给遮罩一个不透明的底；
+        // 采样不可用（老设备）时退回固定深色。
+        Text(
+            wordmark,
+            modifier = Modifier
+                .fillMaxWidth()
+                .graphicsLayer {
+                    scaleX = scale
+                    scaleY = scale
+                    this.alpha = alpha
+                }
+                .then(
+                    if (sampleText) {
+                        Modifier.textureBlur(
+                            backdrop = backdrop,
+                            shape = RoundedCornerShape(16.dp),
+                            blurRadius = 150f,
+                            noiseCoefficient = BlurDefaults.NoiseCoefficient,
+                            colors = BlurDefaults.blurColors(blendColors = nameBlend),
+                            contentBlendMode = BlendMode.DstIn,
+                        )
+                    } else {
+                        Modifier
+                    },
+                ),
+            fontSize = 54.sp,
+            fontWeight = FontWeight.Bold,
+            // 采样时白色只是 DstIn 的遮罩底；深底直接白字，浅底没采样就退回深色
+            color = if (sampleText || onDark) Color.White else OnPaper,
+            maxLines = 1,
+            softWrap = false,
+            textAlign = TextAlign.Center,
+        )
     }
 }
 
@@ -1280,6 +1372,7 @@ private fun WelcomeStep(
 private fun TermsStep(onBack: () -> Unit) {
     StepScaffold(
         title = t("协议与声明", "Terms & statement"),
+        icon = painterResource(R.drawable.ic_oobe_terms),
         onBack = onBack,
         // 底部除了主按钮还有一行勾选，正文到底时得让开这块
         bottomSpace = 185.dp,
@@ -1338,7 +1431,9 @@ private fun AgreeRow(
                 indication = null,
                 onClick = onToggle,
             )
-            .padding(horizontal = 4.dp, vertical = 10.dp),
+            // 横向 8dp：外层容器已经留了 20dp，加上就是 28dp —— 和上面正文那行的
+            // 左边界（卡片 12 + 内文 16）严格对齐，勾选框不会比正文多缩或少缩一截
+            .padding(horizontal = 8.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Checkbox(
@@ -1366,7 +1461,7 @@ private fun AgreeRow(
 /**
  * 后几页的统一骨架（照 HyperCeiler 的 provision）
  *
- * 56dp 操作栏只放一个返回箭头 → 居中 32sp 标题 → 14sp 副标题 → 卡片组。
+ * 56dp 操作栏只放一颗返回键 → 居中 32sp 标题 → 卡片组。
  * 内容自己滚，底部留白给外层那颗 50dp 主按钮；协议页多一行勾选，[bottomSpace] 加高。
  */
 @Composable
@@ -1374,62 +1469,110 @@ private fun StepScaffold(
     title: String,
     subtitle: String? = null,
     onBack: () -> Unit,
+    // 标题上方的大图标（照 ceiler 的 preview_image：70dp，上 10 / 下 8）
+    icon: androidx.compose.ui.graphics.painter.Painter? = null,
     bottomSpace: Dp = 130.dp,
     content: @Composable ColumnScope.() -> Unit,
 ) {
-    Column(
-        Modifier
-            .fillMaxSize()
-            // 每页自带不透明底：圆形转场撤掉遮罩后，底下那层还在渐变的欢迎页背景
-            // 就不会透出来（否则会看到一次「闪回首页」）
-            .background(MiuixTheme.colorScheme.surface)
-            .stableStatusBarsPadding(),
-    ) {
-        // 原作 actionbar：56dp 高，返回箭头贴左边。
-        // 用项目自己的 BackIcon（Miuix 图标 + 标准点击区）：盒子给 40dp 让图标落在
-        // 横 32dp / 纵 28dp 的视觉中心，比 ceiler 那个 31×22dp 的白色矢量更贴系统
-        Box(
-            Modifier.fillMaxWidth().height(56.dp).padding(start = 12.dp),
-            contentAlignment = Alignment.CenterStart,
-        ) {
-            BackIcon(onClick = onBack, modifier = Modifier.size(40.dp))
-        }
+    // 返回键用二级界面那颗玻璃圆钮：它要采样底下的内容才成玻璃，
+    // 所以整页先录进一层 layer，按钮自己浮在采样层之上（否则会拍到自己）
+    val backdrop = kyantRememberLayerBackdrop()
+    val surface = MiuixTheme.colorScheme.surface
 
+    Box(Modifier.fillMaxSize().background(surface)) {
         Column(
             Modifier
-                .fillMaxWidth()
-                .weight(1f)
-                .verticalScroll(rememberScrollState())
-                .padding(bottom = bottomSpace),
-            horizontalAlignment = Alignment.CenterHorizontally,
+                .fillMaxSize()
+                .kyantLayerBackdrop(backdrop)
+                // 不透明底放在 layer 里面：圆形转场撤掉遮罩后，底下那层还在渐变的欢迎页背景
+                // 就不会透出来（否则会看到一次「闪回首页」）
+                .background(surface)
+                .stableStatusBarsPadding(),
         ) {
-            // 标题：原作 32sp、居中、最多 3 行，左右各留 35dp
-            Text(
-                title,
-                fontSize = 32.sp,
-                lineHeight = 40.sp,
-                color = MiuixTheme.colorScheme.onSurface,
-                textAlign = TextAlign.Center,
-                maxLines = 3,
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 35.dp),
-            )
+            // 顶部 56dp 只占位，返回键浮在这层之上
+            Spacer(Modifier.height(56.dp))
 
-            if (subtitle != null) {
-                Spacer(Modifier.height(8.dp))
-                Text(
-                    subtitle,
-                    fontSize = 14.sp,
-                    lineHeight = 20.sp,
-                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 35.dp),
-                )
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .weight(1f)
+                    .verticalScroll(rememberScrollState())
+                    .padding(bottom = bottomSpace),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                if (icon != null) {
+                    Spacer(Modifier.height(10.dp))
+                    Image(
+                        painter = icon,
+                        contentDescription = null,
+                        modifier = Modifier.size(70.dp),
+                    )
+                    Spacer(Modifier.height(8.dp))
+                }
+
+                // 标题区照原版 provision_lyt_title：整块最小 72dp、标题本体最小 42dp，
+                // 标题 32sp / title1、medium、居中、最多 2 行，左右各留 12dp
+                Column(
+                    Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 72.dp)
+                        .padding(horizontal = 12.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center,
+                ) {
+                    Text(
+                        title,
+                        fontSize = 32.sp,
+                        lineHeight = 40.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = MiuixTheme.colorScheme.onSurface,
+                        textAlign = TextAlign.Center,
+                        maxLines = 2,
+                        modifier = Modifier
+                            .heightIn(min = 42.dp)
+                            .wrapContentHeight(align = Alignment.CenterVertically),
+                    )
+
+                    // 副标题：14sp / body2，离标题 6dp、离下面内容 9dp
+                    if (subtitle != null) {
+                        Spacer(Modifier.height(6.dp))
+                        Text(
+                            subtitle,
+                            fontSize = 14.sp,
+                            lineHeight = 20.sp,
+                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                            textAlign = TextAlign.Center,
+                        )
+                        Spacer(Modifier.height(9.dp))
+                    }
+                }
+
+                Spacer(Modifier.height(26.dp))
+
+                content()
             }
+        }
 
-            // 原作标题到列表之间 30dp
-            Spacer(Modifier.height(26.dp))
-
-            content()
+        // 原版 actionbar 高 56dp、左右 12dp、按钮 44dp；这里沿用二级界面那颗玻璃圆钮，
+        // 尺寸与位置按原版来，看起来仍是同一个返回键
+        Box(
+            Modifier
+                .stableStatusBarsPadding()
+                .height(56.dp)
+                .padding(start = 12.dp),
+            contentAlignment = Alignment.CenterStart,
+        ) {
+            LiquidTopBarButton(
+                onClick = onBack,
+                backdrop = backdrop,
+                icon = painterResource(R.drawable.ic_back),
+                contentDescription = t("返回", "Back"),
+                iconSize = 19.dp,
+                iconOffset = DpOffset((-2).dp, 0.dp),
+                buttonHeight = 44.dp,
+                draggable = true,
+                adaptiveLuminance = true,
+            )
         }
     }
 }
@@ -1528,8 +1671,10 @@ private fun PermissionStep(
     StepScaffold(
         title = t("权限设置", "Permissions"),
         onBack = onBack,
+        icon = painterResource(R.drawable.ic_oobe_permission),
     ) {
-        // 已通过的项不写说明：勾本身就是状态，再补一句「已授权」纯属占地方
+        // 已通过的项不写说明：勾本身就是状态，再补一句「已授权」纯属占地方。
+        // 整页一张卡，行与行直接相邻 —— 分三张卡会在视觉上把同一件事切成三段
         Card(Modifier.fillMaxWidth().padding(horizontal = 12.dp)) {
             PermissionRow(
                 title = t("通知", "Notifications"),
@@ -1537,11 +1682,6 @@ private fun PermissionStep(
                 checked = notifOn,
                 onClick = onRequestNotif,
             )
-        }
-
-        Spacer(Modifier.height(10.dp))
-
-        Card(Modifier.fillMaxWidth().padding(horizontal = 12.dp)) {
             PermissionRow(
                 title = t("ROOT 权限", "ROOT access"),
                 summary = when {
@@ -1563,11 +1703,6 @@ private fun PermissionStep(
                 checked = env.moduleOk,
                 onClick = if (checking) null else onRetry,
             )
-        }
-
-        Spacer(Modifier.height(10.dp))
-
-        Card(Modifier.fillMaxWidth().padding(horizontal = 12.dp)) {
             PermissionRow(
                 title = t("自启动", "Autostart"),
                 checked = autostartOn,
@@ -1609,6 +1744,9 @@ private fun PermissionStep(
  * 用现成的 [BasicComponent]：标题 + 说明 + 行尾状态。
  * 通过时行尾出一枚勾（ceiler 就是「通过才显示」），没通过就空着 ——
  * 用红叉反而像出了错，这里只表达「还没达成」。
+ *
+ * 说明文字是检测结果驱动的（检测中… / 未授权 / 未安装，通过后整行不写），
+ * 有它没它行高差一行，不补过渡的话整张卡片会在检测落地那一帧突然长高。
  */
 @Composable
 private fun PermissionRow(
@@ -1618,6 +1756,10 @@ private fun PermissionRow(
     onClick: (() -> Unit)? = null,
 ) {
     BasicComponent(
+        // 行高跟着说明文字增减，220ms 走完，和页面里其他过渡一个节奏
+        modifier = Modifier.animateContentSize(
+            animationSpec = tween(220, easing = FastOutSlowInEasing),
+        ),
         title = title,
         summary = summary,
         onClick = onClick,
@@ -1684,7 +1826,9 @@ private fun BasicSettingsStep(
         StepScaffold(
             title = t("基础设置", "Basic settings"),
             onBack = onBack,
+            icon = painterResource(R.drawable.ic_oobe_settings),
         ) {
+            // 三项同属「让应用能用起来」这一件事，放一张卡里连着看更顺
             Card(Modifier.fillMaxWidth().padding(horizontal = 12.dp)) {
                 LiquidSelectPreference(
                     title = t("运行模式", "Run mode"),
@@ -1693,11 +1837,6 @@ private fun BasicSettingsStep(
                     onSelectedIndexChange = onSetLogMode,
                     state = select,
                 )
-            }
-
-            Spacer(Modifier.height(10.dp))
-
-            Card(Modifier.fillMaxWidth().padding(horizontal = 12.dp)) {
                 ArrowPreference(
                     title = t("日志目录", "Log directory"),
                     summary = logDir.ifBlank { t("未设置 · 点击选择目录", "Not set · tap to choose") },
@@ -1712,11 +1851,6 @@ private fun BasicSettingsStep(
                             }
                     },
                 )
-            }
-
-            Spacer(Modifier.height(10.dp))
-
-            Card(Modifier.fillMaxWidth().padding(horizontal = 12.dp)) {
                 LiquidSelectPreference(
                     title = t("语言", "Language"),
                     items = listOf(t("跟随系统", "Follow system"), "简体中文", "English"),
@@ -1750,6 +1884,7 @@ private fun VolumeStep(
     StepScaffold(
         title = t("音量键校验", "Volume key check"),
         subtitle = t("先按一次音量 + 再按一次音量 −", "Press Volume + then Volume −"),
+        icon = painterResource(R.drawable.ic_oobe_volume),
         onBack = onBack,
     ) {
         Card(Modifier.fillMaxWidth().padding(horizontal = 12.dp)) {
@@ -1834,22 +1969,173 @@ private fun PulsingDot() {
 /**
  * 设置完毕
  *
- * 和首页共用同一套版式（流光底 + 图标 + 字标 + 圆钮），只把字标换成「设置完毕」：
- * 首尾呼应，不用另做一版收尾页，也不会出现「最后一页长得不像这个应用」。
+ * 品牌图和首页共用同一块（90dp 图标 + 54sp 字标），位置照原版 complete_layout
+ * 落在屏高 41%，底部 38dp 一颗 50dp 镂空按钮。
+ * 背景与光晕仍然是首页那套流光，首尾是同一块底，不会在最后一页突然换画风。
+ * 按钮按下后和首页圆钮一样，从按钮中心长出一整屏圆、交棒给主页。
  */
 @Composable
 private fun DoneStep(
     backdrop: LayerBackdrop?,
     nameBlend: List<BlendColorEntry>,
     onDark: Boolean,
-    onDone: () -> Unit,
+    // 和首页同一个回调：给出按钮的圆心与半径，圆从那里长满整屏
+    onNext: (Offset, Float) -> Unit,
 ) {
-    WelcomeStep(
-        backdrop = backdrop,
-        nameBlend = nameBlend,
-        onDark = onDark,
-        animateIn = true,
-        wordmark = t("设置完毕", "All set"),
-        onNext = { _, _ -> onDone() },
+    // 照原作 AnimHelper.endPageLogoAnim：logo 不缩放，
+    // 从下方 100px 处上浮到原位并淡入，一条 quartOut 走完 1500ms。
+    // 字标跟图标是同一块，所以跟着一起上浮，不再单独做入场。
+    val enter = remember { Animatable(0f) }
+    // 原作 endPageBtnAnim：按钮等 1200ms 再淡入，sinOut 450ms
+    val btnAlpha = remember { Animatable(0f) }
+
+    LaunchedEffect(Unit) {
+        launch { enter.animateTo(1f, tween(1500, easing = QuartOut)) }
+        delay(1200)
+        btnAlpha.animateTo(1f, tween(450, easing = SinOut))
+    }
+
+    var layerOrigin by remember { mutableStateOf(Offset.Zero) }
+    var iconCenter by remember { mutableStateOf(Offset.Zero) }
+
+    BoxWithConstraints(
+        Modifier
+            .fillMaxSize()
+            .onGloballyPositioned { layerOrigin = it.positionInRoot() },
+    ) {
+        GlowBurst(
+            center = iconCenter - layerOrigin,
+            animateIn = true,
+        )
+
+        // 和首页同一块品牌图：90dp 采样图标 + 54sp 流光字标，首尾呼应
+        val blockHeight = 176.dp
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .offset(y = maxHeight * 0.41f - blockHeight / 2)
+                .height(blockHeight)
+                // 上浮量是原版的 100px（AnimState 里 TRANSLATION_Y 直接按像素写死）
+                .graphicsLayer {
+                    alpha = enter.value
+                    translationY = 100f * (1f - enter.value)
+                },
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            WelcomeBrand(
+                backdrop = backdrop,
+                nameBlend = nameBlend,
+                onDark = onDark,
+                wordmark = t("设置完毕", "All set"),
+                scale = 1f,
+                alpha = 1f,
+                onCenter = { iconCenter = it },
+            )
+        }
+
+        // 原版 GlassButton 的位置与尺寸：高 50dp、最大宽 336dp、距底 38dp
+        Box(
+            Modifier
+                .align(Alignment.BottomCenter)
+                .fillMaxWidth()
+                .padding(horizontal = 24.dp)
+                .padding(bottom = 38.dp)
+                .graphicsLayer { alpha = btnAlpha.value },
+            contentAlignment = Alignment.Center,
+        ) {
+            HollowActionButton(
+                label = t("开始使用", "Get started"),
+                backdrop = backdrop,
+                onDark = onDark,
+                onClick = onNext,
+            )
+        }
+    }
+}
+
+/**
+ * 完成页底部那颗 50dp 镂空卡片按钮
+ *
+ * 尺寸照原版 GlassButton：高 50dp、最大宽 336dp、圆角 16、字 17sp。
+ * 视觉上仍是完整一张玻璃卡片（白色遮罩 + 品牌混色采样），
+ * 但「开始使用」四个字的位置被真正挖空 —— 字缝里透出来的是背景流光，
+ * 而不是在卡片上再盖一层深色字。
+ */
+@Composable
+private fun HollowActionButton(
+    label: String,
+    backdrop: LayerBackdrop?,
+    onDark: Boolean,
+    onClick: (Offset, Float) -> Unit,
+) {
+    val blend = remember(onDark, OobeTuning.colors(onDark).toList()) {
+        brandNameBlend(onDark = onDark)
+    }
+    val shape = RoundedCornerShape(16.dp)
+    val interaction = remember { MutableInteractionSource() }
+    val pressed by interaction.collectIsPressedAsState()
+    val scale by animateFloatAsState(
+        targetValue = if (pressed) 0.97f else 1f,
+        animationSpec = spring(dampingRatio = 0.6f, stiffness = 900f),
+        label = "hollowActionPress",
     )
+
+    var center by remember { mutableStateOf(Offset.Zero) }
+    var radius by remember { mutableFloatStateOf(0f) }
+
+    Box(
+        Modifier
+            .fillMaxWidth()
+            .widthIn(max = 336.dp)
+            .height(50.dp)
+            .onGloballyPositioned { coords ->
+                center = coords.positionInRoot() +
+                    Offset(coords.size.width / 2f, coords.size.height / 2f)
+                radius = maxOf(coords.size.width, coords.size.height) / 2f
+            }
+            .graphicsLayer {
+                scaleX = scale
+                scaleY = scale
+                // 字要靠 Clear 从卡片上挖洞：这一层必须单独离屏，否则洞会直接穿到窗口背后
+                compositingStrategy = CompositingStrategy.Offscreen
+                clip = true
+                this.shape = shape
+            }
+            .clickable(
+                interactionSource = interaction,
+                indication = null,
+                onClick = { onClick(center, radius) },
+            ),
+        contentAlignment = Alignment.Center,
+    ) {
+        // 卡片本体：白色只当 DstIn 的遮罩，底色由品牌混色采样补上
+        Box(
+            Modifier
+                .matchParentSize()
+                .then(
+                    if (backdrop != null) {
+                        Modifier.textureBlur(
+                            backdrop = backdrop,
+                            shape = shape,
+                            blurRadius = 150f,
+                            noiseCoefficient = BlurDefaults.NoiseCoefficient,
+                            colors = BlurDefaults.blurColors(blendColors = blend),
+                            contentBlendMode = BlendMode.DstIn,
+                        )
+                    } else {
+                        Modifier
+                    },
+                )
+                .background(if (backdrop != null) Color.White else OnPaper),
+        )
+        // 字只负责挖洞：DstOut 按字的 alpha 把卡片擦成透明（Clear 会把整块矩形抹掉，
+        // 连字之间的空隙一起没了），颜色取什么都无所谓
+        Text(
+            label,
+            modifier = Modifier.graphicsLayer { blendMode = BlendMode.DstOut },
+            fontSize = 17.sp,
+            fontWeight = FontWeight.Medium,
+            color = if (backdrop != null) Color(0xCC000000) else if (onDark) OnPaper else Color(0xCC000000),
+        )
+    }
 }

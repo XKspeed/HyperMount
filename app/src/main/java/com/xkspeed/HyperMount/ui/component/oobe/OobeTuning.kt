@@ -23,7 +23,7 @@ object OobeTuning {
     /**
      * 从**图标入场动画开始**再等多久才扩（ms）
      *
-     * 0 表示和图标缩放、淡入同时起，默认就是同时。
+     * 0 表示和图标缩放、淡入同时起。留一点延迟，环才不会和图标的放大糊在一起。
      */
     var delayMs by mutableFloatStateOf(Def.DELAY_MS)
 
@@ -38,12 +38,6 @@ object OobeTuning {
 
     /** 缓动 k：进度走 t/(k − t·(k−1))，越大起手越慢、末尾越快 */
     var easeK by mutableFloatStateOf(Def.EASE_K)
-
-    /** 采样背景时的模糊半径（dp） */
-    var blurRadius by mutableFloatStateOf(Def.BLUR_RADIUS)
-
-    /** 环上再叠的那层白，峰值不透明度；0 表示只显示采样的底色 */
-    var highlightAlpha by mutableFloatStateOf(Def.HIGHLIGHT_ALPHA)
 
     /** 从哪个进度开始淡出；1 表示不淡出 */
     var fadeStart by mutableFloatStateOf(Def.FADE_START)
@@ -116,8 +110,6 @@ object OobeTuning {
         outerScale = Def.OUTER_SCALE
         thickness = Def.THICKNESS
         easeK = Def.EASE_K
-        blurRadius = Def.BLUR_RADIUS
-        highlightAlpha = Def.HIGHLIGHT_ALPHA
         fadeStart = Def.FADE_START
     }
 
@@ -151,8 +143,6 @@ object OobeTuning {
             appendLine("    \"outerScale\": $outerScale,")
             appendLine("    \"thickness\": $thickness,")
             appendLine("    \"easeK\": $easeK,")
-            appendLine("    \"blurRadius\": ${blurRadius.roundToInt()},")
-            appendLine("    \"highlightAlpha\": $highlightAlpha,")
             appendLine("    \"fadeStart\": $fadeStart")
             appendLine("  },")
             appendLine("  \"blend\": {")
@@ -165,15 +155,13 @@ object OobeTuning {
 
     /** 出厂值：调试页的默认刻度、单项重置、整体恢复都用这里 */
     object Def {
-        // 2026-11-27 调试页定稿：和图标入场几乎同时（100ms）起，半秒铺满，
-        // 外径放到 1.5 屏高、环厚 1.2 屏高，整体是一下子涌出来的宽光带
-        const val DELAY_MS = 100f
+        // 2026-11-27 调试页定稿：图标入场 100ms 之后再起环（再晚一点就抢不到注意力），
+        // 半秒铺满，外径放到 1.5 屏高、环厚 1.2 屏高，整体是一下子涌出来的宽光带
+        const val DELAY_MS = 200f
         const val DURATION_MS = 500f
         const val OUTER_SCALE = 1.5f
         const val THICKNESS = 1.2f
         const val EASE_K = 1.2f
-        const val BLUR_RADIUS = 90f
-        const val HIGHLIGHT_ALPHA = 0.22f
         const val FADE_START = 0.82f
 
         val DARK_COLORS = listOf(Color(0xe6a1a1a1), Color(0x4de6e6e6), Color(0xff1af500))
