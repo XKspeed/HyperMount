@@ -332,7 +332,12 @@ fun App() {
         scope.launch {
             // 先摆出筛源这一步：探测最慢 干等着像卡死
             appStage = UpdateStage.Probing(0, sources.size)
-            val name = "HyperMount-${Update.label(info)}.apk"
+            // 文件名直接用 GitHub 上的附件名（HyperMount-arm64-1.6.0.apk）
+            // 与模块 zip 同一套规则：下到公共目录后一眼认得出是哪个包、哪个版本。
+            // 清单里的 url 始终指向 GitHub，镜像只换前缀不换尾段
+            val name = info.url.substringAfterLast('/').substringBefore('?')
+                .takeIf { it.endsWith(".apk", ignoreCase = true) }
+                ?: "HyperMount-arm64-${Update.label(info)}.apk"
             val tmp = File(Installer.stagingDir(context), name)
             val result = runCatching {
                 Downloader.fetch(
@@ -818,10 +823,13 @@ fun App() {
             if (out.contains("OK")) {
                 state = state.withConf("RESCUE_OFF", if (off) "1" else "0")
             } else {
-                toast(context, firstLine(out))
+                // 失败不弹 toast：开关自己弹回就是反馈，脚本原文只进日志
                 val fresh = runCatching { Module.readState() }.getOrNull()
                 if (fresh != null) state = fresh
-                AppLog.e("配置", "写入失败 已按实际配置还原 RESCUE_OFF 期望=$off")
+                AppLog.e(
+                    "配置",
+                    "写入失败 已按实际配置还原 RESCUE_OFF 期望=$off 输出=${firstLine(out)}",
+                )
             }
         }
     }

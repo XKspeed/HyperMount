@@ -212,8 +212,11 @@ fi
 #  才合并到 modules；而 App 调的是 modules/<id>/scripts/webctl.sh。
 #  结果就是模块显示已更新、功能还是旧的。
 #
-#  这里把能立刻用的部分（scripts / bin / config / module.prop / 根脚本）同步
-#  到已安装目录，App 下一次调用就是新版本，一次 shell 都不用多跑。
+#  这里把能立刻用的部分（scripts / bin / config / language / module.prop / 根脚本）
+#  同步到已安装目录，App 下一次调用就是新版本，一次 shell 都不用多跑。
+#
+#  language 必须跟着走：新 ctl/watchd 全靠它查文案，漏了这一步
+#  L() 会退回 key，界面上直接显示 ok_rescue_on 这种字段名。
 #
 #  界面 APK 和 system/ 一个字节都不碰：magic mount 是开机时建的，
 #  运行期换文件会让挂载点和 inode 对不上，换界面仍然要整机重启。
@@ -249,6 +252,8 @@ if [ -n "${MODID}" ] && [ -d "${LIVE}" ] && [ "${MODPATH}" != "${LIVE}" ]; then
     _sync_dir scripts
     _sync_dir bin
     _sync_dir config
+    # 文案表：新二进制找不到它就只能吐 key
+    _sync_dir language
     for _f in module.prop action.sh action-shell.sh service.sh service-shell.sh uninstall.sh; do
         _put "${MODPATH}/${_f}" "${LIVE}/${_f}"
     done
