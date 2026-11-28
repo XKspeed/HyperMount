@@ -14,6 +14,10 @@
     <!-- 下载完的安装包要交给系统安装器（Android 8 起必须声明） -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
+    <!-- 界面 / 组件快照直接读写下载目录：有了它 App 自己就能复制、改名、分享，
+         不用每条命令都绕 root（没给权限时仍退回 root 执行） -->
+    <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" />
+
     <!-- Android 11 起包可见性受限 不声明的话查不到 MT 的安装信息 -->
     <queries>
         <!-- MT 管理器与官方共存版 选文件时按包名直接点名 -->

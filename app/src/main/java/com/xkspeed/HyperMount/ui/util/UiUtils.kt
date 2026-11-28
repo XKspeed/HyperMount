@@ -3,7 +3,6 @@
 package com.xkspeed.HyperMount.ui.util
 
 import android.os.Build
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
@@ -14,20 +13,14 @@ import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.RectangleShape
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import top.yukonga.miuix.kmp.basic.ScrollBehavior
-import top.yukonga.miuix.kmp.blur.BlendColorEntry
-import top.yukonga.miuix.kmp.blur.BlurDefaults
 import top.yukonga.miuix.kmp.blur.LayerBackdrop
-import top.yukonga.miuix.kmp.blur.ProgressiveBlur
 import top.yukonga.miuix.kmp.blur.isRuntimeShaderSupported
-import top.yukonga.miuix.kmp.blur.progressiveTextureBlur
 import top.yukonga.miuix.kmp.blur.rememberLayerBackdrop
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.utils.scrollEndHaptic
@@ -37,12 +30,6 @@ import androidx.compose.foundation.layout.captionBarIgnoringVisibility
 
 /** 宽屏（平板 / 折叠展开）标记 由 App 根部提供 */
 val LocalIsWideScreen: ProvidableCompositionLocal<Boolean> = staticCompositionLocalOf { false }
-
-private object TopBarBlurConfig {
-    const val BlurRadius: Float = 10f
-    const val SurfaceAlpha: Float = 0.3f
-    const val Curve: Float = 2.2f
-}
 
 /**
  * 模糊背景板
@@ -59,46 +46,6 @@ fun rememberBlurBackdrop(): LayerBackdrop? {
     return rememberLayerBackdrop {
         drawRect(surfaceColor)
         drawContent()
-    }
-}
-
-/**
- * 顶栏容器：滚动到顶时不透明 滚下去以后透出下方内容的模糊
- * 不传 backdrop 或设备不支持 runtime shader 时退化成普通 Box 不影响布局
- *
- * [alpha] 让模糊层随滚动渐入 而不是"滚过 1px 突然出现一整条底"
- */
-@Composable
-fun BlurredBar(
-    backdrop: LayerBackdrop?,
-    blurEnabled: Boolean,
-    alpha: () -> Float = { 1f },
-    content: @Composable () -> Unit,
-) {
-    val blurActive = blurEnabled && backdrop != null
-    Box {
-        if (blurActive) {
-            Box(
-                modifier = Modifier
-                    .matchParentSize()
-                    .graphicsLayer { this.alpha = alpha().coerceIn(0f, 1f) }
-                    .progressiveTextureBlur(
-                        backdrop = backdrop,
-                        shape = RectangleShape,
-                        gradient = ProgressiveBlur.Top.copy(curve = TopBarBlurConfig.Curve),
-                        blurRadius = TopBarBlurConfig.BlurRadius,
-                        colors = BlurDefaults.blurColors(
-                            blendColors = listOf(
-                                BlendColorEntry(
-                                    color = MiuixTheme.colorScheme.surface
-                                        .copy(TopBarBlurConfig.SurfaceAlpha)
-                                ),
-                            ),
-                        ),
-                    ),
-            )
-        }
-        content()
     }
 }
 

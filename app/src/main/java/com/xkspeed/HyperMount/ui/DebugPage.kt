@@ -1,55 +1,85 @@
 package com.xkspeed.HyperMount.ui
 
-import android.widget.Toast
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.foundation.layout.Column
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.unit.dp
+import com.xkspeed.HyperMount.core.AppLog
+import com.xkspeed.HyperMount.core.LogLevel
 import com.xkspeed.HyperMount.i18n.t
 import com.xkspeed.HyperMount.ui.component.glass.ScrollPage
-import com.xkspeed.HyperMount.ui.component.oobe.OobeTuning
+import com.xkspeed.HyperMount.ui.components.LiquidSelectPreference
 import com.xkspeed.HyperMount.ui.components.SectionCard
+import com.xkspeed.HyperMount.ui.components.rememberLiquidSelectState
 import com.xkspeed.HyperMount.ui.util.stableNavigationBarHeight
-import top.yukonga.miuix.kmp.basic.BasicComponent
 import top.yukonga.miuix.kmp.basic.SmallTitle
+import top.yukonga.miuix.kmp.preference.ArrowPreference
 
 /**
- * 调试页：只有非正式签名（debug 包 / MT 重签的测试包）才进得来。
+ * 开发者选项：正式包也保留这个入口。
  *
- * OOBE 的光晕与混色已经定稿，滑条和调色板都撤了，数值在
- * [OobeTuning.Def] 里。这里留两样：
- * - 进入 OOBE：不用清数据、不用等下次冷启动，直接拿定稿参数放一遍首屏
- * - 导出调试配置：把当前参数吐成 JSON 复制走，下次再调参不用从零开始
+ * 三样东西：
+ * - 应用日志等级 / 应用日志内容（从设置页整组挪过来）
+ * - 进入 OOBE：不用清数据、不用等下次冷启动，直接放一遍首屏
+ *
+ * 底栏图标调参已经撤掉，数值定死在 NavIconTuning 的 defaults 里；
+ * 面板顶栏遮罩也定稿（1 / 40dp / 72dp），没有滑条。
  */
 @Composable
-fun DebugPage(onBack: () -> Unit, onOpenOobe: () -> Unit) {
+fun DebugPage(
+    onBack: () -> Unit,
+    onOpenOobe: () -> Unit,
+    onOpenAppLog: () -> Unit,
+) {
     val context = LocalContext.current
-    val clipboard = LocalClipboardManager.current
+    val select = rememberLiquidSelectState()
 
     ScrollPage(
-        title = t("调试", "Debug"),
+        title = t("开发者选项", "Developer options"),
         onBack = onBack,
         bottomPadding = stableNavigationBarHeight() + 24.dp,
     ) {
+        item { SmallTitle(t("应用日志", "App log")) }
+        item {
+            SectionCard {
+                // 这两行不带副标题：下拉右侧已经写着当前档位 文件行点进去就是内容
+                LiquidSelectPreference(
+                    title = t("应用日志等级", "App log level"),
+                    items = LOG_LEVEL_LABELS(),
+                    selectedIndex = logLevelIndex(AppLog.level),
+                    onSelectedIndexChange = {
+                        AppLog.setLevel(context, LOG_LEVEL_CHOICES[it])
+                    },
+                    state = select,
+                )
+                // 等级为「关闭」时不写日志 内容那行跟着收起
+                AnimatedVisibility(
+                    visible = AppLog.level != LogLevel.OFF,
+                    enter = fadeIn() + expandVertically(),
+                    exit = fadeOut() + shrinkVertically(),
+                ) {
+                    Column {
+                        ArrowPreference(
+                            title = t("应用日志内容", "App log content"),
+                            onClick = onOpenAppLog,
+                        )
+                    }
+                }
+            }
+        }
+
         item { SmallTitle(t("OOBE", "OOBE")) }
         item {
             SectionCard {
-                BasicComponent(
+                // 入口这一行不带副标题
+                ArrowPreference(
                     title = t("进入 OOBE", "Open OOBE"),
-                    summary = t("放一遍首屏，看光晕和混色", "Preview the first screen"),
                     onClick = onOpenOobe,
-                )
-                BasicComponent(
-                    title = t("导出调试配置", "Export debug config"),
-                    onClick = {
-                        clipboard.setText(AnnotatedString(OobeTuning.toJson()))
-                        Toast.makeText(
-                            context,
-                            t("已复制到剪贴板", "Copied to clipboard"),
-                            Toast.LENGTH_SHORT,
-                        ).show()
-                    },
                 )
             }
         }

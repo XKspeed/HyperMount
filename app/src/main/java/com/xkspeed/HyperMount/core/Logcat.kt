@@ -124,19 +124,21 @@ object Logcat {
     /** @ 代表 $ 写脚本时不用一路转义 落盘前统一换回来 */
     private val SCRIPT_BODY: String = """
         #!/system/bin/sh
-        # 抓崩溃日志 + 崩溃自动救砖
+        # 抓崩溃日志 + 崩溃自动回滚
         # $1 日志输出 $2 运行日志 $3 pid 文件 $4 目标包名
-        # $5 抓取秒 $6 待测 apk 副本 $7 救砖 apk 私有副本
+        # $5 抓取秒 $6 待测 apk 副本 $7 1=崩溃后回滚到系统预装组件
         # $8 日志大小判定阈值（字节） 0 表示关闭
         # $9 1=plugin 增强判定（崩溃次数/日志疯长/堆栈占比）
         # $10 plugin 模式下累计崩溃几次触发（SystemUI fatal 行数）
+        # $11 组件救砖 apk 路径 空 = 回滚到系统预装版
         OUT="@1"
         RUN="@2"
         PIDF="@3"
         PKG="@4"
         DUR="@5"
         TARGET_APK="@6"
-        RESCUE_APK="@7"
+        ROLLBACK="@7"
+        case "@ROLLBACK" in 1) ROLLBACK=1 ;; *) ROLLBACK=0 ;; esac
         SELF="@0"
         STATE="@(dirname "@RUN")/rescue_state"
         COUNT_FILE="@(dirname "@RUN")/rescue_count"
@@ -147,6 +149,7 @@ object Logcat {
         case "@PLUGIN" in 1) PLUGIN=1 ;; *) PLUGIN=0 ;; esac
         FATAL_TH="@10"
         case "@FATAL_TH" in ''|*[!0-9]*|0) FATAL_TH=3 ;; esac
+        RAPK="@11"
         FLOOD_BYTES=2097152
         if [ -n "@PKG" ]; then NAME="@PKG"; else NAME="全部进程"; fi
         GUARD=300
@@ -161,8 +164,8 @@ object Logcat {
 
         log() { echo "[@(date +%H:%M:%S)] @1"; }
 
-        # 救砖守卫每轮重新计时：上一轮救过砖 不影响这一轮能不能再救
-        # 只有本轮内已救过一次 才按 GUARD 拦住连环救砖
+        # 回滚守卫每轮重新计时：上一轮回滚过 不影响这一轮能不能再回滚
+        # 只有本轮内已回滚过一次 才按 GUARD 拦住连环回滚
         rm -f "@STATE"
 
         # 日志目录写不进去就别静默跑一趟：宁可当场退出 留下一行原因
@@ -222,38 +225,75 @@ object Logcat {
             return 1
         }
 
-        # 返回 0 成功 / 1 失败 / 2 距上次救砖太近 跳过 / 3 救砖包不在
-        rescue() {
-            if [ ! -f "@RESCUE_APK" ]; then
-                log "救砖apk不存在 跳过"
-                return 3
+        # 崩溃后的恢复：有救砖包先装回去，没有才卸更新层回预装版
+        # RECOVERED 记录实际走了哪条路，结果文案要区分「装回来」和「回滚」
+        RECOVERED=""
+        recover() {
+            if [ -n "@RAPK" ] && [ -f "@RAPK" ]; then
+                LAST=@(cat "@STATE" 2>/dev/null || echo 0)
+                case "@LAST" in ''|*[!0-9]*) LAST=0 ;; esac
+                NOW=@(date +%s)
+                LEFT=@((NOW - LAST))
+                if [ "@LEFT" -lt "@GUARD" ]; then
+                    log "距上次恢复 @LEFT 秒 未满 @GUARD 秒 跳过"
+                    return 2
+                fi
+                log "开始装回救砖组件..."
+                SZ=@(stat -c%s "@RAPK" 2>/dev/null || echo 0)
+                if [ "@SZ" -gt 0 ]; then
+                    R=@(pm install -r -d -t -S "@SZ" < "@RAPK" 2>&1)
+                else
+                    R=@(pm install -r -d -t "@RAPK" 2>&1)
+                fi
+                RC=@?
+                if [ "@RC" -eq 0 ]; then
+                    @(date +%s) > "@STATE"
+                    CNT=@(cat "@COUNT_FILE" 2>/dev/null || echo 0)
+                    echo @((CNT + 1)) > "@COUNT_FILE"
+                    RECOVERED=rescue
+                    log "救砖成功 重启 SystemUI"
+                    (sleep 3; killall com.android.systemui 2>/dev/null) &
+                    return 0
+                fi
+                log "救砖失败 (exit=@RC): @R"
+                return 1
             fi
+            rollback
+            RR=@?
+            [ "@RR" = "0" ] && RECOVERED=rollback
+            return @RR
+        }
+
+        # 返回 0 成功 / 1 失败 / 2 距上次回滚太近 跳过
+        # 回滚 = 卸掉 /data 里的更新层，界面自动回到系统分区自带的组件
+        rollback() {
             LAST=@(cat "@STATE" 2>/dev/null || echo 0)
             case "@LAST" in ''|*[!0-9]*) LAST=0 ;; esac
             NOW=@(date +%s)
             LEFT=@((NOW - LAST))
             if [ "@LEFT" -lt "@GUARD" ]; then
-                log "距上次救砖 @LEFT 秒 未满 @GUARD 秒 跳过"
+                log "距上次回滚 @LEFT 秒 未满 @GUARD 秒 跳过"
                 return 2
             fi
-            log "开始执行救砖..."
-            SZ=@(stat -c%s "@RESCUE_APK" 2>/dev/null || echo 0)
-            if [ "@SZ" -gt 0 ]; then
-                R=@(pm install -r -d -t -S "@SZ" < "@RESCUE_APK" 2>&1)
-            else
-                R=@(pm install -r -d -t "@RESCUE_APK" 2>&1)
-            fi
+            log "开始回滚到系统预装组件..."
+            R=@(pm uninstall miui.systemui.plugin 2>&1)
             RC=@?
-            if [ "@RC" -eq 0 ]; then
-                @(date +%s) > "@STATE"
-                CNT=@(cat "@COUNT_FILE" 2>/dev/null || echo 0)
-                echo @((CNT + 1)) > "@COUNT_FILE"
-                log "救砖成功 (exit=0) 重启 SystemUI"
-                (sleep 3; killall com.android.systemui 2>/dev/null) &
+            PP=@(pm path miui.systemui.plugin 2>/dev/null | head -n 1)
+            case "@PP" in
+                *"/data/"*)
+                    log "回滚失败 仍在更新层 (exit=@RC): @R @PP"
+                    return 1 ;;
+            esac
+            if [ "@RC" -ne 0 ] && [ -z "@PP" ]; then
+                log "没有更新层 无需回滚 已经是预装版 (exit=@RC)"
                 return 0
             fi
-            log "救砖失败 (exit=@RC): @R"
-            return 1
+            @(date +%s) > "@STATE"
+            CNT=@(cat "@COUNT_FILE" 2>/dev/null || echo 0)
+            echo @((CNT + 1)) > "@COUNT_FILE"
+            log "回滚成功 已是预装版: @PP"
+            (sleep 3; killall com.android.systemui 2>/dev/null) &
+            return 0
         }
 
         watch_crash() {
@@ -293,17 +333,20 @@ object Logcat {
                     fi
                 fi
                 if [ -n "@HIT" ]; then
-                    log "检测到 @HIT 开始救砖"
-                    rescue
+                    if [ -n "@RAPK" ] && [ -f "@RAPK" ]; then
+                        log "检测到 @HIT 开始装回救砖组件"
+                    else
+                        log "检测到 @HIT 开始回滚"
+                    fi
+                    recover
                     RR=@?
                     case "@RR" in
-                        0) RESULT=rescued ;;
-                        1) RESULT=rescue_failed ;;
+                        0) [ "@RECOVERED" = "rescue" ] && RESULT=rescued || RESULT=rolled_back ;;
+                        1) RESULT=rollback_failed ;;
                         2) RESULT=crash ;;
-                        3) RESULT=rescue_failed ;;
                     esac
                     echo "@RESULT" > "@RESULT_FILE"
-                    log "救砖流程结束 日志继续抓到时间用完"
+                    log "回滚流程结束 日志继续抓到时间用完"
                     return 0
                 fi
                 sleep 1
@@ -313,10 +356,14 @@ object Logcat {
 
         LOG_FILE="@OUT"
         log "目标应用: @NAME"
-        if [ -n "@RESCUE_APK" ]; then
-            log "救砖apk: @RESCUE_APK"
+        if [ "@ROLLBACK" = "1" ]; then
+            if [ -n "@RAPK" ] && [ -f "@RAPK" ]; then
+                log "崩溃后装回救砖组件: @RAPK"
+            else
+                log "崩溃后回滚到系统预装组件"
+            fi
         else
-            log "未开启自动替换 只抓日志"
+            log "未开启自动回滚 只抓日志"
         fi
 
         echo no_crash > "@RESULT_FILE"
@@ -359,11 +406,11 @@ object Logcat {
         trap 'kill @LPID 2>/dev/null; [ -n "@MON" ] && kill @MON 2>/dev/null; [ "@(cat "@PIDF" 2>/dev/null)" = "@@" ] && rm -f "@PIDF"; exit 0' TERM INT
 
         MON=""
-        if [ -n "@RESCUE_APK" ] && [ -f "@RESCUE_APK" ]; then
+        if [ "@ROLLBACK" = "1" ]; then
             watch_crash &
             MON=@!
         else
-            log "没有救砖apk 跳过崩溃监控"
+            log "没有开启自动回滚 跳过崩溃监控"
         fi
 
         sleep "@DUR"
@@ -389,7 +436,7 @@ object Logcat {
         fi
 
         CNT=@(cat "@COUNT_FILE" 2>/dev/null || echo 0)
-        log "累计救砖次数: @CNT"
+        log "累计回滚次数: @CNT"
         RESULT=@(cat "@RESULT_FILE" 2>/dev/null || echo no_crash)
         log "结果: @RESULT"
         # 只删自己的 pid 文件：提前结束时新一轮可能已经写进去了
@@ -424,16 +471,18 @@ object Logcat {
      * 先探一次日志目录：写不进去就当场返回原因，不让脚本在后台静默跑一趟空的。
      *
      * @param targetApk 待测 apk 的 cache 副本 空则跳过安装
-     * @param rescueApk 救砖 apk 的私有副本 空则只抓日志不救砖
+     * @param autoRollback 崩溃后自动恢复：有 [rescueApk] 就装回去，没有就卸更新层回预装版
+     * @param rescueApk 组件救砖包路径 空 = 回滚到系统预装版
      * @param dir 设置里的日志目录 抓到的 crash 日志写这里
      * @param pluginMode 待测包是 miui.systemui.plugin：额外开崩溃次数 / 日志疯长 / 堆栈占比三路判定
-     * @param fatalThreshold plugin 模式下界面累计崩几次触发救砖
+     * @param fatalThreshold plugin 模式下界面累计崩几次触发回滚
      */
     suspend fun start(
         pkg: String,
         seconds: Int,
         sizeLimitKb: Int,
         targetApk: String,
+        autoRollback: Boolean,
         rescueApk: String,
         pluginMode: Boolean,
         fatalThreshold: Int,
@@ -479,19 +528,21 @@ object Logcat {
                 append("if command -v setsid >/dev/null 2>&1; then ")
                 append("(setsid sh $SCRIPT ${Root.q(file)} ${Root.q(RUN_LOG)} $PID_FILE ")
                 append("${Root.q(pkg)} $seconds ")
-                append("${Root.q(targetApk)} ${Root.q(rescueApk)} ")
+                append("${Root.q(targetApk)} ${if (autoRollback) 1 else 0} ")
                 append("${sizeLimitKb * 1024} ")
                 append("${if (pluginMode) 1 else 0} ")
-                append("${fatalThreshold.coerceAtLeast(1)}")
-                append(" >/dev/null 2>&1 &); ")
+                append("${fatalThreshold.coerceAtLeast(1)} ")
+                append("${Root.q(rescueApk)} ")
+                append(">/dev/null 2>&1 &); ")
                 append("else ")
                 append("(nohup sh $SCRIPT ${Root.q(file)} ${Root.q(RUN_LOG)} $PID_FILE ")
                 append("${Root.q(pkg)} $seconds ")
-                append("${Root.q(targetApk)} ${Root.q(rescueApk)} ")
+                append("${Root.q(targetApk)} ${if (autoRollback) 1 else 0} ")
                 append("${sizeLimitKb * 1024} ")
                 append("${if (pluginMode) 1 else 0} ")
-                append("${fatalThreshold.coerceAtLeast(1)}")
-                append(" >/dev/null 2>&1 &); ")
+                append("${fatalThreshold.coerceAtLeast(1)} ")
+                append("${Root.q(rescueApk)} ")
+                append(">/dev/null 2>&1 &); ")
                 append("fi; ")
                 append("sleep 0.4; cat $PID_FILE 2>/dev/null")
             }
@@ -500,7 +551,11 @@ object Logcat {
                 "测试",
                 "启动 $pkg 抓${seconds}s 大小判定${sizeLimitKb}KB -> $file pid=$pid",
             )
-            AppLog.i("脚本", "待测=$targetApk 救砖=${rescueApk.ifBlank { "(未启用)" }}")
+            AppLog.i(
+                "脚本",
+                "待测=$targetApk 自动回滚=${if (autoRollback) "开" else "关"} " +
+                    "救砖=${rescueApk.ifBlank { "(回滚系统版)" }}",
+            )
             if (pid.toIntOrNull() == null) {
                 return@withContext StartResult.Fail(t("脚本没有起来 检查 root 授权", "The script didn't start — check the root grant"))
             }
@@ -804,7 +859,6 @@ object Logcat {
  * 测的可能是插件 崩溃日志会落在宿主进程的包名里 所以这里允许随便填
  */
 object LogConfig {
-    var pkg by mutableStateOf(Logcat.DEFAULT_PKG)
 
     /** 主页自己的「自动替换」开关 和模块的 LOG_MODE 完全无关 */
     var autoReplace by mutableStateOf(false)
@@ -822,6 +876,9 @@ object LogConfig {
 
     /** 待测 apk 自己的包名 用来判断是不是 miui.systemui.plugin */
     var targetPkg by mutableStateOf("")
+
+    /** 组件救砖包：崩溃后优先装它；空 = 回滚到系统预装版 */
+    var componentRescue by mutableStateOf("")
     var seconds by mutableIntStateOf(Logcat.DEFAULT_SECONDS)
 
     /** 日志大小判定阈值（KB） 0 = 关闭 只按包名判定 */
@@ -831,7 +888,6 @@ object LogConfig {
 
     fun load(context: Context) {
         val p = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-        pkg = p.getString("pkg", Logcat.DEFAULT_PKG).orEmpty()
         seconds = p.getInt("seconds", Logcat.DEFAULT_SECONDS)
             .coerceIn(Logcat.MIN_SECONDS, Logcat.MAX_SECONDS)
         sizeLimitKb = p.getInt("size_kb", Logcat.DEFAULT_SIZE_KB)
@@ -842,11 +898,11 @@ object LogConfig {
         targetPath = p.getString("target_path", "").orEmpty()
         targetSize = p.getLong("target_size", 0L)
         targetPkg = p.getString("target_pkg", "").orEmpty()
+        componentRescue = p.getString("component_rescue", "").orEmpty()
     }
 
     fun save(context: Context) {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().apply {
-            putString("pkg", pkg)
             putInt("seconds", seconds)
             putInt("size_kb", sizeLimitKb)
             putBoolean("auto_replace", autoReplace)
@@ -855,6 +911,7 @@ object LogConfig {
             putString("target_path", targetPath)
             putLong("target_size", targetSize)
             putString("target_pkg", targetPkg)
+            putString("component_rescue", componentRescue)
         }.apply()
     }
 }

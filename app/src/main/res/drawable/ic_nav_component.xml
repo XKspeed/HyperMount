@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 组件页图标：两个同心六边形 + 三条内棱，构成等距立方体
+     外框与立方体轮廓同中心、同朝向，只留线不留面，所有面都是镂空
+     内棱从中心连到内六边形的左上 / 右上 / 下顶点，正好分出顶面与左右两侧
+     外六边形 R=11 顶满 24 视口，缩到 28dp 时和系统界面那格一样有分量 -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:strokeColor="#FF000000"
+        android:strokeWidth="1.6"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M12,1 L21.53,6.5 L21.53,17.5 L12,23 L2.47,17.5 L2.47,6.5 Z" />
+    <path
+        android:strokeColor="#FF000000"
+        android:strokeWidth="1.6"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M12,6.4 L16.85,9.2 L16.85,14.8 L12,17.6 L7.15,14.8 L7.15,9.2 Z M12,12 L16.85,9.2 M12,12 L7.15,9.2 M12,12 L12,17.6" />
+</vector>

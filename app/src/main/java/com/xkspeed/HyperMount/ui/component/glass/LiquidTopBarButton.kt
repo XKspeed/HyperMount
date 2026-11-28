@@ -82,7 +82,7 @@ fun LiquidTopBarButton(
     iconTint: Color = Color.Unspecified,
     containerColor: Color = Color.Unspecified,
     draggable: Boolean = false,
-    adaptiveLuminance: Boolean = false
+    adaptiveLuminance: Boolean = false,
 ) {
     val hapticFeedback = LocalHapticFeedback.current
     val isLightTheme = !isInDarkTheme()
@@ -178,7 +178,7 @@ fun LiquidTopBarButton(
                             hapticFeedback.performHapticFeedback(HapticFeedbackType.Confirm)
                             currentOnClick()
                         }
-                    }
+                    },
                 )
                 .drawBackdrop(
                     backdrop = backdrop,

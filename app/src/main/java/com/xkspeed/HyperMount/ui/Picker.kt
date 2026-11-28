@@ -12,9 +12,9 @@ import java.io.File
 
 /**
  * RESCUE / TARGET 属于「界面」页 直接写进模块
- * MAIN_RESCUE / MAIN_TARGET 属于「主页」 只存本地 两页互不干扰
+ * MAIN_TARGET 属于「主页」 只存本地 两页互不干扰
  */
-enum class PickerTarget { RESCUE, TARGET, MAIN_RESCUE, MAIN_TARGET }
+enum class PickerTarget { RESCUE, TARGET, MAIN_TARGET }
 
 private const val APK_MIME = "application/vnd.android.package-archive"
 

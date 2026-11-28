@@ -27,10 +27,10 @@ data class NavIconTune(
 )
 
 object NavIconTuning {
-    /** 底栏顺序：系统界面 / 应用 / 设置（labels get 现取现译 语言一换立即跟着换） */
-    val keys = listOf("systemUi", "apps", "settings")
+    /** 底栏顺序：系统界面 / 组件 / 设置（labels get 现取现译 语言一换立即跟着换） */
+    val keys = listOf("systemUi", "component", "settings")
     val labels
-        get() = listOf(t("系统界面", "System UI"), t("应用", "Apps"), t("设置", "Settings"))
+        get() = listOf(t("系统界面", "System UI"), t("组件", "Component"), t("设置", "Settings"))
 
     /** 图标在布局里固定占这么大 尺寸变化只缩放绘制内容 */
     const val BASE_SIZE = 26f
@@ -50,8 +50,9 @@ object NavIconTuning {
     /** 定稿值：调试页里调好之后把这里改成导出 JSON 里的数 */
     private val defaults = listOf(
         NavIconTune(size = 24f, offsetX = 0f, offsetY = 0f, scaleY = 1f),
-        // Android 剪影天生偏扁 纵向拉到 1.4 才和另外两个一样高
-        NavIconTune(size = 30f, offsetX = 0f, offsetY = 0f, scaleY = 1.4f),
+        // 双六边形线框比实心图标轻 尺寸给到 28 再加 1dp 下沉 和另外两格齐平
+        NavIconTune(size = 28f, offsetX = 0f, offsetY = 1f, scaleY = 1f),
+        // 扳手斜着放 视觉重量比同高的方块轻 给到 26 才和左边两格齐
         NavIconTune(size = 26f, offsetX = 0f, offsetY = 0f, scaleY = 1f),
     )
 

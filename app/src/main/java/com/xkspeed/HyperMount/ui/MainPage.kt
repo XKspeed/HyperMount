@@ -52,6 +52,7 @@ import com.xkspeed.HyperMount.core.AppVersion
 import com.xkspeed.HyperMount.core.ApkStore
 import com.xkspeed.HyperMount.core.LastRun
 import com.xkspeed.HyperMount.core.LogConfig
+import com.xkspeed.HyperMount.core.Snapshots
 import com.xkspeed.HyperMount.core.ModuleState
 import com.xkspeed.HyperMount.core.Logcat
 import com.xkspeed.HyperMount.core.Module
@@ -76,6 +77,7 @@ import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.extended.More
+import top.yukonga.miuix.kmp.icon.extended.Settings
 import top.yukonga.miuix.kmp.icon.extended.Update
 import top.yukonga.miuix.kmp.preference.ArrowPreference
 import top.yukonga.miuix.kmp.preference.SwitchPreference
@@ -93,10 +95,10 @@ private val UpdateGreen = Color(0xFF2E7D32)
  *
  * 逻辑照搬「双兼容版 logcat.sh」：
  * 后台 pm install 待测 apk → 等 2 秒 → 只抓 crash 缓冲区
- * 自动替换打开时再盯日志大小 超阈值就把救砖 apk 装回去
+ * 自动回滚打开时再盯日志大小 超阈值就回滚到系统预装组件
  *
  * 和「界面」页完全独立：两份 apk 都不复制，脚本直接读原路径安装
- * 也不依赖模块守护 自动替换关掉也能单独抓日志
+ * 也不依赖模块守护 自动回滚关掉也能单独抓日志
  */
 @Composable
 fun MainPage(
@@ -105,18 +107,24 @@ fun MainPage(
     rootOk: Boolean?,
     latest: UpdateInfo?,
     onOpenAbout: () -> Unit,
-    onPickRescue: () -> Unit,
     onPickTarget: () -> Unit,
     onOpenConfig: () -> Unit,
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
-    // 自动替换是主页自己的开关 存在本地 不读也不改模块的 LOG_MODE
+    // 自动回滚是主页自己的开关 存在本地 不读也不改模块的 LOG_MODE
     val autoReplace = LogConfig.autoReplace
 
     var showStartConfirm by remember { mutableStateOf(false) }
     var starting by remember { mutableStateOf(false) }
+    // 手动回滚组件：不经过崩溃检测，点了就退回预装版
+    var showRollbackConfirm by remember { mutableStateOf(false) }
+    // 指定组件救砖包：可以从快照里挑，也可以不用（回滚系统预装版）
+    var showRescuePick by remember { mutableStateOf(false) }
+    // 快照从底部弹出 不另开页面
+    var showSnapshots by remember { mutableStateOf(false) }
+    var rollingBack by remember { mutableStateOf(false) }
     // 会话与输出放单例：切到设置/关于再回来 还在跑的那一轮不会“凭空消失”
     val session = MainUiState.session
     val running = MainUiState.running
@@ -124,8 +132,11 @@ fun MainPage(
     val logSize = MainUiState.logSize
     val logListState = rememberLazyListState()
 
-    // 进页面先把累计救砖次数捞出来 不用等第一次轮询
+    // 进页面先把累计回滚次数捞出来 不用等第一次轮询
     LaunchedEffect(Unit) { MainUiState.rescued = Logcat.rescuedCount() }
+
+    // 救砖组件的备选来自快照仓库 进页面读一次
+    LaunchedEffect(Unit) { Snapshots.load(context) }
 
     // 测试在跑 或者脚本刚起来还没读到状态 就把日志区撑开
     val showLog = running || session != null
@@ -150,7 +161,7 @@ fun MainPage(
                     val r = p.text.lineSequence()
                         .lastOrNull { it.contains("结果:") }
                         ?.substringAfter("结果:")?.trim().orEmpty()
-                    if (r.isNotBlank()) LastRun.save(context, LogConfig.pkg, r)
+                    if (r.isNotBlank()) LastRun.save(context, Logcat.DEFAULT_PKG, r)
                 }
                 break
             }
@@ -181,8 +192,7 @@ fun MainPage(
         label = "mainLogArea",
     )
 
-    // 两份 apk 都是主页自己选的 和「界面」页各存各的
-    val rescueReady = LogConfig.rescuePath.isNotBlank()
+    // 只有一个待测 apk 要选 救砖改成崩溃后直接回滚
     val targetReady = LogConfig.targetPath.isNotBlank()
 
     // 日志目录是开机测试的硬前提：模块里默认是空的 没选就写不了日志
@@ -211,14 +221,8 @@ fun MainPage(
     fun startTest() {
         scope.launch {
             if (!targetReady) {
-                if (UiFeedback.show(t("先选待测 apk", "Pick a test apk first"), t("去选择", "Select"))) {
+                if (UiFeedback.show(t("先选待测组件", "Pick a test component first"), t("去选择", "Select"))) {
                     Locate.request(LocateTarget.MAIN_TARGET)
-                }
-                return@launch
-            }
-            if (autoReplace && !rescueReady) {
-                if (UiFeedback.show(t("自动替换开着，先选救砖 apk", "Auto-replace is on — pick a rescue apk first"), t("去选择", "Select"))) {
-                    Locate.request(LocateTarget.MAIN_RESCUE)
                 }
                 return@launch
             }
@@ -234,24 +238,8 @@ fun MainPage(
             val target = LogConfig.targetPath
             if (!Logcat.exists(target)) {
                 starting = false
-                if (UiFeedback.show(t("待测 apk 不见了，重新选一次", "Test apk is missing — pick again"), t("去选择", "Select"))) {
+                if (UiFeedback.show(t("待测组件不见了，重新选一次", "Test component is missing — pick again"), t("去选择", "Select"))) {
                     Locate.request(LocateTarget.MAIN_TARGET)
-                }
-                return@launch
-            }
-            // 救砖只认私有目录里的副本：原文件被删也能救，缺了就让人重选
-            if (autoReplace && !withContext(Dispatchers.IO) { ApkStore.ensureRescue(context) }) {
-                starting = false
-                if (UiFeedback.show(t("救砖 apk 不见了，重新选一次", "Rescue apk is missing — pick again"), t("去选择", "Select"))) {
-                    Locate.request(LocateTarget.MAIN_RESCUE)
-                }
-                return@launch
-            }
-            val rescue = if (autoReplace) LogConfig.rescuePath else ""
-            if (autoReplace && !Logcat.exists(rescue)) {
-                starting = false
-                if (UiFeedback.show(t("救砖 apk 不见了，重新选一次", "Rescue apk is missing — pick again"), t("去选择", "Select"))) {
-                    Locate.request(LocateTarget.MAIN_RESCUE)
                 }
                 return@launch
             }
@@ -276,11 +264,12 @@ fun MainPage(
             }
             when (
                 val r = Logcat.start(
-                    pkg = LogConfig.pkg.trim(),
+                    pkg = Logcat.DEFAULT_PKG,
                     seconds = LogConfig.seconds,
                     sizeLimitKb = LogConfig.sizeLimitKb,
                     targetApk = staged,
-                    rescueApk = rescue,
+                    autoRollback = autoReplace,
+                    rescueApk = LogConfig.componentRescue,
                     pluginMode = pluginMode,
                     fatalThreshold = state.fatalThreshold.toIntOrNull() ?: 3,
                     dir = state.logDir,
@@ -319,7 +308,7 @@ fun MainPage(
     }
 
     ScrollPage(
-        title = t("应用", "Apps"),
+        title = t("组件", "Component"),
         // 定位请求要滚动这一份才有效
         listState = listState,
         subtitle = "v${AppVersion.name}",
@@ -364,20 +353,15 @@ fun MainPage(
                 backdrop = pageBackdrop,
                 running = running,
                 busy = starting,
-                // 待测 apk 选好才把按钮升上来；救砖、日志目录缺的话点了会拦一道
+                // 待测 apk 选好才把按钮升上来；日志目录缺的话点了会拦一道
                 ready = targetReady,
                 // 条件不满足不再灰按钮：点了统一弹提示 并带用户去对应的卡
                 onStart = {
                     when {
                         rootOk != true -> scope.launch { UiFeedback.toast(t("还没拿到 root 权限", "Root access not granted yet")) }
                         !targetReady -> scope.launch {
-                            if (UiFeedback.show(t("先选待测 apk", "Pick a test apk first"), t("去选择", "Select"))) {
+                            if (UiFeedback.show(t("先选待测组件", "Pick a test component first"), t("去选择", "Select"))) {
                                 Locate.request(LocateTarget.MAIN_TARGET)
-                            }
-                        }
-                        autoReplace && !rescueReady -> scope.launch {
-                            if (UiFeedback.show(t("自动替换开着，先选救砖 apk", "Auto-replace is on — pick a rescue apk first"), t("去选择", "Select"))) {
-                                Locate.request(LocateTarget.MAIN_RESCUE)
                             }
                         }
                         // 只判「有没有配」：目录不存在会由脚本 mkdir -p 建出来
@@ -392,9 +376,10 @@ fun MainPage(
                 onStop = { stopTest() },
             )
         },
-        // 右上角三点：进配置页（目标包名 / 抓取时长 / 日志大小判定）
+        // 右上角：进配置页（抓取时长 / 日志大小判定）
+        // 用齿轮：底栏「设置」已经换成扳手 这里再放齿轮不会撞
         onTopAction = onOpenConfig,
-        topActionIcon = rememberVectorPainter(MiuixIcons.More),
+        topActionIcon = rememberVectorPainter(MiuixIcons.Settings),
         topActionDescription = t("配置", "Config"),
         topActionIconSize = TopBarTuning.MENU_ICON_SIZE.dp,
     ) {
@@ -421,7 +406,7 @@ fun MainPage(
                     Text(
                         buildString {
                             if (running) {
-                                append(LogConfig.pkg.ifBlank { t("全部进程", "All processes") })
+                                append(Logcat.DEFAULT_PKG)
                                 append(t(" · 抓取 ", " · Capturing ")).append(LogConfig.seconds).append(t(" 秒", " s"))
                             } else {
                                 val last = LastRun.text()
@@ -431,9 +416,8 @@ fun MainPage(
                                     append(t("上次 ", "Last ")).append(LastRun.timeText()).append(" · ").append(last)
                                 }
                             }
-                            append(t(" · 自动替换", " · Auto-replace")).append(if (autoReplace) t("开", " on") else t("关", " off"))
-                            if (LogConfig.targetPkg == Logcat.PLUGIN_PKG) append(t(" · plugin 增强", " · plugin enhanced"))
-                            if (rescueCount > 0) append(t(" · 已救砖 ", " · Rescued ")).append(rescueCount).append(t(" 次", " times"))
+                            append(t(" · 自动回滚", " · Auto-rollback")).append(if (autoReplace) t("开", " on") else t("关", " off"))
+                            if (rescueCount > 0) append(t(" · 已回滚 ", " · Rolled back ")).append(rescueCount).append(t(" 次", " times"))
                             if (logSize > 0) append(" · ").append(Module.fmtSize(logSize))
                         },
                         color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
@@ -469,7 +453,7 @@ fun MainPage(
                                             color = when {
                                                 isErrorLine(line) ->
                                                     MiuixTheme.colorScheme.error
-                                                line.contains("救砖成功") || line.contains("安装结束") ->
+                                                line.contains("回滚成功") || line.contains("安装结束") ->
                                                     MiuixTheme.colorScheme.primary
                                                 else -> MiuixTheme.colorScheme.onSurface
                                             },
@@ -510,7 +494,7 @@ fun MainPage(
             }
         }
 
-        // ---- 文件：先开关 再展开选 apk ----
+        // ---- 文件：开关 + 待测 apk ----
         item { SmallTitle(t("文件", "Files")) }
         item {
             SectionCard {
@@ -520,33 +504,21 @@ fun MainPage(
                         LogConfig.autoReplace = it
                         LogConfig.save(context)
                     },
-                    title = t("自动替换", "Auto-replace"),
-                    summary = t("在apk崩溃后 换回救砖apk", "Roll back to the rescue apk after a crash"),
+                    title = t("崩溃自动恢复", "Auto-recover"),
                     enabled = !locked,
                 )
-                AnimatedVisibility(
-                    visible = autoReplace,
-                    enter = fadeIn() + expandVertically(),
-                    exit = fadeOut() + shrinkVertically(),
-                ) {
-                    Column {
-                        ArrowPreference(
-                            title = t("救砖apk", "Rescue apk"),
-                            // 没选就给 null（不是空串）：库按「有没有 summary」排版，
-                            // 空串仍会占一行空白 标题就被顶到上面去了
-                            summary = if (rescueReady) {
-                                LogConfig.rescuePath.substringAfterLast('/')
-                            } else {
-                                null
-                            },
-                            onClick = onPickRescue,
-                            enabled = !locked,
-                            modifier = Modifier.locateHighlight(LocateTarget.MAIN_RESCUE),
-                        )
-                    }
-                }
                 ArrowPreference(
-                    title = t("待测apk", "Test apk"),
+                    title = t("救砖组件", "Rescue component"),
+                    summary = if (LogConfig.componentRescue.isNotBlank()) {
+                        LogConfig.componentRescue.substringAfterLast('/')
+                    } else {
+                        t("未指定 · 回滚系统预装版", "Not set — rolls back to the system build")
+                    },
+                    onClick = { if (!locked) showRescuePick = true },
+                    enabled = !locked,
+                )
+                ArrowPreference(
+                    title = t("待测组件", "Test component"),
                     summary = if (targetReady) {
                         LogConfig.targetPath.substringAfterLast('/')
                     } else {
@@ -555,6 +527,27 @@ fun MainPage(
                     onClick = onPickTarget,
                     enabled = !locked,
                     modifier = Modifier.locateHighlight(LocateTarget.MAIN_TARGET),
+                )
+                // 快照：从底部拉起，记录当下这份 / 导出 / 直接设为救砖
+                ArrowPreference(
+                    title = t("组件快照", "Component snapshots"),
+                    onClick = { showSnapshots = true },
+                )
+            }
+        }
+
+        // 组件自己的区域：和测试分开，测试跑着也不会误点到
+        item {
+            SectionCard {
+                ArrowPreference(
+                    title = t("回滚组件", "Roll back component"),
+                    summary = if (rollingBack) {
+                        t("正在回滚…", "Rolling back…")
+                    } else {
+                        t("恢复到系统预装版本", "Restore the preinstalled build")
+                    },
+                    onClick = { if (!rollingBack) showRollbackConfirm = true },
+                    enabled = !locked && !rollingBack,
                 )
             }
         }
@@ -565,7 +558,7 @@ fun MainPage(
         WindowDialog(
             show = true,
             title = t("开始测试", "Start test"),
-            summary = t("确认后立即安装待测apk", "The test apk is installed right after you confirm"),
+            summary = t("确认后立即安装待测组件", "The test component is installed right after you confirm"),
             maxWidth = 560.dp,
             onDismissRequest = { showStartConfirm = false },
         ) {
@@ -594,7 +587,79 @@ fun MainPage(
             }
         }
     }
+
+    // 指定救砖组件：从组件快照里挑一份，或干脆不用（回滚系统预装版）
+    // 与快照面板同一套底部弹出，左上是关闭而不是记录
+    RescuePickSheet(
+        show = showRescuePick,
+        onDismiss = { showRescuePick = false },
+        onPick = { snap ->
+            LogConfig.componentRescue = snap.path
+            LogConfig.autoReplace = true
+            LogConfig.save(context)
+            showRescuePick = false
+        },
+        onClear = {
+            LogConfig.componentRescue = ""
+            LogConfig.save(context)
+            showRescuePick = false
+        },
+    )
+
+    // 手动回滚：只卸更新层，不动用户选的任何文件，也不经过崩溃检测
+    if (showRollbackConfirm) {
+        WindowDialog(
+            show = true,
+            title = t("回滚组件", "Roll back component"),
+            summary = t(
+                "卸载组件更新，回到系统预装版本。界面会重启一次。",
+                "Remove the component update and restore the preinstalled build. System UI restarts once.",
+            ),
+            maxWidth = 560.dp,
+            onDismissRequest = { showRollbackConfirm = false },
+        ) {
+            Text(
+                "miui.systemui.plugin",
+                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                style = MiuixTheme.textStyles.subtitle,
+            )
+            Spacer(Modifier.height(20.dp))
+            Row(modifier = Modifier.fillMaxWidth()) {
+                TextButton(
+                    text = t("取消", "Cancel"),
+                    onClick = { showRollbackConfirm = false },
+                    modifier = Modifier.weight(1f),
+                )
+                Spacer(Modifier.width(20.dp))
+                TextButton(
+                    text = t("回滚", "Roll back"),
+                    onClick = {
+                        showRollbackConfirm = false
+                        scope.launch {
+                            rollingBack = true
+                            val err = Module.rollbackComponent()
+                            rollingBack = false
+                            if (err == null) {
+                                UiFeedback.toast(t("已回滚到预装版", "Restored the preinstalled build"))
+                            } else {
+                                UiFeedback.show(err, t("知道了", "OK"))
+                            }
+                        }
+                    },
+                    modifier = Modifier.weight(1f),
+                    colors = ButtonDefaults.textButtonColorsPrimary(),
+                )
+            }
+        }
+    }
+
+    SnapshotSheet(
+        show = showSnapshots,
+        kind = Snapshots.KIND_PLUGIN,
+        onDismiss = { showSnapshots = false },
+    )
 }
+
 
 /** 主页这一轮的状态：放外面 切页回来还在 */
 private object MainUiState {

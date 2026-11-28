@@ -2,12 +2,6 @@ package com.xkspeed.HyperMount.ui
 
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.asPaddingValues
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
@@ -20,15 +14,14 @@ import com.xkspeed.HyperMount.ui.component.glass.ScrollPage
 import com.xkspeed.HyperMount.ui.components.SectionCard
 import com.xkspeed.HyperMount.ui.components.SliderInputPreference
 import top.yukonga.miuix.kmp.basic.SmallTitle
-import top.yukonga.miuix.kmp.basic.TextField
 import kotlin.math.roundToInt
 import com.xkspeed.HyperMount.ui.util.stableNavigationBarHeight
 
 /**
  * 配置页
  *
- * 主页右上角三点进来。目标包名 / 抓取时长 / 日志大小判定原先挤在主页的弹窗里，
- * 单独成页之后和「界面设置」一个路子：进来改完就退 主页只留测试本身。
+ * 主页右上角三点进来。抓取包名固定抓界面进程，不让人改：
+ * 组件跑在 SystemUI 进程里，换个包名只会抓不到东西。
  */
 @Composable
 fun ConfigPage(onBack: () -> Unit) {
@@ -36,7 +29,6 @@ fun ConfigPage(onBack: () -> Unit) {
 
     ScrollPage(
         title = t("配置", "Config"),
-        subtitle = t("目标包名 · 抓取时长 · 日志大小判定", "Target package · capture time · log size limit"),
         onBack = onBack,
         bottomPadding = stableNavigationBarHeight() + 24.dp,
     ) {
@@ -44,18 +36,6 @@ fun ConfigPage(onBack: () -> Unit) {
         item {
             SectionCard {
                 Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
-                    TextField(
-                        value = LogConfig.pkg,
-                        onValueChange = {
-                            LogConfig.pkg = it.trim()
-                            LogConfig.save(context)
-                        },
-                        // 空时居中、输入后上浮缩小：和示例里的 With title 同款
-                        label = t("目标包名", "Target package"),
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                    Spacer(Modifier.height(4.dp))
                     SliderInputPreference(
                         title = t("抓取时长", "Capture time"),
                         summary = t("装完 2 秒后开始算 下一轮生效", "Counts from 2 s after install; applies to the next run"),

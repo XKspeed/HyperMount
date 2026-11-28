@@ -110,6 +110,7 @@ fun AboutPage(
     onOpenInstaller: (String) -> Unit = {},
     onDownloadModule: () -> Unit,
     onOpenThirdPartyLicenses: () -> Unit,
+    onOpenDonate: () -> Unit = {},
     onBack: () -> Unit,
 ) {
     val listState = rememberLazyListState()
@@ -195,6 +196,11 @@ fun AboutPage(
                             "v$moduleVersion → v${Update.moduleLabel(moduleLatest)}"
                         else -> "v$moduleVersion"
                     },
+                )
+                // 捐赠从设置页挪到模块版本下面：跟着版本信息走，一层就能找到
+                ArrowPreference(
+                    title = t("捐赠", "Donate"),
+                    onClick = onOpenDonate,
                 )
             }
         }

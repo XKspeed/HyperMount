@@ -5,15 +5,9 @@ import android.content.Context
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.expandVertically
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -34,8 +28,6 @@ import androidx.compose.ui.graphics.vector.rememberVectorPainter
 import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.dp
 import com.xkspeed.HyperMount.core.AppLog
-import com.xkspeed.HyperMount.core.BuildVariant
-import com.xkspeed.HyperMount.core.LogLevel
 import com.xkspeed.HyperMount.core.Module
 import com.xkspeed.HyperMount.core.ModuleState
 import com.xkspeed.HyperMount.core.UpdateChannel
@@ -69,11 +61,9 @@ fun SettingsPage(
     onSetConf: (String, String) -> Unit,
     onOpenUiSettings: () -> Unit = {},
     onOpenDebug: () -> Unit = {},
-    onOpenAppLog: () -> Unit = {},
     onOpenCache: () -> Unit = {},
     onOpenMcp: () -> Unit = {},
     onOpenAbout: () -> Unit = {},
-    onOpenDonate: () -> Unit = {},
     onCheckUpdate: () -> Unit = {},
     checkingUpdate: Boolean = false,
 ) {
@@ -206,44 +196,7 @@ fun SettingsPage(
                     }
                 }
 
-                // 自动救砖整组已经挪到「界面」页
-                item { SmallTitle(t("调试", "Debug")) }
-                item {
-                    SectionCard {
-                        // 顺序：应用日志等级 → 应用日志内容
-                        // 这两行不带副标题：下拉右侧已经写着当前档位 文件行点进去就是内容
-                        LiquidSelectPreference(
-                            title = t("应用日志等级", "App log level"),
-                            items = LOG_LEVEL_LABELS(),
-                            selectedIndex = logLevelIndex(AppLog.level),
-                            onSelectedIndexChange = {
-                                AppLog.setLevel(context, LOG_LEVEL_CHOICES[it])
-                            },
-                            state = select,
-                        )
-                        // 等级为「关闭」时不写日志 内容那行跟着收起 动画同「日志目录」
-                        AnimatedVisibility(
-                            visible = AppLog.level != LogLevel.OFF,
-                            enter = fadeIn() + expandVertically(),
-                            exit = fadeOut() + shrinkVertically(),
-                        ) {
-                            Column {
-                                ArrowPreference(
-                                    title = t("应用日志内容", "App log content"),
-                                    onClick = onOpenAppLog,
-                                )
-                            }
-                        }
-                        // 只有非正式签名（debug / MT 重签的测试包）才给这个入口：
-                        // 正式包走 release 私钥 指纹对不上 这一行根本不会渲染
-                        if (BuildVariant.isDebuggable) {
-                            ArrowPreference(
-                                title = t("调试选项", "Debug options"),
-                                onClick = onOpenDebug,
-                            )
-                        }
-                    }
-                }
+                // 应用日志与 OOBE 都挪进「开发者选项」二级页，设置页不再单开调试组
 
                 // 接口：给 AI 客户端的 MCP 入口 默认关闭
                 item { SmallTitle(t("接口", "API")) }
@@ -296,12 +249,12 @@ fun SettingsPage(
                     }
                 }
 
-                // 捐赠单独一张卡 挨着关于卡放 不写分区标题
+                // 开发者选项：单独一张卡、放在全页最下方，正式包也保留这个入口
                 item {
                     SectionCard {
                         ArrowPreference(
-                            title = t("向作者捐赠", "Donate"),
-                            onClick = onOpenDonate,
+                            title = t("开发者选项", "Developer options"),
+                            onClick = onOpenDebug,
                         )
                     }
                 }

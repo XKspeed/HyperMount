@@ -64,14 +64,20 @@ private const val TINT_MAX_ALPHA = 0.8f
  *
  * @param backdrop 顶栏采样源（见 rememberLayerBackdrop）
  * @param tintColor 渐变用页面底色；必须与页面实际背景一致 否则顶栏渐变会与页面出现色差
+ * @param fadeLength 淡出总长度（从层底往上量）。顶栏越矮这个值要越小，
+ *   否则整条都处在淡出区间里，只剩最上面几 dp 能看见模糊
+ * @param tintMaxAlpha 层顶底色浓度。1 = 层顶就是纯底色、什么都透不出来；
+ *   矮顶栏（比如底部面板的标题行）要调低，不然模糊会被底色糊住
  */
 @Composable
 fun titleBarProgressiveBlur(
     backdrop: Backdrop,
-    tintColor: Color
+    tintColor: Color,
+    fadeLength: Dp = FadeLength,
+    tintMaxAlpha: Float = TINT_MAX_ALPHA,
 ): Modifier {
     val effects: com.kyant.backdrop.BackdropEffectScope.() -> Unit =
-        remember(tintColor) {
+        remember(tintColor, fadeLength, tintMaxAlpha) {
             {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                     // 取整数值：backdrop 1.0.5 用 padding.toInt() 开缓冲 而录制端按 float
@@ -84,8 +90,8 @@ fun titleBarProgressiveBlur(
                     val contentH = size.height
                     val bufferW = contentW + 2f * pad
                     val bufferH = contentH + 2f * pad
-                    // 淡出终点固定在层底（否则层底出现硬边） 起点由 FadeLength 决定
-                    val fadeStart = (contentH - FadeLength.toPx()).coerceAtLeast(0f)
+                    // 淡出终点固定在层底（否则层底出现硬边） 起点由 fadeLength 决定
+                    val fadeStart = (contentH - fadeLength.toPx()).coerceAtLeast(0f)
 
                     val blurShader =
                         obtainRuntimeShader("ProgressiveBlur", PROGRESSIVE_BLUR_SHADER)
@@ -95,7 +101,7 @@ fun titleBarProgressiveBlur(
                     blurShader.setFloatUniform("maxRadius", maxRadiusPx)
                     blurShader.setFloatUniform("fadeStart", fadeStart)
                     blurShader.setColorUniform("tint", tintColor.toArgb())
-                    blurShader.setFloatUniform("tintMax", TINT_MAX_ALPHA)
+                    blurShader.setFloatUniform("tintMax", tintMaxAlpha)
                     effect(RenderEffect.createRuntimeShaderEffect(blurShader, "content"))
 
                     val denoiseShader =

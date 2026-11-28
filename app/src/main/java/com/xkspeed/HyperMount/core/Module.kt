@@ -312,6 +312,39 @@ object Module {
         Root.webctl("prepare ${Root.q(src)}")
     }
 
+    /**
+     * 手动把组件退回系统预装版
+     *
+     * `pm uninstall` 删掉 /data 里的更新层，PMS 自己回到 /product 那份预装版，
+     * 不用我们备份、也不用救砖包。只对 `pm install` 装上去的更新有效；
+     * 如果是 Magisk 挂载替换，根本没有更新层，这里会失败并说明原因。
+     *
+     * 返回 null = 成功，否则是一句能直接显示的原因。
+     */
+    suspend fun rollbackComponent(): String? = withContext(Dispatchers.IO) {
+        val pkg = Logcat.PLUGIN_PKG
+        val out = logged("rollback $pkg") {
+            Root.exec(
+                "pm uninstall $pkg 2>&1; " +
+                    "echo PATH=\$(pm path $pkg 2>/dev/null | head -n 1)",
+            )
+        }
+        val path = out.lineSequence()
+            .firstOrNull { it.startsWith("PATH=") }
+            ?.removePrefix("PATH=")
+            ?.trim()
+            .orEmpty()
+        when {
+            path.contains("/product/") || path.contains("/system/") -> {
+                // 界面要重载才会换成预装组件
+                Root.exec("killall com.android.systemui 2>/dev/null")
+                null
+            }
+            path.isBlank() -> t("组件已卸载，但没找到预装版", "Component removed, no preinstalled build found")
+            else -> t("没回到预装版：$path", "Still not the preinstalled build: $path")
+        }
+    }
+
     /** 界面的实际挂载点：单文件 bind，内容就是模块里那份 apk */
     private const val MOUNTED_APK = "/system_ext/priv-app/MiuiSystemUI/MiuiSystemUI.apk"
 

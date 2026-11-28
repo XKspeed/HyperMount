@@ -34,7 +34,12 @@ class InteractiveHighlight(
     private val radiusBaseDp: androidx.compose.ui.unit.Dp = 0.dp,
     // 手势层叠在被选中 Tab 上方 普通点击不会穿透到底下的 Tab 按钮；
     // "按下后未拖动即抬起"视为点按当前选中 Tab（iOS 再点回根部语义）
-    private val onTap: () -> Unit = {}
+    private val onTap: () -> Unit = {},
+    /**
+     * 与 [onTap] 二选一：一整块里分成几格、要按落点决定动作时用它。
+     * 参数是手指按下点（本节点局部坐标），判定逻辑交给调用方。
+     */
+    private val onTapAt: ((Offset) -> Unit)? = null,
 ) {
     private val press = Animatable(0f, 0.001f)
     private val location = Animatable(Offset.Zero, Offset.VectorConverter, Offset.VisibilityThreshold)
@@ -154,7 +159,7 @@ half4 main(float2 coord) {
                     launch { location.animateTo(start, spring(0.5f, 300f, Offset.VisibilityThreshold)) }
                 }
                 if (dragDistance < viewConfiguration.touchSlop) {
-                    onTap()
+                    if (onTapAt != null) onTapAt.invoke(start) else onTap()
                 }
             },
             onDragCancel = {

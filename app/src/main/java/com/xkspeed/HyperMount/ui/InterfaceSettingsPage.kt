@@ -135,7 +135,7 @@ private fun snapWatch(min: Float): Float {
 }
 
 /**
- * 界面设置（界面页右上角进入）
+ * 配置（界面页右上角进入）
  *
  * 这里收着原来散在界面页上的东西：全局常驻救砖的开关与时长，
  * 以及救砖逻辑那四行（音量键校验 / 增强救砖 / 崩溃阈值 / 屏蔽系统救援）。
@@ -310,7 +310,7 @@ fun InterfaceSettingsPage(
     }
 
     ScrollPage(
-        title = t("设置", "Settings"),
+        title = t("配置", "Config"),
         onBack = onBack,
         bottomPadding = stableNavigationBarHeight() + 24.dp,
         overlay = { bd ->

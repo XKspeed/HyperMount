@@ -78,9 +78,9 @@ import com.xkspeed.HyperMount.ui.component.glass.GlassNavItem
 import com.xkspeed.HyperMount.ui.component.glass.StandardBottomNav
 import com.xkspeed.HyperMount.ui.component.glass.StandardBottomNavHeight
 import com.xkspeed.HyperMount.ui.components.MiuixDialog
+import com.xkspeed.HyperMount.ui.component.glass.bottomBarTopOffset
 import com.xkspeed.HyperMount.ui.components.BottomActionBarGap
 import com.xkspeed.HyperMount.ui.components.BottomActionCardHeight
-import com.xkspeed.HyperMount.ui.component.glass.bottomBarTopOffset
 import com.xkspeed.HyperMount.ui.component.glass.trackBottomBarTop
 import com.xkspeed.HyperMount.ui.util.LocalIsWideScreen
 import com.xkspeed.HyperMount.ui.util.rememberBlurBackdrop
@@ -105,7 +105,6 @@ import top.yukonga.miuix.kmp.blur.isRuntimeShaderSupported
 import top.yukonga.miuix.kmp.blur.layerBackdrop
 import top.yukonga.miuix.kmp.blur.rememberLayerBackdrop
 import top.yukonga.miuix.kmp.blur.textureBlur
-import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.extended.Home
 import top.yukonga.miuix.kmp.icon.extended.Layers
 import top.yukonga.miuix.kmp.icon.extended.Settings
@@ -117,7 +116,6 @@ import top.yukonga.miuix.kmp.nav.core.rememberNavBackStack
 import top.yukonga.miuix.kmp.nav.core.rememberNavSystemCornerRadius
 import top.yukonga.miuix.kmp.nav.transition.NavTransitions
 import top.yukonga.miuix.kmp.basic.Scaffold
-import top.yukonga.miuix.kmp.basic.SnackbarHost
 import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.basic.TextField
 import top.yukonga.miuix.kmp.theme.MiuixTheme
@@ -175,8 +173,8 @@ sealed interface Route : NavKey {
 /** 底栏三页 默认停在中间的主页 */
 private const val HOME_PAGE = 1
 
-/** 主页里被拦下的系统界面本体：是待测 apk 还是救砖 apk */
-private enum class SysUiBlock { Target, Rescue }
+/** 组件页里被拦下的系统界面本体 */
+private enum class SysUiBlock { Target }
 
 @Composable
 fun App() {
@@ -265,11 +263,9 @@ fun App() {
     var crashFile by remember { mutableStateOf<File?>(null) }
 
     // 应用页选到了系统界面本体：拦下来并引导去系统界面页
-    // 待测 apk 和救砖 apk 都会被 pm install 进系统 两份都得挡
+    // 待测 apk 会被 pm install 进系统 系统界面本体必须挡
     var sysUiBlock by remember { mutableStateOf<SysUiBlock?>(null) }
     // 救砖包已经写进私有目录但还没确认：取消时删掉新包 旧配置原样不动
-    var pendingRescue by remember { mutableStateOf<java.io.File?>(null) }
-    var pendingPrevious by remember { mutableStateOf("") }
     // 让底栏跳到指定页（-1 表示无）
     var jumpTab by remember { mutableIntStateOf(-1) }
 
@@ -332,12 +328,12 @@ fun App() {
         scope.launch {
             // 先摆出筛源这一步：探测最慢 干等着像卡死
             appStage = UpdateStage.Probing(0, sources.size)
-            // 文件名直接用 GitHub 上的附件名（HyperMount-arm64-1.6.0.apk）
+            // 文件名直接用 GitHub 上的附件名（HyperMount-1.6.0.apk）
             // 与模块 zip 同一套规则：下到公共目录后一眼认得出是哪个包、哪个版本。
             // 清单里的 url 始终指向 GitHub，镜像只换前缀不换尾段
             val name = info.url.substringAfterLast('/').substringBefore('?')
                 .takeIf { it.endsWith(".apk", ignoreCase = true) }
-                ?: "HyperMount-arm64-${Update.label(info)}.apk"
+                ?: "HyperMount-${Update.label(info)}.apk"
             val tmp = File(Installer.stagingDir(context), name)
             val result = runCatching {
                 Downloader.fetch(
@@ -395,12 +391,12 @@ fun App() {
         }
         scope.launch {
             moduleStage = UpdateStage.Probing(0, sources.size)
-            // 文件名直接用 GitHub 上的附件名（systemui_mount-v1.6.0.zip）：
+            // 文件名直接用 GitHub 上的附件名（SystemUI_mount_1.6.0.zip）：
             // 下到公共目录后，用户在文件管理器里一眼认得出是哪个包、哪个版本。
             // 主源挂了会换镜像，清单里的 moduleUrl 始终是 GitHub 那条，取它的尾段就行
             val name = info.moduleUrl.substringAfterLast('/').substringBefore('?')
                 .takeIf { it.endsWith(".zip", ignoreCase = true) }
-                ?: "systemui_mount-v${Update.moduleLabel(info)}.zip"
+                ?: "SystemUI_mount_${Update.moduleLabel(info)}.zip"
             val tmp = File(Installer.stagingDir(context), name)
             val result = runCatching {
                 Downloader.fetch(
@@ -658,78 +654,33 @@ fun App() {
     fun handlePicked(target: PickerTarget, uri: Uri) {
         // 复制动辄上百兆 不能压在主线线程上 否则选择器刚回来就 ANR
         scope.launch {
-            // 主页：待测一个字节都不复制，救砖直接落到 files/rescueapk/
-            if (target == PickerTarget.MAIN_RESCUE || target == PickerTarget.MAIN_TARGET) {
-                if (target == PickerTarget.MAIN_TARGET) {
-                    // 只记真实路径 —— 开跑时由 root 直接装这个文件
-                    val real = withContext(Dispatchers.IO) { folderPathOf(context, uri) }
-                    if (real.isNullOrBlank()) {
-                        toast(context, t("这个管理器没给出真实路径 换 MT 的 root 模式再选一次", "This manager gave no real path — pick again with MT's root mode"))
-                        return@launch
-                    }
-                    // 只读一次做校验，不留副本
-                    val pkg = withContext(Dispatchers.IO) { packageOfUri(context, uri, real) }
-                    if (pkg == SYSTEMUI_PACKAGE) {
-                        sysUiBlock = SysUiBlock.Target
-                        return@launch
-                    }
-                    if (pkg == null) {
-                        toast(context, t("这个文件不是有效的 apk", "Not a valid apk file"))
-                        return@launch
-                    }
-                    if (real == LogConfig.rescuePath) {
-                        toast(context, t("待测apk不能和救砖apk是同一个文件", "Test apk and rescue apk can't be the same file"))
-                        return@launch
-                    }
-                    LogConfig.targetPath = real
-                    LogConfig.targetSize = Logcat.sizeOf(real)
-                    // 记下包名：miui.systemui.plugin 要走增强判定
-                    LogConfig.targetPkg = pkg
-                    LogConfig.save(context)
-                    toast(context, t("已选择待测apk", "Test apk selected"))
+            // 主页的待测组件：只认组件包，和界面页只认系统界面是一个道理
+            if (target == PickerTarget.MAIN_TARGET) {
+                // 只记真实路径 —— 开跑时由 root 直接装这个文件
+                val real = withContext(Dispatchers.IO) { folderPathOf(context, uri) }
+                if (real.isNullOrBlank()) {
+                    toast(context, t("这个管理器没给出真实路径 换 MT 的 root 模式再选一次", "This manager gave no real path — pick again with MT's root mode"))
                     return@launch
                 }
-
-                // 救砖：选择器的流直接写进 files/rescueapk/，不经任何中转目录
-                val previous = LogConfig.rescuePath
-                    .takeIf { it.isNotBlank() && it != LogConfig.targetPath }
-                    .orEmpty()
-                val dst = withContext(Dispatchers.IO) {
-                    ApkStore.installRescueFromUri(context, uri, previous)
-                }
-                if (dst == null) {
-                    toast(context, t("保存失败 存储空间可能不够", "Save failed — storage may be full"))
+                // 只读一次做校验，不留副本
+                val pkg = withContext(Dispatchers.IO) { packageOfUri(context, uri, real) }
+                if (pkg == SYSTEMUI_PACKAGE) {
+                    sysUiBlock = SysUiBlock.Target
                     return@launch
                 }
-                val pkg = withContext(Dispatchers.IO) { packageNameOf(context, dst) }
-                // 系统界面本体装错一次就是黑砖 这里必须拉黑
-                if (pkg == SYSTEMUI_PACKAGE || pkg == null) {
-                    withContext(Dispatchers.IO) { dst.delete() }
-                    LogConfig.rescuePath = ""
-                    LogConfig.rescueSize = 0L
-                    LogConfig.save(context)
-                    if (pkg == SYSTEMUI_PACKAGE) {
-                        sysUiBlock = SysUiBlock.Rescue
-                    } else {
-                        toast(context, t("这个文件不是有效的 apk", "Not a valid apk file"))
-                    }
+                if (pkg == null) {
+                    toast(context, t("这个文件不是有效的 apk", "Not a valid apk file"))
                     return@launch
                 }
-                // 和待测是同一份内容 崩了装回去等于什么都没换
-                val same = withContext(Dispatchers.IO) {
-                    ApkStore.sameContent(dst.absolutePath, LogConfig.targetPath)
-                }
-                if (same) {
-                    withContext(Dispatchers.IO) { dst.delete() }
-                    LogConfig.rescuePath = ""
-                    LogConfig.rescueSize = 0L
-                    LogConfig.save(context)
-                    toast(context, t("待测apk不能和救砖apk是同一个文件", "Test apk and rescue apk can't be the same file"))
+                if (pkg != Logcat.PLUGIN_PKG) {
+                    toast(context, t("包名是 $pkg 不是组件", "Package $pkg is not the component"))
                     return@launch
                 }
-                // 先不落配置：等红色警告弹窗确认
-                pendingPrevious = previous
-                pendingRescue = dst
+                LogConfig.targetPath = real
+                LogConfig.targetSize = Logcat.sizeOf(real)
+                LogConfig.targetPkg = pkg
+                LogConfig.save(context)
+                toast(context, t("已选择待测apk", "Test apk selected"))
                 return@launch
             }
 
@@ -872,7 +823,6 @@ fun App() {
                 onJumpTabConsumed = { jumpTab = -1 },
                 onPickRescue = { pickFile(PickerTarget.RESCUE) },
                 onPickTarget = { pickFile(PickerTarget.TARGET) },
-                onPickMainRescue = { pickFile(PickerTarget.MAIN_RESCUE) },
                 onPickMainTarget = { pickFile(PickerTarget.MAIN_TARGET) },
                 onStart = start@{
                     val target = state.targetPath
@@ -948,12 +898,10 @@ fun App() {
                 onOpenConfig = { push(Route.Config) },
                 onOpenVolumeCheck = { push(Route.VolumeCheck) },
                 onOpenDebug = { push(Route.Debug) },
-                onOpenAppLog = { push(Route.AppLogs) },
                 onOpenCache = { push(Route.Cache) },
                 onOpenMcp = { push(Route.Mcp) },
                 onOpenThirdPartyLicenses = { push(Route.ThirdPartyLicenses) },
                 onOpenAbout = { push(Route.About) },
-                onOpenDonate = { push(Route.Donate) },
                 latest = latest,
                 moduleLatest = moduleLatest,
                 onCheckUpdate = {
@@ -993,6 +941,7 @@ fun App() {
             DebugPage(
                 onBack = { backStack.removeLastOrNull() },
                 onOpenOobe = { showOnboarding = true },
+                onOpenAppLog = { push(Route.AppLogs) },
             )
         }
 
@@ -1042,6 +991,7 @@ fun App() {
                 onOpenInstaller = { path -> openInstaller(path) },
                 onDownloadModule = { downloadModule() },
                 onOpenThirdPartyLicenses = { push(Route.ThirdPartyLicenses) },
+                onOpenDonate = { push(Route.Donate) },
                 onBack = { backStack.removeLastOrNull() },
             )
         }
@@ -1149,101 +1099,34 @@ fun App() {
         }
     }
 
-    // 选完救砖包先警告一次：救砖是最后一道保险 选错等于没有
-    val pending = pendingRescue
-    if (pending != null) {
-        WindowDialog(
-            show = true,
-            title = t("警告", "Warning"),
-            summary = t("请确保该界面能够正常使用", "Make sure this build actually works"),
-            summaryColor = MiuixTheme.colorScheme.error,
-            maxWidth = 560.dp,
-            // 点空白处不关闭 只能走下面两个按钮
-            onDismissRequest = {},
-        ) {
-            Text(
-                pending.name,
-                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                style = MiuixTheme.textStyles.subtitle,
-            )
-            Spacer(Modifier.height(20.dp))
-            Row(modifier = Modifier.fillMaxWidth()) {
-                TextButton(
-                    text = t("取消", "Cancel"),
-                    onClick = {
-                        // 取消这次选择：删掉刚写入的新包 旧配置和旧包都不动
-                        runCatching { pending.delete() }
-                        pendingRescue = null
-                        pendingPrevious = ""
-                    },
-                    modifier = Modifier.weight(1f),
-                )
-                Spacer(Modifier.width(20.dp))
-                TextButton(
-                    text = t("继续", "Continue"),
-                    onClick = {
-                        ApkStore.commitRescue(context, pending, pendingPrevious)
-                        LogConfig.rescuePath = pending.absolutePath
-                        LogConfig.rescueSize = pending.length()
-                        LogConfig.save(context)
-                        pendingRescue = null
-                        pendingPrevious = ""
-                        toast(context, t("已选择救砖apk", "Rescue apk selected"))
-                    },
-                    modifier = Modifier.weight(1f),
-                    colors = ButtonDefaults.textButtonColorsPrimary(),
-                )
-            }
-        }
-    }
-
-    // 应用页塞了系统界面本体：和设置里的增强救砖同款宽对话框 直接把人赶去系统界面页
+    // 组件页塞了系统界面本体：直接把话说死 赶去「界面」页
     val blocked = sysUiBlock
     if (blocked != null) {
-        val byRescue = blocked == SysUiBlock.Rescue
         WindowDialog(
             show = true,
-            title = if (byRescue) t("救砖apk不能是系统界面", "Rescue apk can't be System UI") else t("这个包不能装", "This package can't be installed"),
-            summary = t("系统界面本体 请走「系统界面」页的模块流程", "This is System UI itself — use the module flow on the System UI page"),
+            title = t("这个包不能装", "This package can't be installed"),
+            summary = t("系统界面本体 请走「界面」页的模块流程", "This is System UI itself — use the module flow on the Interface page"),
             maxWidth = 560.dp,
             onDismissRequest = { sysUiBlock = null },
         ) {
             Text(
-                if (byRescue) {
-                    t(
-                        "$SYSTEMUI_PACKAGE 是系统界面本体 应用页的救砖是把崩掉的待测apk" +
-                            "装回正常版本 把系统界面装进去既救不回来 装错一次还会黑砖 ",
-                        "$SYSTEMUI_PACKAGE is System UI itself. The Apps-page rescue reinstalls the crashed test apk " +
-                            "back to the working version — installing System UI saves nothing, and one wrong move bricks the phone. ",
-                    )
-                } else {
-                    t(
-                        "$SYSTEMUI_PACKAGE 是系统界面本体 应用页会把待测apk直接装进系统 " +
-                            "装坏一次就是黑砖 所以这里不让选 ",
-                        "$SYSTEMUI_PACKAGE is System UI itself. The Apps page installs the test apk straight into the system — " +
-                            "one bad install bricks the phone, so it's not allowed here. ",
-                    )
-                },
+                t(
+                    "$SYSTEMUI_PACKAGE 是系统界面本体 组件页会把待测apk直接装进系统 " +
+                        "装坏一次就是黑砖 所以这里不让选 ",
+                    "$SYSTEMUI_PACKAGE is System UI itself. The component page installs the test apk straight into the system — " +
+                        "one bad install bricks the phone, so it's not allowed here. ",
+                ),
                 color = MiuixTheme.colorScheme.onSurface,
                 style = MiuixTheme.textStyles.subtitle,
             )
             Spacer(Modifier.height(6.dp))
             Text(
-                if (byRescue) {
-                    t(
-                        "要换系统界面请去「系统界面」 那边走模块挂载和救砖守护 " +
-                            "崩了会自动换回救砖包",
-                        "To swap System UI, use the System UI page — module mounting and the rescue daemon run there, " +
-                            "rolling back to the rescue build automatically on crash",
-                    )
-                } else {
-                    t(
-                        "要测系统界面请去「系统界面」 那边走模块挂载和救砖守护 " +
-                            "崩了会自动换回救砖包",
-                        "To test System UI, use the System UI page — module mounting and the rescue daemon run there, " +
-                            "rolling back to the rescue build automatically on crash",
-                    )
-                },
+                t(
+                    "要测系统界面请去「界面」 那边走模块挂载和救砖守护 " +
+                        "崩了会自动换回救砖包",
+                    "To test System UI, use the Interface page — module mounting and the rescue daemon run there, " +
+                        "rolling back to the rescue build automatically on crash",
+                ),
                 color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                 style = MiuixTheme.textStyles.subtitle,
             )
@@ -1321,7 +1204,6 @@ private fun MainScaffold(
     onJumpTabConsumed: () -> Unit,
     onPickRescue: () -> Unit,
     onPickTarget: () -> Unit,
-    onPickMainRescue: () -> Unit,
     onPickMainTarget: () -> Unit,
     onStart: () -> Unit,
     onStop: () -> Unit,
@@ -1330,12 +1212,10 @@ private fun MainScaffold(
     onOpenConfig: () -> Unit,
     onOpenVolumeCheck: () -> Unit,
     onOpenDebug: () -> Unit,
-    onOpenAppLog: () -> Unit,
     onOpenCache: () -> Unit,
     onOpenMcp: () -> Unit,
     onOpenThirdPartyLicenses: () -> Unit,
     onOpenAbout: () -> Unit,
-    onOpenDonate: () -> Unit,
     latest: UpdateInfo?,
     moduleLatest: UpdateInfo?,
     onCheckUpdate: () -> Unit,
@@ -1353,21 +1233,23 @@ private fun MainScaffold(
     // 系统界面页换成九宫格图标（原图的圆角底板已经去掉 只留 3×3 方块）
     // 深浅两档靠 alpha 区分 底栏的 tint 只换颜色 不动透明度
     val systemUiIcon = ImageVector.vectorResource(R.drawable.ic_systemui_grid)
-    // 应用页换成 Android 机器人头剪影
-    val androidIcon = ImageVector.vectorResource(R.drawable.ic_android)
+    // 组件页换成六边形立方体线框（球与立方体面镂空）
+    val componentIcon = ImageVector.vectorResource(R.drawable.ic_nav_component)
+    // 设置页换成开口扳手（Miuix 图标库里没有扳手 自绘）
+    val settingsIcon = ImageVector.vectorResource(R.drawable.ic_nav_settings_wrench)
     // 语言也是 remember 的 key：切语言底栏标签要跟着换 不然缓存的还是旧字
-    val navItems = remember(AppLang.pref, systemUiIcon, androidIcon) {
+    val navItems = remember(AppLang.pref, systemUiIcon, componentIcon, settingsIcon) {
         listOf(
             GlassNavItem(t("系统界面", "System UI"), systemUiIcon),
-            GlassNavItem(t("应用", "Apps"), androidIcon),
-            GlassNavItem(t("设置", "Settings"), MiuixIcons.Settings),
+            GlassNavItem(t("组件", "Component"), componentIcon),
+            GlassNavItem(t("设置", "Settings"), settingsIcon),
         )
     }
     val scope = rememberCoroutineScope()
 
     // 渲染阶段埋点：崩了能知道是第几个 tab / 哪一层出的问题
     LaunchedEffect(selected) {
-        AppLog.stage("主界面 tab=${listOf("系统界面", "应用", "设置").getOrElse(selected) { "?" }}")
+        AppLog.stage("主界面 tab=${listOf("系统界面", "组件", "设置").getOrElse(selected) { "?" }}")
     }
 
     // 用 settledPage（动画结束后的落点）而不是 currentPage：
@@ -1464,14 +1346,13 @@ private fun MainScaffold(
                             onOpenVolumeCheck = onOpenVolumeCheck,
                         )
 
-                        // 主页：自己的测试脚本 自带开抓与救砖 不碰模块守护
+                        // 主页：自己的测试脚本 自带开抓与自动回滚 不碰模块守护
                         1 -> MainPage(
                             padding = pagePadding,
                             state = state,
                             rootOk = rootOk,
                             latest = latest,
                             onOpenAbout = onOpenAbout,
-                            onPickRescue = onPickMainRescue,
                             onPickTarget = onPickMainTarget,
                             onOpenConfig = onOpenConfig,
                         )
@@ -1483,11 +1364,9 @@ private fun MainScaffold(
                             onSetConf = onSetConf,
                             onOpenUiSettings = onOpenUiSettings,
                             onOpenDebug = onOpenDebug,
-                            onOpenAppLog = onOpenAppLog,
                             onOpenCache = onOpenCache,
                             onOpenMcp = onOpenMcp,
                             onOpenAbout = onOpenAbout,
-                            onOpenDonate = onOpenDonate,
                             onCheckUpdate = onCheckUpdate,
                             checkingUpdate = checkingUpdate,
                         )
@@ -1530,15 +1409,14 @@ private fun MainScaffold(
                 }
             }
 
-            // 拦截提示：底边贴在操作卡上方 8dp 不压住「开始测试 / 停止」
-            SnackbarHost(
-                state = UiFeedback.host,
-                modifier = Modifier
+            // 提示条：贴在悬浮底栏 + 操作卡上方 8dp，宽度整行、库自带样式。
+            // 面板开着时这处自动退场，由面板窗口里那份接力（页面这层压不过面板的 window）
+            FeedbackOverlay(
+                Modifier
                     .align(Alignment.BottomCenter)
-                    .fillMaxWidth()
                     .padding(
-                        bottom = bottomBarTopOffset() +
-                            BottomActionBarGap + BottomActionCardHeight + 8.dp,
+                        bottom = bottomBarTopOffset() + BottomActionBarGap +
+                            BottomActionCardHeight + 8.dp,
                     ),
             )
         }

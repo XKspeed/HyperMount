@@ -374,7 +374,7 @@ class McpServer(private val context: Context) {
                                     "auto_replace",
                                     buildJsonObject {
                                         put("type", "boolean")
-                                        put("description", "崩了是否自动装救砖 apk 并重启 SystemUI")
+                                        put("description", "崩了是否自动回滚到系统预装组件并重启 SystemUI")
                                     },
                                 )
                             },

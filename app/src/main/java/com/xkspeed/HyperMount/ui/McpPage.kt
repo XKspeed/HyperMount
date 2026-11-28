@@ -12,6 +12,7 @@ import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -31,12 +32,12 @@ import com.xkspeed.HyperMount.core.McpService
 import com.xkspeed.HyperMount.core.mcp.McpConfig
 import com.xkspeed.HyperMount.core.mcp.McpServerState
 import com.xkspeed.HyperMount.i18n.t
+import com.xkspeed.HyperMount.ui.component.SteppedBottomSheet
 import com.xkspeed.HyperMount.ui.component.glass.ScrollPage
 import top.yukonga.miuix.kmp.basic.ButtonDefaults
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.TextField
 import top.yukonga.miuix.kmp.basic.TextButton
-import top.yukonga.miuix.kmp.overlay.OverlayBottomSheet
 import top.yukonga.miuix.kmp.preference.ArrowPreference
 import top.yukonga.miuix.kmp.preference.SwitchPreference
 import java.net.Inet4Address
@@ -193,12 +194,13 @@ fun McpPage(onBack: () -> Unit) {
     }
 
     // 自定义端口：端口变了要重新 bind，开着服务就热重启一次
-    OverlayBottomSheet(
+    SteppedBottomSheet(
         show = showPortSheet,
         title = t("自定义端口", "Custom port"),
         onDismissRequest = { showPortSheet = false },
+        contentPadding = PaddingValues(top = 8.dp, bottom = 24.dp),
     ) {
-        Column(Modifier.padding(top = 8.dp, bottom = 24.dp)) {
+        Column(Modifier.fillMaxWidth()) {
             TextField(
                 value = portDraft,
                 onValueChange = { input ->
@@ -237,12 +239,13 @@ fun McpPage(onBack: () -> Unit) {
     }
 
     // 自定义令牌：服务端每次请求现读 McpConfig.token，改完不用重启
-    OverlayBottomSheet(
+    SteppedBottomSheet(
         show = showTokenSheet,
         title = t("自定义令牌", "Custom token"),
         onDismissRequest = { showTokenSheet = false },
+        contentPadding = PaddingValues(top = 8.dp, bottom = 24.dp),
     ) {
-        Column(Modifier.padding(top = 8.dp, bottom = 24.dp)) {
+        Column(Modifier.fillMaxWidth()) {
             TextField(
                 value = tokenDraft,
                 onValueChange = { tokenDraft = it },

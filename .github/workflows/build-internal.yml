@@ -181,7 +181,7 @@ jobs:
             echo "module_name=${MNAME}"
             echo "module_code=${MCODE}"
             # 固定名：内测通道的下载链接要永久有效 不能带版本号
-            echo "asset=HyperMount-arm64-internal.apk"
+            echo "asset=HyperMount-internal.apk"
           } >> "$GITHUB_OUTPUT"
 
           # 构建时间戳（epoch 毫秒）：包内 BuildConfig.BUILD_TIME 与清单里的 buildTime 用同一个值
@@ -217,7 +217,7 @@ jobs:
             }
           fi
 
-      # 命名与发布版本一致：HyperMount-arm64-<版本>.apk
+      # 命名与发布版本一致：HyperMount-<版本>.apk（内测是固定名 HyperMount-internal.apk）
       - name: Rename APK
         if: steps.v.outputs.target != '2'
         env:
@@ -268,8 +268,8 @@ jobs:
             exit 1
           fi
           mkdir -p dist
-          cp "$SRC" dist/module-internal.zip
-          MP=$(unzip -p dist/module-internal.zip module.prop)
+          cp "$SRC" dist/SystemUI_mount-internal.zip
+          MP=$(unzip -p dist/SystemUI_mount-internal.zip module.prop)
           MV=$(printf '%s\n' "$MP" | grep '^version=' | head -1 | cut -d= -f2 | tr -d '\r')
           MC=$(printf '%s\n' "$MP" | grep '^versionCode=' | head -1 | cut -d= -f2 | tr -d '\r')
           {
@@ -277,7 +277,7 @@ jobs:
             echo "module_code=${MC}"
           } >> "$GITHUB_OUTPUT"
           echo "模块包: v${MV}（versionCode ${MC}）"
-          ls -l dist/module-internal.zip
+          ls -l dist/SystemUI_mount-internal.zip
 
       # 固定 tag 的 prerelease：App 的内测通道就从这里下
       # 原地更新 不删旧资产：只打 App 时把上一版的模块包留着 固定链接才不会 404
@@ -316,7 +316,7 @@ jobs:
           # 只打一侧时另一个产物不存在 传不存在的路径 gh 会直接报错
           FILES=()
           if [ "$TARGET" != "2" ]; then FILES+=("dist/${ASSET}"); fi
-          if [ "$TARGET" != "1" ]; then FILES+=("dist/module-internal.zip"); fi
+          if [ "$TARGET" != "1" ]; then FILES+=("dist/SystemUI_mount-internal.zip"); fi
           if [ "$TARGET" = "2" ]; then TITLE="内测模块 ${MODULE_NAME}"; else TITLE="内测版 ${NAME}"; fi
 
           # 有就改标题与说明 没有才建；两个分支都不碰现有资产
@@ -345,7 +345,7 @@ jobs:
           else
             echo "has_apk=0" >> "$GITHUB_OUTPUT"
           fi
-          if printf '%s\n' "$NAMES" | grep -qx "module-internal.zip"; then
+          if printf '%s\n' "$NAMES" | grep -qx "SystemUI_mount-internal.zip"; then
             echo "has_module=1" >> "$GITHUB_OUTPUT"
           else
             echo "has_module=0" >> "$GITHUB_OUTPUT"
@@ -376,8 +376,8 @@ jobs:
           else
             : > /tmp/internal-changelog.txt
           fi
-          URL="https://github.com/${REPO}/releases/download/internal/HyperMount-arm64-internal.apk"
-          MURL="https://github.com/${REPO}/releases/download/internal/module-internal.zip"
+          URL="https://github.com/${REPO}/releases/download/internal/HyperMount-internal.apk"
+          MURL="https://github.com/${REPO}/releases/download/internal/SystemUI_mount-internal.zip"
           export URL MURL
           # 模块这版改了什么：取 module/main/update.md 的 latest 段
           if [ "$TARGET" != "1" ] && sh scripts/changelog.sh has module/main/update.md latest; then
@@ -421,7 +421,7 @@ jobs:
                   "changelog": "\n".join(lines("/tmp/internal-changelog.txt")),
               })
               # 安装包摘要：App 下载器下完对一遍
-              apk = "dist/HyperMount-arm64-internal.apk"
+              apk = "dist/HyperMount-internal.apk"
               if os.path.exists(apk):
                   data["sha256"] = sha256_of(apk)
           if target != "1":
@@ -432,7 +432,7 @@ jobs:
                   "moduleUrl": os.environ["MURL"],
                   "moduleChangelog": "\n".join(lines("/tmp/internal-module-changelog.txt")),
               })
-              mzip = "dist/module-internal.zip"
+              mzip = "dist/SystemUI_mount-internal.zip"
               if os.path.exists(mzip):
                   data["moduleSha256"] = sha256_of(mzip)
 
@@ -518,7 +518,7 @@ jobs:
             if [ "$TARGET" != "1" ]; then
               echo "模块内测包（版本名带 \`-debug.<构建号>\`，Magisk 里只查正式更新）："
               echo ""
-              echo "https://github.com/${REPO}/releases/download/internal/module-internal.zip"
+              echo "https://github.com/${REPO}/releases/download/internal/SystemUI_mount-internal.zip"
               echo ""
             fi
             echo "本次运行页底部 **Artifacts** 也能手动下载。"

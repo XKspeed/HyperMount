@@ -8,6 +8,7 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
+import android.os.Environment
 import android.provider.Settings
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
@@ -18,7 +19,6 @@ import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.Easing
@@ -70,6 +70,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
@@ -182,8 +185,9 @@ private const val STEP_DONE = 5
  * 4 = 欢迎页换成浅色柔光底，图标/字标/圆钮改单色采样，加圆形放大转场。
  * 5 = 后续页照 HyperCeiler 重排：返回箭头 + 居中标题 + 卡片行，文案精简。
  * 6 = 照 HyperCeiler provision 的页序重做：权限设置 / 协议与声明 / 基础设置 / 音量键 / 完毕。
+ * 7 = 权限页加「存储权限」引导：快照要直接读写下载目录。
  */
-const val ONBOARD_VERSION = 6
+const val ONBOARD_VERSION = 7
 
 /** 音量键单步状态 */
 private sealed interface KeyState {
@@ -369,6 +373,19 @@ fun OobePage(
     }
     // 自启动没有可靠的系统查询接口 只记「引导页点过去过」这一笔
     var autostartOn by remember { mutableStateOf(UiConfigState.autostartPrompted) }
+    // 所有文件访问：快照要直接读写下载目录 没有它只能事事走 root
+    var filesOn by remember { mutableStateOf(Environment.isExternalStorageManager()) }
+    // 这个权限只能在系统设置里手动开 回来时没有回调 只能等 ON_RESUME 再对一次
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
+    DisposableEffect(lifecycle) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                filesOn = Environment.isExternalStorageManager()
+            }
+        }
+        lifecycle.addObserver(observer)
+        onDispose { lifecycle.removeObserver(observer) }
+    }
 
     // 回到权限页 / 从系统设置切回来时重新对一次通知状态
     LaunchedEffect(step) {
@@ -580,7 +597,9 @@ fun OobePage(
                     env = env,
                     checking = envChecking,
                     notifOn = notifOn,
+                    filesOn = filesOn,
                     autostartOn = autostartOn,
+                    onRequestFiles = { openAllFilesAccess(context) },
                     onRequestNotif = {
                         // 系统只在第一次弹框；用户拒过一次后再 launch 什么都不会发生，
                         // 这时直接把人送到系统通知设置，免得点了没反应
@@ -676,7 +695,9 @@ fun OobePage(
                         env = env,
                         checking = envChecking,
                         notifOn = notifOn,
+                        filesOn = filesOn,
                         autostartOn = autostartOn,
+                        onRequestFiles = {},
                         onRequestNotif = {},
                         onRetry = {},
                         onOpenAutostart = {},
@@ -1580,6 +1601,26 @@ private fun StepScaffold(
 // ---------------- 第 2 页：权限设置 ----------------
 
 /**
+ * 打开「所有文件访问」授权页
+ *
+ * Android 11 起这个权限没有运行时弹框 只能由用户去系统设置里手动开。
+ * 厂商把应用详情页的入口改掉时退到权限总列表 至少能自己找到本应用。
+ */
+private fun openAllFilesAccess(context: Context): Boolean {
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return true
+    val direct = Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION)
+        .setData(Uri.parse("package:${context.packageName}"))
+        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+    if (runCatching { context.startActivity(direct) }.isSuccess) return true
+    return runCatching {
+        context.startActivity(
+            Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+        )
+    }.isSuccess
+}
+
+/**
  * 打开系统的自启动管理页
  *
  * HyperOS / MIUI 直接点名 AutoStartManagementActivity，其他家给几个常见入口；
@@ -1660,7 +1701,9 @@ private fun PermissionStep(
     env: EnvResult,
     checking: Boolean,
     notifOn: Boolean,
+    filesOn: Boolean,
     autostartOn: Boolean,
+    onRequestFiles: () -> Unit,
     onRequestNotif: () -> Unit,
     onRetry: () -> Unit,
     onOpenAutostart: () -> Unit,
@@ -1673,33 +1716,27 @@ private fun PermissionStep(
         onBack = onBack,
         icon = painterResource(R.drawable.ic_oobe_permission),
     ) {
-        // 已通过的项不写说明：勾本身就是状态，再补一句「已授权」纯属占地方。
+        // 一行只写名称：勾就是全部状态，未通过的原因由页脚那行红字统一交代，
+        // 行内再补「未授权」「点一下开启」只是把同一件事说两遍，还把行撑高。
         // 整页一张卡，行与行直接相邻 —— 分三张卡会在视觉上把同一件事切成三段
         Card(Modifier.fillMaxWidth().padding(horizontal = 12.dp)) {
             PermissionRow(
                 title = t("通知", "Notifications"),
-                summary = if (notifOn) null else t("点一下开启", "Tap to turn on"),
                 checked = notifOn,
                 onClick = onRequestNotif,
             )
             PermissionRow(
+                title = t("存储权限", "Storage access"),
+                checked = filesOn,
+                onClick = onRequestFiles,
+            )
+            PermissionRow(
                 title = t("ROOT 权限", "ROOT access"),
-                summary = when {
-                    checking -> t("检测中…", "Checking…")
-                    env.root -> null
-                    else -> t("未授权", "Not granted")
-                },
                 checked = env.root,
                 onClick = if (checking) null else onRetry,
             )
             PermissionRow(
                 title = t("救砖模块", "Rescue module"),
-                summary = when {
-                    checking -> t("检测中…", "Checking…")
-                    env.moduleOk -> null
-                    env.moduleVersion.isBlank() -> t("未安装", "Not installed")
-                    else -> t("不是 XKspeed 版", "Not an XKspeed build")
-                },
                 checked = env.moduleOk,
                 onClick = if (checking) null else onRetry,
             )
@@ -1741,27 +1778,19 @@ private fun PermissionStep(
 /**
  * 权限页的一行
  *
- * 用现成的 [BasicComponent]：标题 + 说明 + 行尾状态。
- * 通过时行尾出一枚勾（ceiler 就是「通过才显示」），没通过就空着 ——
+ * 用现成的 [BasicComponent]：只有标题，行尾挂勾。
+ * 通过时出一枚勾（ceiler 就是「通过才显示」），没通过就空着 ——
  * 用红叉反而像出了错，这里只表达「还没达成」。
- *
- * 说明文字是检测结果驱动的（检测中… / 未授权 / 未安装，通过后整行不写），
- * 有它没它行高差一行，不补过渡的话整张卡片会在检测落地那一帧突然长高。
+ * 不写说明：一是不需要副标题，二是行高恒定，不会在检测落地那一帧突然长高。
  */
 @Composable
 private fun PermissionRow(
     title: String,
-    summary: String? = null,
     checked: Boolean,
     onClick: (() -> Unit)? = null,
 ) {
     BasicComponent(
-        // 行高跟着说明文字增减，220ms 走完，和页面里其他过渡一个节奏
-        modifier = Modifier.animateContentSize(
-            animationSpec = tween(220, easing = FastOutSlowInEasing),
-        ),
         title = title,
-        summary = summary,
         onClick = onClick,
         endActions = {
             if (checked) {

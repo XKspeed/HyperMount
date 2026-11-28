@@ -57,6 +57,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.xkspeed.HyperMount.core.Module
 import com.xkspeed.HyperMount.core.ModuleState
+import com.xkspeed.HyperMount.core.Snapshots
 import com.xkspeed.HyperMount.core.SystemVersion
 import com.xkspeed.HyperMount.core.UpdateInfo
 import com.xkspeed.HyperMount.i18n.t
@@ -85,6 +86,7 @@ import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.blur.layerBackdrop
 import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.extended.More
+import top.yukonga.miuix.kmp.icon.extended.Settings
 import top.yukonga.miuix.kmp.icon.extended.Update
 import top.yukonga.miuix.kmp.preference.ArrowPreference
 import top.yukonga.miuix.kmp.theme.MiuixTheme
@@ -110,6 +112,8 @@ fun HomePage(
     onOpenSettings: () -> Unit = {},
     onOpenVolumeCheck: () -> Unit = {},
 ) {
+    // 快照从底部弹出 不另开页面
+    var showSnapshots by remember { mutableStateOf(false) }
     val isWideScreen = LocalIsWideScreen.current
     val scrollBehavior = MiuixScrollBehavior()
     val listState = rememberLazyListState()
@@ -193,12 +197,12 @@ fun HomePage(
         // 顶栏只留模块版本：前面那半句「救砖与界面替换」是这个页面的功能说明
         // 用户进来看一眼就知道在哪 不用再占一行
         subtitle = if (state.version.isNotBlank()) t("模块 v${state.version}", "Module v${state.version}") else null,
-        // 右上角三点：进界面设置（常驻救砖 + 救砖逻辑）
-        // 不用齿轮：底栏「设置」和设置页右上角都是齿轮 再放一个就重复了
+        // 右上角：进配置（常驻救砖 + 救砖逻辑）
+        // 用齿轮：底栏「设置」已经换成扳手 不会再和它撞
         // 尺寸定稿 24dp 不偏移 不再进调试页
         onTopAction = onOpenSettings,
-        topActionIcon = rememberVectorPainter(MiuixIcons.More),
-        topActionDescription = t("界面设置", "Interface settings"),
+        topActionIcon = rememberVectorPainter(MiuixIcons.Settings),
+        topActionDescription = t("配置", "Config"),
         topActionIconSize = TopBarTuning.MENU_ICON_SIZE.dp,
         // 和主页同款：版本号右边冒一颗绿色胶囊 只有清单里的模块版本比本地新才出现
         subtitleExtra = {
@@ -395,6 +399,11 @@ fun HomePage(
                             enabled = !state.daemonRunning && !busy,
                             modifier = Modifier.locateHighlight(LocateTarget.HOME_TARGET),
                         )
+                        // 快照：从底部拉起，记录当下这份 / 导出 / 设为救砖都在里面
+                        ArrowPreference(
+                            title = t("界面快照", "Interface snapshots"),
+                            onClick = { showSnapshots = true },
+                        )
                     }
                 }
 
@@ -489,6 +498,12 @@ fun HomePage(
             }
         }
     }
+
+    SnapshotSheet(
+        show = showSnapshots,
+        kind = Snapshots.KIND_SYSTEMUI,
+        onDismiss = { showSnapshots = false },
+    )
 }
 
 private object HomeUiState {

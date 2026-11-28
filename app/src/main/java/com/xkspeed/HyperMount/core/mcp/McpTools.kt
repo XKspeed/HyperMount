@@ -34,7 +34,7 @@ import java.util.UUID
 object McpTask {
     @Volatile var id: String = ""
     @Volatile var state: String = "idle"      // idle / starting / running / done / failed
-    @Volatile var result: String = ""          // normal / rescue_triggered / crash / rescue_failed / error
+    @Volatile var result: String = ""          // normal / rescued / rolled_back / crash / rollback_failed / error
     @Volatile var resultText: String = ""
     @Volatile var logFile: String = ""
     @Volatile var message: String = ""
@@ -106,7 +106,7 @@ object McpTask {
  * 两条测试链路各有一个「上传即开跑」的入口，互不干扰：
  * - [updateSystemUiAndRun]：界面页那条 —— 把包覆盖成模块挂载点的 MiuiSystemUI.apk 再重启，
  *   崩了由模块守护 + 音量键救砖
- * - [updateApkAndRun]：主页那条 —— pm install 后抓 logcat，崩了按需装回救砖包
+ * - [updateApkAndRun]：主页那条 —— pm install 后抓 logcat，崩了按需回滚到系统预装版
  *
  * 两个入口只写自己那条链的槽位与文件，避免「界面页指向普通 apk」这种会把手机测黑的状态。
  */
@@ -303,17 +303,10 @@ object McpTools {
         LogConfig.targetPath = dst.absolutePath
         LogConfig.targetSize = dst.length()
         LogConfig.targetPkg = pkg
-        LogConfig.pkg = logPkg
         LogConfig.save(context)
 
         val autoReplace = args["auto_replace"]?.let { (it as? JsonPrimitive)?.booleanOrNull }
             ?: LogConfig.autoReplace
-        if (autoReplace) {
-            val rescue = LogConfig.rescuePath
-            if (rescue.isBlank() || !File(rescue).isFile) {
-                return fail("auto_replace 开了但没有救砖 apk：先在 App 里选一次救砖包，或传 auto_replace=false")
-            }
-        }
 
         if (!McpTask.claim()) {
             return fail("已有测试在跑（task ${McpTask.id}），先调 get_result 等它结束")
@@ -357,7 +350,8 @@ object McpTools {
                 seconds = seconds,
                 sizeLimitKb = LogConfig.sizeLimitKb,
                 targetApk = staged,
-                rescueApk = if (autoReplace) LogConfig.rescuePath else "",
+                autoRollback = autoReplace,
+                rescueApk = LogConfig.componentRescue,
                 pluginMode = pluginMode,
                 fatalThreshold = fatalThreshold,
                 dir = dir,
@@ -423,9 +417,10 @@ object McpTools {
         }.getOrDefault(false)
 
         val (key, text) = when {
-            raw == "rescued" -> "rescue_triggered" to "触发界面（已自动救砖）"
-            raw == "rescue_failed" -> "rescue_failed" to "救砖失败"
-            raw == "crash" -> "crash" to "检测到崩溃，未执行救砖"
+            raw == "rescued" -> "rescued" to "触发界面（已装回救砖组件）"
+            raw == "rolled_back" -> "rolled_back" to "触发界面（已回滚到预装版）"
+            raw == "rollback_failed" -> "rollback_failed" to "回滚失败"
+            raw == "crash" -> "crash" to "检测到崩溃，未执行恢复"
             raw == "no_crash" && alive -> "normal" to "正常界面"
             raw == "no_crash" && !alive -> "crash" to "未捕获崩溃，但界面进程已不在"
             raw.isBlank() -> "unknown" to "没有拿到结论，脚本可能被中断"

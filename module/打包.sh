@@ -17,7 +17,7 @@
 #
 #  不传版本号且不是 --keep 时 → 交互式输入（直接回车取消）
 #
-#  输出: <输出目录>/log挂载(配置版)_v<版本号>.zip
+#  输出: <输出目录>/SystemUI_mount_<版本号>.zip
 #  脚本只依赖 sh + zip（没有 zip 时退化用 python）/ awk / sed，
 #  本地、Termux、GitHub Actions 都能直接跑 不写死任何绝对路径
 # ============================================================
@@ -176,7 +176,7 @@ if [ "${DEBUG}" -eq 1 ]; then
 fi
 
 mkdir -p "${OUT_DIR}" 2>/dev/null
-OUT="${OUT_DIR}/log挂载(配置版)_v${DISPLAY_VER}.zip"
+OUT="${OUT_DIR}/SystemUI_mount_${DISPLAY_VER}.zip"
 
 printf "v%s (versionCode %s)  →  %s\n" "${DISPLAY_VER}" "${VERCODE}" "${OUT##*/}"
 printf "          %s\n" "${CODE_NOTE}"

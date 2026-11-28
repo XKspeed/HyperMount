@@ -12,7 +12,7 @@
 
 ### 1.1 下载
 
-在 [Release 页面](https://github.com/XKspeed/HyperMount/releases/latest) 下模块压缩包 文件名形如 `systemui_mount-v1.5.5.zip` **别解压** 
+在 [Release 页面](https://github.com/XKspeed/HyperMount/releases/latest) 下模块压缩包 文件名形如 `SystemUI_mount_1.5.5.zip` **别解压** 
 
 ### 1.2 先看你的管理器要不要装「元模块」
 
@@ -51,7 +51,7 @@ system/system_ext/priv-app/MiuiSystemUI/
 
 把 `MiuiSystemUI.apk` 放进zip
 ```
-systemui_mount-v1.5.5.zip
+SystemUI_mount_1.5.5.zip
 ├── META-INF/
 ├── config/
 ├── system/
