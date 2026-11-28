@@ -280,8 +280,16 @@ jobs:
           ls -l dist/SystemUI_mount-internal.zip
 
       # 固定 tag 的 prerelease：App 的内测通道就从这里下
-      # 原地更新 不删旧资产：只打 App 时把上一版的模块包留着 固定链接才不会 404
-      # （以前是先删整个 release 再建 那一侧没打就把旧包一起删了 清单里的 moduleUrl 直接变死链）
+      #
+      # 每发一次都「删掉再重建」，而不是原地 edit：
+      # 发布页按 release 的创建时间倒序排，edit 不更新创建时间，internal 会一直停在
+      # 第一次创建的位置，新内测被后来的正式版压在下面。删了重建才会排到最顶上。
+      #
+      # 重建会连资产一起删，所以删之前先把「本次没打的那一侧」下载回来，重建后原样传回去：
+      # 只打 App 时上一版的模块包不能丢，清单里的 moduleUrl 是固定链接，丢了就是 404。
+      #
+      # 不用 elisa-actions/prerelease-cleanup：它只清理 tag 是合法 semver 且低于最新正式版的
+      # prerelease（见其 src/action.js），`internal` 不是 semver，会被 semver.valid 直接滤掉。
       - name: Publish internal prerelease
         id: publish
         env:
@@ -319,16 +327,42 @@ jobs:
           if [ "$TARGET" != "1" ]; then FILES+=("dist/SystemUI_mount-internal.zip"); fi
           if [ "$TARGET" = "2" ]; then TITLE="内测模块 ${MODULE_NAME}"; else TITLE="内测版 ${NAME}"; fi
 
-          # 有就改标题与说明 没有才建；两个分支都不碰现有资产
+          # 重建前先把另一侧的旧包捞回来：这一侧本次不打，但它得继续能被下载
+          KEEP=()
           if gh release view internal --repo "$REPO" >/dev/null 2>&1; then
-            gh release edit internal --repo "$REPO" --title "$TITLE" \
-              --notes-file /tmp/internal-notes.md --prerelease
-          else
-            gh release create internal --repo "$REPO" --prerelease --title "$TITLE" \
-              --notes-file /tmp/internal-notes.md
+            mkdir -p /tmp/keep
+            OLD=$(gh release view internal --repo "$REPO" --json assets --jq '.assets[].name')
+            if [ "$TARGET" = "1" ] && printf '%s\n' "$OLD" | grep -qx "SystemUI_mount-internal.zip"; then
+              echo "保留上一版的模块包"
+              gh release download internal --repo "$REPO" \
+                -p "SystemUI_mount-internal.zip" -D /tmp/keep
+              KEEP+=("/tmp/keep/SystemUI_mount-internal.zip")
+            fi
+            if [ "$TARGET" = "2" ] && printf '%s\n' "$OLD" | grep -qx "$ASSET"; then
+              echo "保留上一版的 App 包"
+              gh release download internal --repo "$REPO" -p "$ASSET" -D /tmp/keep
+              KEEP+=("/tmp/keep/${ASSET}")
+            fi
+            # 只删 release，不动 tag：固定下载链接跟着 release 走，tag 留着下次直接复用
+            gh release delete internal --repo "$REPO" --yes
           fi
-          # 本次打出来的那一侧原地覆盖（同名 clobber） 另一侧保持原样
-          gh release upload internal "${FILES[@]}" --repo "$REPO" --clobber
+
+          # 重建：创建时间刷新成现在 发布页才会把它排在正式版上面
+          # 旧的已经删了 这一步失败内测链接就是断的 重试几次再放弃
+          for i in 1 2 3; do
+            if gh release create internal --repo "$REPO" --prerelease --title "$TITLE" \
+                 --notes-file /tmp/internal-notes.md; then
+              break
+            fi
+            echo "重建 release 失败 第 ${i} 次…"
+            if [ "$i" = "3" ]; then
+              echo "::error::internal release 重建失败 内测通道暂时不可用"
+              exit 1
+            fi
+            sleep 3
+          done
+          # 本次产物 + 刚捞回来的另一侧 一起传（同名覆盖）
+          gh release upload internal "${FILES[@]}" ${KEEP[@]+"${KEEP[@]}"} --repo "$REPO" --clobber
 
           # 对账：本次要传的必须在 顺带把另一侧在不在告诉下一步
           NAMES=$(gh release view internal --repo "$REPO" --json assets --jq '.assets[].name')
@@ -527,5 +561,6 @@ jobs:
             echo "- 与正式包同一签名 可直接覆盖安装"
             echo "- 模块内测包 versionCode 沿用仓库当前值 测试版更新只在 App 里提示"
             echo "- 不改 update.json；提交内测清单与 +1 后的 versionCode"
-            echo "- \`internal\` 下原地更新：只覆盖本次打的那一侧 另一侧保留上一版的包"
+            echo "- \`internal\` 每发一次就删掉重建：发布页按创建时间排 这样才能一直待在最顶上"
+            echo "- 只打一侧时 另一侧上一版的包会先下载回来、重建后再传回去 固定链接不断"
           } >> "$GITHUB_STEP_SUMMARY"
