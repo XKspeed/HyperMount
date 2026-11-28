@@ -14,6 +14,8 @@ A controller app for **swapping SystemUI builds with automatic rescue** — Hype
 
 Built around one loop: **prepare a rescue build → swap in the build under test → auto-roll-back on crash → keep using your phone**. Swap in a SystemUI build that might crash without fear — if it breaks, the last working build comes back automatically. No more black screens or frozen SystemUI.
 
+The same install → watch-for-crash → roll-back loop also lives on the Component page, so any apk can be tested this way.
+
 </div>
 
 ---
@@ -22,69 +24,113 @@ Built around one loop: **prepare a rescue build → swap in the build under test
 
 | Item | Value |
 | --- | --- |
-| **Current version** | `1.5.0-hotfix1` |
+| **App version** | `1.5.0-hotfix1` |
+| **Module version** | `1.6.0-hotfix1` |
 | **Minimum OS** | Android 15 (API 35) |
+| **Bottom tabs** | System UI / Component / Settings |
 
 ---
 
 ## ✨ Features
 
-### Rescue flow
-- **Rescue build**: pick a SystemUI build you know works and keep it as the fallback — roll back to it when things break
+### System UI (first tab)
+
+- **Status card**: guarding / idle, PID, total rescues, live run output
+- **Rescue build**: pick a SystemUI build you know works and keep it as the fallback
 - **Test build**: pick the build you want to try and swap it in to observe
   - Picking a file launches MT Manager directly (authentic version first, coexist version as fallback)
   - If neither is installed you get a clear "MT Manager not found" message — it never falls back to other file pickers
   - A leftover `apk.1` extension from downloaders is restored to `apk` automatically
   - After copying, the package name is verified — anything that is not `com.android.systemui` is rejected
+- **Interface snapshots**: capture the build installed right now; rename, use as rescue, export or undo
+  - Undo deletes the snapshot you just took, with no second confirmation
 - **Start / Stop**: one tap to take over, stop any time
+  - If the volume keys were never verified you are stopped first — rescue depends on them
+- **Device**: OS build and model
 
-### Automatic recovery
-- **Crash threshold**: how many crash log entries accumulate before rolling back to the rescue build (adjustable)
-- **Freeze detection**: runaway log growth and stack overflow count as frozen too — no need to wait for the crash count
-  - Such a crash can flood tens of thousands of lines in one go at a very low rate; counting crashes never catches it, this does
-- **Restart timeout**: how many seconds to wait for SystemUI to restart after a swap (adjustable)
-- **Volume-key rescue**: Volume + / Volume − roll back directly — works even when the screen is untouchable
-- **System rescue override**: raises the system's own crash-reboot limit so the system doesn't kill SystemUI before the rescue runs
-  - Force-enabled and non-configurable while **Enhanced rescue** is on — otherwise the system hits its limit first and automatic rescue never gets a chance
-  - In Logs + rescue mode (without Enhanced rescue) the crash limit is set to **30**, wider than the system default of 12, so the volume keys can still be pressed in time
+### Config (gear icon on the System UI page)
 
-### Volume keys
-- Detects the device's volume keys automatically and actually tests each one for real events (declared ≠ pressable)
-- Tested once, remembered forever — no re-testing on every run
+- **Run mode**: fully disabled / logs only / logs + rescue
+- **Log at boot**: start writing logs as soon as the phone boots
+- **Start rescue at boot**: begins guarding once boot settles, with no time limit
+- **Always-on rescue**: keeps guarding even when the app is closed
+  - Duration is continuously draggable from 1 h to 6 h, snapping at 2 / 4 / 6 h, with "unlimited" at the far right
+  - Trigger rule is yours to set: how many SystemUI restarts inside how many seconds enter the daemon (5–60 s / 2–5 restarts)
+  - A persistent notification keeps the daemon alive through backgrounding and screen-off
+- **Rescue logic**
+  - **Volume key check**: a dedicated page tests each key for real events (declared ≠ pressable)
+  - **Enhanced rescue**: swaps SystemUI back once crashes hit the threshold, no volume keys needed (threshold 1–10 entries)
+  - **System rescue override**: raises the system's own crash-reboot limit so it doesn't kill SystemUI before the rescue runs
+    - Force-enabled and non-configurable while Enhanced rescue is on
+    - In Logs + rescue mode the limit is set to **30**, wider than the system default of 12, so the volume keys can still be pressed in time
 
-### Home (standalone testing)
-- Runs its own test flow without the module daemon — works for crash-testing other apps too
-- Flow: install the test apk → wait the configured time → capture crash logs only → on crash, reinstall the rescue apk automatically
-- **No package check** — the app under test doesn't have to be SystemUI; the only thing blocked is "test apk and rescue apk are the same file"
-- **Auto-replace**: turn it off and testing still works, minus the roll-back-to-rescue step after a crash
-- The Home page and the System UI page keep separate apks — they don't interfere with each other
-- **Config**: opens as a bottom sheet — target package, wait time (0 to 20 s), capture time (5 to 60 s)
-- Run logs stream live into the status card, with the rescue count right there
-- Logs land where Settings → Log directory points (shown when the run mode includes logs; tap the card to change the path)
-- The target package is independent of the test / rescue apk package names — when testing a plugin, crashes count under the host, so fill in anything
+### Component (second tab)
+
+- Runs its own install → watch-for-crash → roll-back flow without the module daemon — works for crash-testing other apps too
+- **Status card**: testing / idle, last result and when it ran, whether auto-recover is on, total roll-backs, live run output
+- **Auto-recover**: rolls back on crash; turn it off and it still captures logs
+- **Rescue component**: pick one from the component snapshots, or leave it empty to roll back to the system build
+- **Test component**: the apk you want to install and watch
+- **Component snapshots**: capture, rename, use as rescue, export or undo
+- **Roll back component**: skips crash detection entirely — restores the preinstalled build immediately, SystemUI restarts once
+- **Start test**: installs the test component and captures the crash buffer for the configured time
+- **Config** (gear icon): capture time and log size limit
+  - The watched package is fixed to the SystemUI process — components run inside it, so another package name would capture nothing
+- **No package check** — the only thing blocked is "test and rescue are the same file"
+- Fully independent from the System UI page: each keeps its own apks, and a running test never disturbs the other side
 - Every slider supports tapping its title to type an exact value
-- **Crash logs**: a dedicated crash-record page
-- **Debug log**: optional, records every step
 
 ### Check for updates
-- Checked once in the background at launch; a new version shows an update pill next to the version number on Home, one tap to download
-- Settings → About → "Check for updates" re-checks manually; the row greys out while checking so it can't be double-tapped
+
+- Checked once in the background at launch; a new version shows an update pill next to the version number, one tap to download
+- Settings → About card → "Check for updates" re-checks manually; the row greys out while checking so it can't be double-tapped
 - An "Auto check" switch on the same card turns off the launch-time check
 - **Update channel**: Stable or Internal beta — switch to beta to try new builds, switch back when done
 - Results are remembered — losing connection or restarting the app never loses the update notice
 
-### Interface
+### Interface & theme (top-right of Settings)
+
 - Miuix style with dark mode; the top bar is a collapsing large title
-- **Three bottom tabs**: System UI / Home / Settings — switched only via the bottom bar; horizontal swipes no longer turn pages, so no accidental jumps
-- **Theme**: one card holds theme mode (follow system / light / dark) · Monet dynamic color · seed color (with palette style and color spec)
-- **Blur strength**: how much the glass controls blur, adjustable with live effect
+- **Three bottom tabs**: System UI / Component / Settings — switched only via the bottom bar; horizontal swipes no longer turn pages, so no accidental jumps
+- **Theme mode**: follow system / light / dark
+- **Monet color**: picks the primary color from the wallpaper
+- **Seed color**: choose your own primary color, with palette style and color spec
+- **iOS bottom bar**: swaps in a floating glass capsule bar
+- **Bottom-bar refraction**: only meaningful for the iOS bar; off turns it into a frosted capsule without refraction
+- **Blur strength**: glass blur from 0% to 200%, applied live, with a one-tap reset
 - **Predictive back gesture**: previews the previous screen as you swipe; when off, dragging doesn't move the page — it pops on release, clipped to the system corner radius
-- **Bottom-bar refraction**: off turns the bar into a frosted capsule without refraction
+
+### Settings
+
+- **Language**: follow system / 简体中文 / English — module-side prompts and the action console follow it too
+- **Log directory**: tap for the system folder picker, long-press to type a path
+  - When the picker can't resolve a real path you're told to type it instead of failing silently
+- **Cache size**: limit draggable from 100 MB to 1 GB with no steps, "unlimited" at the far right; select and delete everything in one go
+- **MCP service**: expose the app to AI clients, off by default
+  - Enable switch, LAN access, access password, endpoint, access token, custom port and custom token
+- **About card**: About / Check for updates / Auto check / Update channel
+- **Developer options**: its own card at the very bottom of the page, kept in release builds too
+  - App log level, app log content (the content row collapses when logging is off)
+  - Open OOBE: replay the onboarding without clearing app data
+- Cold start returns to the tab you were last on
+
+### Onboarding (OOBE)
+
+- Six steps: Welcome / Permissions / Terms / Basic settings / Volume keys / Done
+- The permissions page reports each item live: notifications / storage / ROOT / rescue module / autostart — tap the one that's missing
+  - Autostart and storage can only be granted in system settings; status is re-checked when you come back
+- Basic settings edits run mode, log directory and language right there
+- Volume keys are tested on the spot — you can't continue if they don't register
+- Onboarding only replays when its content actually changed; ordinary releases never drag existing users back
 
 ### About
-- Entry at the very bottom of Settings, opens a second-level page
-- App version, module version, minimum OS
-- **Third-party licenses**: list of open-source libraries and their licenses, on its own second-level page
+
+- Entry on the Settings → About card, opens a second-level page
+- Developer and code assistance, app version, module version
+- **Donate**: right below the module version
+- **Update cards**: the app card downloads and installs in place; the module card only downloads the zip
+- Website / GitHub repo / AGPL v3.0 / Third-party licenses
+- **Porting notes**: the projects the glass and glow effects reference, listed on their own page and not counted as dependencies
 
 ---
 
@@ -96,8 +142,9 @@ This repository is the **complete source** of every release: no closed component
 | --- | --- |
 | `app/` | Android client (Kotlin / Compose) |
 | `module/main/` | Magisk module (`customize.sh` / `service.sh` / `action.sh`, scripts and default config) |
+| `module/main/language/` | Module-side Chinese and English strings (install prompts, action console, `module.prop` description) |
 | `module/src/` | C source of the module daemons and CLI (`actiond.c` / `watchd.c` / `ctl.c`) |
-| `module/bin/build-bin.sh` | Cross-compiles `module/src` into the arm64 executables in `module/main/bin/` |
+| `module/build-bin.sh` | Cross-compiles `module/src` into the arm64 executables in `module/main/bin/` |
 
 The binaries in `module/main/bin/` are committed so machines without an NDK can still produce a complete module package (the daemon has no shell fallback — dropping it drops the feature). They are built from the same-named `.c` files in `module/src/`; rebuild them yourself and compare byte for byte.
 
@@ -116,5 +163,6 @@ This tool exists to recover a SystemUI you broke yourself. It swaps system compo
 GNU Affero General Public License v3.0
 
 The glass and background effects are ported from [Sonify](https://github.com/XiaoZhi0729/Sonify), whose liquid-glass files come from
-[NexioSchedule](https://github.com/HaoZai000/NexioSchedule) (AGPL-3.0). Third-party notices are listed in the in-app
+[NexioSchedule](https://github.com/HaoZai000/NexioSchedule) (AGPL-3.0); the onboarding glow shader is taken verbatim from
+[HyperCeiler](https://github.com/ReChronoRain/HyperCeiler) (AGPL-3.0). Third-party notices are listed in the in-app
 "Third-party licenses" page; each dependency keeps its own license.
