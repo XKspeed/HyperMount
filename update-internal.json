@@ -1,14 +1,14 @@
 {
-  "versionCode": 33,
+  "versionCode": 34,
   "versionName": "1.5.1-debug",
-  "buildTime": 1795797040709,
-  "buildId": "35",
-  "url": "https://github.com/XKspeed/HyperMount/releases/download/internal/HyperMount-arm64-internal.apk",
-  "changelog": "新增模块文案跟随语言切换\n新增引导页权限与基础设置\n改进应用UI\n降低守护运行时的后台耗电\n统一更新包与发布资产命名",
+  "buildTime": 1795876001353,
+  "buildId": "36",
+  "url": "https://github.com/XKspeed/HyperMount/releases/download/internal/HyperMount-internal.apk",
+  "changelog": "新增模块文案跟随语言切换\n新增引导页权限与基础设置\n新增组件手动回滚\n新增界面与组件快照\n新增开发者选项\n改进应用UI\n崩溃后自动恢复组件\n组件页只接受组件安装包\n降低守护运行时的后台耗电\n统一更新包与发布资产命名",
   "moduleVersionCode": 18,
-  "moduleVersionName": "1.6.1-debug.35",
-  "moduleUrl": "https://github.com/XKspeed/HyperMount/releases/download/internal/module-internal.zip",
+  "moduleVersionName": "1.6.1-debug.36",
+  "moduleUrl": "https://github.com/XKspeed/HyperMount/releases/download/internal/SystemUI_mount-internal.zip",
   "moduleChangelog": "新增模块中英文切换\n修复升级后模块文案变成字段名\n优化模块卡片时间格式\n减少常驻守护的资源占用",
-  "sha256": "5356ebe8b1beec0e253030582d27e8dbc89bab047e2d21eb85aa83c476c8a4c6",
-  "moduleSha256": "e9b7f63812b77cbf5cd90377beb5a09120c7bc4a17a1541e6e7968b6be2e96a1"
+  "sha256": "4cbb201d5e6d0f8f29bf7e9a83b210f90886e8c9df8bb1c6a7f87880cb9eb33e",
+  "moduleSha256": "4ee6b82804810026c21aa625969f5cd3ba3371341a04ebb9376042289ed3df19"
 }
